@@ -1,0 +1,11 @@
+nombre,documento,tipo_documento,direccion,telefono,email
+Juan Pérez García,12345678,dni,Av. Principal 123 - Lima,987654321,juan.perez@email.com
+María González López,87654321,dni,Jr. Los Rosales 456 - San Isidro,965874123,maria.gonzalez@email.com
+Carlos Mendoza Silva,45678912,dni,Calle Las Flores 789 - Miraflores,932147856,carlos.mendoza@email.com
+Empresa Constructora SAC,20123456789,ruc,Av. Javier Prado 1234 - San Borja,987123456,contacto@constructora.com
+Comercializadora Norte EIRL,20987654321,ruc,Jr. Comercio 567 - Cercado de Lima,987789123,ventas@comercializadora.pe
+Ana Rodríguez Torres,78912345,dni,Av. Universitaria 890 - Los Olivos,945678321,ana.rodriguez@email.com
+Tech Solutions S.A.C.,20456789123,ruc,Calle Innovación 321 - Surco,987456789,info@techsolutions.pe
+Pedro Castillo Vargas,32165498,dni,Jr. Independencia 654 - Breña,912345678,pedro.castillo@email.com
+Distribuidora Central LTDA,20654321987,ruc,Av. Central 987 - La Victoria,987321654,admin@distribuidora.com
+Lucía Fernández Castro,65432187,dni,Calle Los Cedros 147 - San Miguel,923456789,lucia.fernandez@email.com 
