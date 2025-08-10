@@ -1,0 +1,52 @@
+# Python / Django
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.log
+*.sqlite3
+*.pot
+.coverage
+htmlcov/
+.mypy_cache/
+.pytest_cache/
+.eggs/
+*.egg-info/
+
+# Envs
+venv/
+backend/venv/
+.env
+.env.*
+backend/.env
+
+# Django media/uploads/backups
+backend/media/
+backend/backup.sql
+backup.sql
+*.bak
+*.dump
+*.tar
+*.gz
+*.zip
+
+# Node / React
+node_modules/
+frontend/node_modules/
+frontend/.cache/
+frontend/.eslintcache
+frontend/build/
+frontend/dist/
+
+# OS / IDE
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Misc
+*.local
+*.tmp
+*.temp
+
