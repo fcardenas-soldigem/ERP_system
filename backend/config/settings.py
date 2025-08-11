@@ -21,10 +21,10 @@ SECRET_KEY = 'TU-SECRET-KEY'
 APIS_NET_PE_TOKEN = os.getenv('APIS_NET_PE_TOKEN', 'apis-token-17205.4tVCUw75nbVsoxg0haDOO3kRuM3EJxYg')
 
 # Modo de depuración
-DEBUG = True
+DEBUG = os.getenv('DJANGO_DEBUG', 'False').lower() == 'true'
 
 # Hosts permitidos
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = os.getenv('DJANGO_ALLOWED_HOSTS', '').split(',') if os.getenv('DJANGO_ALLOWED_HOSTS') else []
 
 # Aplicaciones instaladas
 INSTALLED_APPS = [
@@ -90,11 +90,11 @@ WSGI_APPLICATION = 'config.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'ERP_system',
-        'USER': 'fabriziocardenas',
-        'PASSWORD': 'rafa0102',
-        'HOST': 'localhost',
-        'PORT': '5432',
+        'NAME': os.getenv('DB_NAME', 'ERP_system'),
+        'USER': os.getenv('DB_USER', 'postgres'),
+        'PASSWORD': os.getenv('DB_PASSWORD', ''),
+        'HOST': os.getenv('DB_HOST', 'localhost'),
+        'PORT': os.getenv('DB_PORT', '5432'),
     }
 }
 
