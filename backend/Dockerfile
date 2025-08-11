@@ -13,11 +13,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential libpq-dev curl && \
     rm -rf /var/lib/apt/lists/*
 
-# Copy backend code
-COPY backend/requirements.txt /app/requirements.txt
+# Copy backend code requirements (cuando el contexto es backend/)
+COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt && pip install gunicorn
 
-COPY backend /app
+# Copiamos todo el código del backend
+COPY . /app
 
 # Default envs (override in runtime)
 ENV DJANGO_SETTINGS_MODULE=config.settings \
