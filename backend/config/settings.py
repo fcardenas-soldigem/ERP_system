@@ -14,7 +14,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(os.path.join(BASE_DIR, '.env'))
 
 # Clave secreta (asegúrate de mantenerla secreta en producción)
-SECRET_KEY = 'TU-SECRET-KEY'
+SECRET_KEY = 'Rafaella0102!$11'
 
 # === APIS.NET.PE CONFIGURATION ===
 # Token para consultas de DNI/RUC en APIs.net.pe
@@ -152,7 +152,7 @@ SIMPLE_JWT = {
     'BLACKLIST_AFTER_ROTATION': True,
     'UPDATE_LAST_LOGIN': False,
     'ALGORITHM': 'HS256',
-    'SIGNING_KEY': SECRET_KEY,
+    'SIGNING_KEY': 'Rafaella0102!$11',
     'VERIFYING_KEY': None,
     'AUTH_HEADER_TYPES': ('Bearer',),
     'USER_ID_FIELD': 'id',
