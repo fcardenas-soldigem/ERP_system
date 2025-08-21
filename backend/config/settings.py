@@ -26,6 +26,15 @@ DEBUG = os.getenv('DJANGO_DEBUG', 'False').lower() == 'true'
 # Hosts permitidos
 ALLOWED_HOSTS = os.getenv('DJANGO_ALLOWED_HOSTS', '').split(',') if os.getenv('DJANGO_ALLOWED_HOSTS') else []
 
+# Confianza para orígenes detrás de proxy (Cloud Run) y CSRF
+# Importante: incluye el dominio exacto del servicio y el comodín de run.app
+CSRF_TRUSTED_ORIGINS = [
+    'https://erp-backend-25656632090.southamerica-west1.run.app',
+    'https://*.run.app',
+]
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+USE_X_FORWARDED_HOST = True
+
 # Aplicaciones instaladas
 INSTALLED_APPS = [
     'django.contrib.admin',
