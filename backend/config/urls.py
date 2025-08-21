@@ -20,8 +20,8 @@ urlpatterns = [
     path('api/inventario/', include('apps.inventario.urls')),
     path('api/dashboard/', include('apps.dashboard.urls')),
 ]
-
-if settings.DEBUG:
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
-    urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
+# Servir estáticos y media siempre (Cloud Run). En producción estable, WhiteNoise
+# debería bastar, pero dejamos este mapping para asegurar el admin.
+urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
+urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 
