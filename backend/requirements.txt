@@ -12,3 +12,4 @@ python-dotenv==1.0.0
 openai>=1.0.0
 python-jose==3.3.0
 django-filter==23.3
+whitenoise==6.6.0

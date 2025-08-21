@@ -25,8 +25,9 @@ ENV DJANGO_SETTINGS_MODULE=config.settings \
     DJANGO_ALLOWED_HOSTS=* \
     DJANGO_DEBUG=False
 
-# Collect static (noop if not configured)
-RUN mkdir -p /app/static
+# Collect static
+RUN mkdir -p /app/static && \
+    python -c "import os; os.environ.setdefault('DJANGO_SETTINGS_MODULE','config.settings'); import django; django.setup(); from django.core.management import call_command; call_command('collectstatic', '--noinput')" || true
 
 # Expose app port
 EXPOSE 8080
