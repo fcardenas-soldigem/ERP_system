@@ -136,6 +136,10 @@ STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'static')
 # WhiteNoise: servir estáticos comprimidos en producción
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+# Habilita búsqueda directa con finders (útil en contenedores si collectstatic no
+# ha copiado los assets). En producción estable y con CI/CD, desactívalo y usa
+# solo los archivos recolectados.
+WHITENOISE_USE_FINDERS = True
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
