@@ -135,10 +135,9 @@ USE_TZ = True
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'static')
 # WhiteNoise: servir estáticos comprimidos en producción
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
-# Habilita búsqueda directa con finders (útil en contenedores si collectstatic no
-# ha copiado los assets). En producción estable y con CI/CD, desactívalo y usa
-# solo los archivos recolectados.
+# Para desbloquear los estáticos del admin en Cloud Run, usa almacenamiento
+# estándar (no-manifest) y finders de WhiteNoise.
+STATICFILES_STORAGE = 'django.contrib.staticfiles.storage.StaticFilesStorage'
 WHITENOISE_USE_FINDERS = True
 
 MEDIA_URL = '/media/'
