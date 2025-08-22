@@ -32,5 +32,5 @@ RUN mkdir -p /app/static && \
 # Expose app port
 EXPOSE 8080
 
-# Start with gunicorn
-CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8080", "--workers", "3", "--timeout", "120"]
+# Start: ensure staticfiles exist at runtime, then run gunicorn
+CMD ["sh", "-c", "python manage.py collectstatic --noinput && gunicorn config.wsgi:application --bind 0.0.0.0:8080 --workers 3 --timeout 120"]
