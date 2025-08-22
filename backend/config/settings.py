@@ -134,6 +134,10 @@ USE_TZ = True
 # Archivos estáticos
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'static')
+# Asegurar que Django encuentre los assets del admin y de apps
+STATICFILES_DIRS = [
+    BASE_DIR / 'staticfiles',
+]
 # WhiteNoise: servir estáticos comprimidos en producción
 # Para desbloquear los estáticos del admin en Cloud Run, usa almacenamiento
 # estándar (no-manifest) y finders de WhiteNoise.
