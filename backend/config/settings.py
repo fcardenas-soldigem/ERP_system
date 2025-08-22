@@ -5,6 +5,7 @@ Configuración principal de Django para tu proyecto ERP_system.
 import os
 from pathlib import Path
 from datetime import timedelta
+import django
 from dotenv import load_dotenv
 
 # BASE_DIR apunta a la carpeta "backend"
@@ -135,9 +136,8 @@ USE_TZ = True
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'static')
 # Asegurar que Django encuentre los assets del admin y de apps
-STATICFILES_DIRS = [
-    BASE_DIR / 'staticfiles',
-]
+ADMIN_STATIC_DIR = (Path(django.__file__).resolve().parent / 'contrib' / 'admin' / 'static')
+STATICFILES_DIRS = [BASE_DIR / 'staticfiles', ADMIN_STATIC_DIR]
 # WhiteNoise: servir estáticos comprimidos en producción
 # Para desbloquear los estáticos del admin en Cloud Run, usa almacenamiento
 # estándar (no-manifest) y finders de WhiteNoise.
