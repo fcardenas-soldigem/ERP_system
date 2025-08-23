@@ -25,12 +25,11 @@ ENV DJANGO_SETTINGS_MODULE=config.settings \
     DJANGO_ALLOWED_HOSTS=* \
     DJANGO_DEBUG=False
 
-# Collect static (fail if no estáticos)
-RUN mkdir -p /app/static && \
-    python manage.py collectstatic --noinput
+# Collect static (empaqueta a /app/staticfiles con manifest)
+RUN python manage.py collectstatic --noinput
 
 # Expose app port
 EXPOSE 8080
 
-# Start: ensure staticfiles exist at runtime, then run gunicorn
-CMD ["sh", "-c", "python manage.py collectstatic --noinput && gunicorn config.wsgi:application --bind 0.0.0.0:8080 --workers 3 --timeout 120"]
+# Start: gunicorn (los estáticos ya fueron colectados en build)
+CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8080", "--workers", "3", "--timeout", "120"]

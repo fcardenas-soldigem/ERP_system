@@ -134,15 +134,9 @@ USE_TZ = True
 
 # Archivos estáticos
 STATIC_URL = '/static/'
-STATIC_ROOT = os.path.join(BASE_DIR, 'static')
-# Asegurar que Django encuentre los assets del admin y de apps
-ADMIN_STATIC_DIR = (Path(django.__file__).resolve().parent / 'contrib' / 'admin' / 'static')
-STATICFILES_DIRS = [BASE_DIR / 'staticfiles', ADMIN_STATIC_DIR]
-# WhiteNoise: servir estáticos comprimidos en producción
-# Para desbloquear los estáticos del admin en Cloud Run, usa almacenamiento
-# estándar (no-manifest) y finders de WhiteNoise.
-STATICFILES_STORAGE = 'django.contrib.staticfiles.storage.StaticFilesStorage'
-WHITENOISE_USE_FINDERS = True
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+# WhiteNoise: servir estáticos comprimidos con manifest (incluye admin)
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
