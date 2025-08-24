@@ -9,6 +9,9 @@ from django.db.models import Sum, F, Q
 from django.utils import timezone
 from django.core.exceptions import ValidationError, PermissionDenied
 from django.db import models
+from django.db.models.functions import Coalesce
+from django.db.models.functions import Coalesce
+
 
 class DetalleVentaInlineFormSet(forms.models.BaseInlineFormSet):
     def clean(self):
@@ -293,7 +296,7 @@ class PagoVentaAdmin(admin.ModelAdmin):
             ).exclude(
                 estado='anulado'
             ).annotate(
-                saldo_pendiente=models.F('total') - models.Coalesce(
+                saldo_pendiente=models.F('total') - Coalesce(
                     models.Sum('pagos__monto'),
                     0
                 )
