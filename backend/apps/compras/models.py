@@ -201,7 +201,8 @@ class Compra(models.Model):
             
             total_pagado_convertido += monto_pago
         
-        return self.total - total_pagado_convertido
+        # Asegurar que ambos operandos sean Decimal
+        return (self.total or Decimal('0')) - total_pagado_convertido
 
     def clean(self):
         if not self.empresa_id:
