@@ -172,37 +172,41 @@ class Compra(models.Model):
     def get_saldo_pendiente(self):
         """
         Calcula el saldo pendiente considerando conversiones de moneda
+        Resiliente a cualquier error: ante excepción, retorna 0.
         """
-        from apps.core.services.documento_service import DocumentoService
-        
-        # Obtener tipo de cambio
         try:
-            doc_service = DocumentoService()
-            tipo_cambio_data = doc_service.obtener_tipo_cambio_venta()
-            tipo_cambio = float(tipo_cambio_data.get('venta', 3.8)) if tipo_cambio_data else 3.8
-        except:
-            tipo_cambio = 3.8
-        
-        # Calcular total pagado considerando conversiones
-        total_pagado_convertido = Decimal('0')
-        pagos_reales = self.pagos.exclude(metodo_pago='pendiente')
-        
-        for pago in pagos_reales:
-            monto_pago = pago.monto
+            from apps.core.services.documento_service import DocumentoService
             
-            # Convertir a la moneda de la compra si es necesario
-            if hasattr(pago, 'moneda') and pago.moneda != self.moneda:
-                if self.moneda == 'USD' and pago.moneda == 'PEN':
-                    # Convertir PEN a USD
-                    monto_pago = monto_pago / Decimal(str(tipo_cambio))
-                elif self.moneda == 'PEN' and pago.moneda == 'USD':
-                    # Convertir USD a PEN
-                    monto_pago = monto_pago * Decimal(str(tipo_cambio))
+            # Obtener tipo de cambio
+            try:
+                doc_service = DocumentoService()
+                tipo_cambio_data = doc_service.obtener_tipo_cambio_venta()
+                tipo_cambio = float(tipo_cambio_data.get('venta', 3.8)) if tipo_cambio_data else 3.8
+            except Exception:
+                tipo_cambio = 3.8
             
-            total_pagado_convertido += monto_pago
-        
-        # Asegurar que ambos operandos sean Decimal
-        return (self.total or Decimal('0')) - total_pagado_convertido
+            # Calcular total pagado considerando conversiones
+            total_pagado_convertido = Decimal('0')
+            pagos_reales = self.pagos.exclude(metodo_pago='pendiente')
+            
+            for pago in pagos_reales:
+                monto_pago = Decimal(pago.monto or 0)
+                
+                # Convertir a la moneda de la compra si es necesario
+                if hasattr(pago, 'moneda') and pago.moneda != self.moneda:
+                    if self.moneda == 'USD' and pago.moneda == 'PEN':
+                        # Convertir PEN a USD
+                        monto_pago = monto_pago / Decimal(str(tipo_cambio))
+                    elif self.moneda == 'PEN' and pago.moneda == 'USD':
+                        # Convertir USD a PEN
+                        monto_pago = monto_pago * Decimal(str(tipo_cambio))
+                
+                total_pagado_convertido += monto_pago
+            
+            # Asegurar que ambos operandos sean Decimal
+            return (Decimal(self.total or 0)) - total_pagado_convertido
+        except Exception:
+            return Decimal('0')
 
     def clean(self):
         if not self.empresa_id:
