@@ -3,7 +3,6 @@ import ReactDOM from 'react-dom/client';
 import './index.css';
 import App from './App.jsx';
 import { AuthProvider } from './components/context/AuthContext.jsx';
-import reportWebVitals from './reportWebVitals.js';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ChakraProvider } from '@chakra-ui/react';
 import lockdownOptions from './lockdown-config';
@@ -43,4 +42,4 @@ root.render(
   </React.StrictMode>
 );
 
-reportWebVitals();
+// reportWebVitals is optional in production; removing call to simplify build
