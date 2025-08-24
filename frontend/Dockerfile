@@ -1,9 +1,9 @@
 # syntax=docker/dockerfile:1
 FROM node:18-alpine AS build
 WORKDIR /app
-COPY frontend/package*.json ./
+COPY package*.json ./
 RUN npm ci
-COPY frontend /app
+COPY . /app
 RUN npm run build
 
 FROM nginx:1.25-alpine AS runtime
