@@ -25,12 +25,7 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
-    sourcemap: true,
-    rollupOptions: {
-      input: {
-        main: path.resolve(__dirname, 'src/index.jsx')
-      }
-    }
+    sourcemap: true
   },
   preview: {
     port: 8080
