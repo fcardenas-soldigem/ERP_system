@@ -195,13 +195,15 @@ class DocumentoService:
         data = service.get_company(ruc)
         
         if data:
-            # Formatear respuesta exitosa
+            # Formatear respuesta exitosa (compatibilidad v1/v2)
+            razon_social = data.get("razonSocial") or data.get("nombre") or ""
+            nombre_comercial = data.get("nombreComercial", "")
             result = {
                 "success": True,
                 "data": {
                     "ruc": data.get("numeroDocumento", ruc),
-                    "razon_social": data.get("razonSocial", ""),
-                    "nombre_comercial": data.get("nombreComercial", ""),
+                    "razon_social": razon_social,
+                    "nombre_comercial": nombre_comercial,
                     "estado": data.get("estado", ""),
                     "condicion": data.get("condicion", ""),
                     "direccion": data.get("direccion", ""),
