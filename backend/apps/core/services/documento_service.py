@@ -61,7 +61,8 @@ class DocumentoService:
         Returns:
             dict: Datos de la persona o None si hay error
         """
-        return self._get("/v2/reniec/dni", {"numero": dni})
+        # Usar endpoint v1 (compatible con el token/plan actual)
+        return self._get("/v1/dni", {"numero": dni})
 
     def get_company(self, ruc: str) -> Optional[dict]:
         """
@@ -73,7 +74,8 @@ class DocumentoService:
         Returns:
             dict: Datos de la empresa o None si hay error
         """
-        return self._get("/v2/sunat/ruc", {"numero": ruc})
+        # Usar endpoint v1 (compatible con el token/plan actual)
+        return self._get("/v1/ruc", {"numero": ruc})
 
     def get_exchange_rate(self, date: str) -> Optional[dict]:
         """
