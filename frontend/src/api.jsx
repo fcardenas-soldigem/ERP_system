@@ -3,7 +3,7 @@ import { toast } from 'react-toastify';
 
 // Crear instancia de axios con configuración base
 export const api = axios.create({
-    baseURL: 'http://localhost:8000',
+    baseURL: import.meta.env.VITE_API_URL || '',
 });
 
 // Interceptor para agregar el token a las peticiones
@@ -50,7 +50,7 @@ api.interceptors.response.use(
                 const refresh_token = localStorage.getItem('refresh_token');
                 if (refresh_token) {
                     try {
-                        const response = await axios.post('http://localhost:8000/api/token/refresh/', {
+                        const response = await api.post('/api/token/refresh/', {
                             refresh: refresh_token
                         });
                         
