@@ -14,18 +14,31 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Cargar variables de entorno desde .env
 load_dotenv(os.path.join(BASE_DIR, '.env'))
 
-# Clave secreta (asegúrate de mantenerla secreta en producción)
-SECRET_KEY = 'Rafaella0102!$11'
+# === SECURITY: SECRET KEYS ===
+# CRITICAL: Must be set via environment variables in production
+SECRET_KEY = os.getenv('DJANGO_SECRET_KEY')
+if not SECRET_KEY:
+    raise ValueError("DJANGO_SECRET_KEY environment variable must be set")
+
+# JWT Signing Key (separate from Django SECRET_KEY for better security)
+JWT_SIGNING_KEY = os.getenv('JWT_SIGNING_KEY')
+if not JWT_SIGNING_KEY:
+    raise ValueError("JWT_SIGNING_KEY environment variable must be set")
 
 # === APIS.NET.PE CONFIGURATION ===
 # Token para consultas de DNI/RUC en APIs.net.pe
-APIS_NET_PE_TOKEN = os.getenv('APIS_NET_PE_TOKEN', 'apis-token-17205.4tVCUw75nbVsoxg0haDOO3kRuM3EJxYg')
+APIS_NET_PE_TOKEN = os.getenv('APIS_NET_PE_TOKEN')
+if not APIS_NET_PE_TOKEN:
+    raise ValueError("APIS_NET_PE_TOKEN environment variable must be set")
 
 # Modo de depuración
 DEBUG = os.getenv('DJANGO_DEBUG', 'False').lower() == 'true'
 
-# Hosts permitidos
+# Hosts permitidos - NUNCA usar '*' en producción
 ALLOWED_HOSTS = os.getenv('DJANGO_ALLOWED_HOSTS', '').split(',') if os.getenv('DJANGO_ALLOWED_HOSTS') else []
+if not ALLOWED_HOSTS or '*' in ALLOWED_HOSTS:
+    if not DEBUG:
+        raise ValueError("DJANGO_ALLOWED_HOSTS must be explicitly set in production (not '*')")
 
 # Confianza para orígenes detrás de proxy (Cloud Run) y CSRF
 # Importante: incluye el dominio exacto del servicio y el comodín de run.app
@@ -35,6 +48,29 @@ CSRF_TRUSTED_ORIGINS = [
 ]
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 USE_X_FORWARDED_HOST = True
+
+# === SECURITY HEADERS Y COOKIES ===
+# Forzar HTTPS en producción (solo cuando no estés detrás de un proxy que ya lo hace)
+# SECURE_SSL_REDIRECT = not DEBUG  # Descomenta si quieres forzar redirect en Django
+
+# Cookies seguras (solo HTTPS)
+SESSION_COOKIE_SECURE = not DEBUG  # True en producción
+CSRF_COOKIE_SECURE = not DEBUG     # True en producción
+SESSION_COOKIE_HTTPONLY = True     # Previene acceso desde JavaScript
+CSRF_COOKIE_HTTPONLY = True        # Previene acceso desde JavaScript
+SESSION_COOKIE_SAMESITE = 'Lax'    # Protección CSRF adicional
+CSRF_COOKIE_SAMESITE = 'Lax'
+
+# HSTS (HTTP Strict Transport Security) - fuerza HTTPS en el navegador
+SECURE_HSTS_SECONDS = 31536000 if not DEBUG else 0  # 1 año en producción
+SECURE_HSTS_INCLUDE_SUBDOMAINS = not DEBUG
+SECURE_HSTS_PRELOAD = not DEBUG
+
+# Content Security y otras protecciones
+SECURE_CONTENT_TYPE_NOSNIFF = True    # Previene MIME-type sniffing
+X_FRAME_OPTIONS = 'DENY'              # Previene clickjacking
+SECURE_BROWSER_XSS_FILTER = True      # XSS filter (legacy pero útil)
+SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'
 
 # Aplicaciones instaladas
 INSTALLED_APPS = [
@@ -159,13 +195,13 @@ REST_FRAMEWORK = {
 
 # Configuraciones de Simple JWT
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(days=1),
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=15),  # Reducido de 1 día a 15 minutos por seguridad
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
     'UPDATE_LAST_LOGIN': False,
     'ALGORITHM': 'HS256',
-    'SIGNING_KEY': 'Rafaella0102!$11',
+    'SIGNING_KEY': JWT_SIGNING_KEY,  # Usa variable de entorno separada
     'VERIFYING_KEY': None,
     'AUTH_HEADER_TYPES': ('Bearer',),
     'USER_ID_FIELD': 'id',
@@ -174,8 +210,12 @@ SIMPLE_JWT = {
     'TOKEN_TYPE_CLAIM': 'token_type',
 }
 
-# Configuraciones de CORS
-CORS_ALLOW_ALL_ORIGINS = True
+# Configuraciones de CORS - Restringidas por seguridad
+# NUNCA usar CORS_ALLOW_ALL_ORIGINS en producción
+CORS_ALLOWED_ORIGINS = os.getenv('CORS_ALLOWED_ORIGINS', '').split(',') if os.getenv('CORS_ALLOWED_ORIGINS') else []
+if not CORS_ALLOWED_ORIGINS and not DEBUG:
+    raise ValueError("CORS_ALLOWED_ORIGINS must be explicitly set in production")
+
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_METHODS = [
     'DELETE',

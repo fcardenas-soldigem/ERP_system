@@ -50,3 +50,4 @@ frontend/dist/
 *.tmp
 *.temp
 
+.venv/

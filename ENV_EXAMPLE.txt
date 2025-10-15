@@ -1,0 +1,58 @@
+# ============================================
+# ARCHIVO DE EJEMPLO DE VARIABLES DE ENTORNO
+# ============================================
+# Copia este contenido a un archivo llamado .env en la raíz del proyecto
+# y también en backend/.env con tus valores reales
+# NUNCA commitees el archivo .env al repositorio
+
+# === SEGURIDAD CRÍTICA ===
+# Genera claves seguras con: python -c "import secrets; print(secrets.token_urlsafe(50))"
+DJANGO_SECRET_KEY=tu-clave-secreta-super-segura-aqui-50-caracteres-minimo
+JWT_SIGNING_KEY=otra-clave-diferente-para-jwt-tokens-50-caracteres-minimo
+
+# === BASE DE DATOS ===
+DB_NAME=ERP_system
+DB_USER=postgres
+DB_PASSWORD=tu-password-seguro-de-postgres
+DB_HOST=localhost
+DB_PORT=5432
+
+# === DJANGO SETTINGS ===
+DJANGO_DEBUG=False
+# En producción: usa tus dominios reales separados por comas
+DJANGO_ALLOWED_HOSTS=tu-dominio.com,www.tu-dominio.com
+
+# === CORS (Frontend) ===
+# En producción: lista solo los dominios del frontend separados por comas
+CORS_ALLOWED_ORIGINS=https://tu-frontend.com,https://www.tu-frontend.com
+
+# === APIS EXTERNAS ===
+# Token para consultas de DNI/RUC en APIs.net.pe
+APIS_NET_PE_TOKEN=tu-token-de-apis-net-pe
+
+# === OPENAI (Asistente IA) ===
+OPENAI_API_KEY=tu-clave-de-openai
+OPENAI_ASSISTANT_ID=asst_tu_id_de_asistente
+OPENAI_MODEL=gpt-4
+
+# === CLAUDE API (Analista Comercial) ===
+CLAUDE_API_KEY=tu-clave-de-anthropic-claude
+
+# ============================================
+# INSTRUCCIONES DE SEGURIDAD:
+# ============================================
+# 1. Genera claves criptográficamente seguras (no uses palabras o patrones)
+# 2. Usa claves diferentes para DJANGO_SECRET_KEY y JWT_SIGNING_KEY
+# 3. En producción, usa el Secret Manager de tu proveedor cloud (no .env)
+# 4. Rota las claves periódicamente (cada 3-6 meses mínimo)
+# 5. Nunca compartas estas claves por email, chat, o repositorios
+# 6. Asegúrate de que .env esté en .gitignore
+
+# ============================================
+# GENERACIÓN DE CLAVES SEGURAS:
+# ============================================
+# Ejecuta estos comandos en Python para generar claves seguras:
+# 
+# python -c "import secrets; print('DJANGO_SECRET_KEY=' + secrets.token_urlsafe(50))"
+# python -c "import secrets; print('JWT_SIGNING_KEY=' + secrets.token_urlsafe(50))"
+
