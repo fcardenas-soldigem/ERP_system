@@ -10,7 +10,6 @@ from django.utils import timezone
 from django.core.exceptions import ValidationError, PermissionDenied
 from django.db import models
 from django.db.models.functions import Coalesce
-from django.db.models.functions import Coalesce
 
 
 class DetalleVentaInlineFormSet(forms.models.BaseInlineFormSet):

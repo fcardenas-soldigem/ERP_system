@@ -133,8 +133,9 @@ class Venta(models.Model):
         # Solo considerar pagos que no estén en estado pendiente
         pagado = self.pagos.exclude(metodo_pago='pendiente').aggregate(
             total=models.Sum('monto')
-        )['total'] or 0
-        return self.total - pagado
+        )['total'] or Decimal('0')
+        # Asegurar tipos Decimal en la resta
+        return (self.total or Decimal('0')) - pagado
 
     def get_simbolo_moneda(self):
         simbolos = {
