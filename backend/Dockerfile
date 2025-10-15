@@ -13,20 +13,30 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential libpq-dev curl && \
     rm -rf /var/lib/apt/lists/*
 
-# Copy backend code requirements (cuando el contexto es backend/)
-COPY requirements.txt /app/requirements.txt
+# Copy backend code requirements (cuando el contexto es la raíz)
+COPY backend/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt && pip install gunicorn
 
 # Copiamos todo el código del backend
-COPY . /app
+COPY backend/ /app
 
 # Default envs (override in runtime)
 ENV DJANGO_SETTINGS_MODULE=config.settings \
-    DJANGO_ALLOWED_HOSTS=* \
+    DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1 \
     DJANGO_DEBUG=False
 
 # Collect static (empaqueta a /app/staticfiles con manifest)
 RUN python manage.py collectstatic --noinput
+
+# === SECURITY: Run as non-root user ===
+# Crear usuario sin privilegios
+RUN groupadd -r appuser && useradd -r -g appuser -u 1000 appuser
+
+# Dar permisos al usuario sobre los archivos necesarios
+RUN chown -R appuser:appuser /app
+
+# Cambiar a usuario no-root
+USER appuser
 
 # Expose app port
 EXPOSE 8080

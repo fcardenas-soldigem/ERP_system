@@ -15,15 +15,15 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+    env_file:
+      - .env
     environment:
       DJANGO_DEBUG: "true"
-      DJANGO_ALLOWED_HOSTS: "*"
+      DB_HOST: db
+      DB_PORT: "5432"
       DB_NAME: ${DB_NAME:-erp}
       DB_USER: ${DB_USER:-postgres}
       DB_PASSWORD: ${DB_PASSWORD:-postgres}
-      DB_HOST: db
-      DB_PORT: "5432"
-      APIS_NET_PE_TOKEN: ${APIS_NET_PE_TOKEN:-changeme}
     depends_on:
       - db
     ports:
