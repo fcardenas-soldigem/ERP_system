@@ -76,7 +76,7 @@ const VentaPagos = () => {
                         <Button
                             leftIcon={<AddIcon />}
                             colorScheme="blue"
-                            onClick={() => navigate(`/ventas/${id}/pagos/nuevo`)}
+                            onClick={() => navigate(`/app/ventas/${id}/pagos/nuevo`)}
                         >
                             Nuevo Pago
                         </Button>

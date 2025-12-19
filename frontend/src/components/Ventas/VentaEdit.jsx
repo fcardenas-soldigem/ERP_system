@@ -71,7 +71,7 @@ const VentaEdit = () => {
         status: 'success',
         duration: 2000,
       });
-      navigate('/ventas');
+      navigate('/app/ventas');
     } catch (error) {
       toast({
         title: 'Error',
@@ -115,7 +115,7 @@ const VentaEdit = () => {
             <Button colorScheme="blue" onClick={handleSave} isLoading={isSaving}>
               Guardar Cambios
             </Button>
-            <Button variant="ghost" onClick={() => navigate('/ventas')}>Cancelar</Button>
+            <Button variant="ghost" onClick={() => navigate('/app/ventas')}>Cancelar</Button>
           </VStack>
         </CardBody>
       </Card>

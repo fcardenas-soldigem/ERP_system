@@ -96,7 +96,7 @@ const VentaDetalle = () => {
               </Tbody>
             </Table>
             <Flex justify="flex-end">
-              <Button onClick={() => navigate('/ventas')}>Volver</Button>
+              <Button onClick={() => navigate('/app/ventas')}>Volver</Button>
             </Flex>
           </VStack>
         </CardBody>

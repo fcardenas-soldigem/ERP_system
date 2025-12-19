@@ -53,7 +53,7 @@ export const AuthProvider = ({ children }) => {
             });
 
             // Redirigir al dashboard después de un login exitoso
-            navigate('/dashboard');
+            navigate('/app/dashboard');
             return true;
         } catch (error) {
             console.error('Error de login:', error);

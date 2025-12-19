@@ -39,7 +39,8 @@ const Navbar = () => {
     { text: 'Dashboard', path: '/dashboard' },
     { text: 'Ventas', path: '/ventas' },
     { text: 'Compras', path: '/compras' },
-    { text: 'Inventario', path: '/inventario' }
+    { text: 'Inventario', path: '/inventario' },
+    { text: 'Machine Learning', path: '/ml-dashboard' }
   ];
 
   const NavDrawer = () => (

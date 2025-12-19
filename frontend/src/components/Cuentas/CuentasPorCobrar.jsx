@@ -210,13 +210,13 @@ const CuentasPorCobrar = () => {
                           <IconButton
                             size="sm"
                             icon={<ViewIcon />}
-                            onClick={() => navigate(`/ventas/${venta.id}`)}
+                            onClick={() => navigate(`/app/ventas/${venta.id}`)}
                           />
                         </Tooltip>
                         <Button
                           size="sm"
                           colorScheme="green"
-                          onClick={() => navigate(`/cuentas/por-cobrar/${venta.id}/registrar-pago`)}
+                          onClick={() => navigate(`/app/cuentas/por-cobrar/${venta.id}/registrar-pago`)}
                           isDisabled={parseFloat(venta.saldo_pendiente || 0) <= 0}
                         >
                           Registrar Pago

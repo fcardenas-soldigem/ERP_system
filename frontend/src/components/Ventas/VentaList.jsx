@@ -131,9 +131,9 @@ const VentaList = () => {
       
       // Si es una venta a crédito, redirigir al módulo de pagos
       if (data.esCredito) {
-        navigate(`/ventas/${data.id}/pagos`);
+        navigate(`/app/ventas/${data.id}/pagos`);
       } else {
-        navigate('/ventas');
+        navigate('/app/ventas');
       }
     },
     onError: (error) => {
@@ -239,7 +239,7 @@ const VentaList = () => {
   const handleRegistrarPago = (venta) => {
     if (venta.metodo_pago === 'credito') {
         // Si es venta a crédito, redirigir a cuentas por cobrar
-        navigate('/cuentas/por-cobrar');
+        navigate('/app/cuentas/por-cobrar');
         toast({
             title: 'Venta a Crédito',
             description: 'Los pagos de ventas a crédito deben realizarse desde el módulo de Cuentas por Cobrar',
@@ -250,7 +250,7 @@ const VentaList = () => {
         return;
     }
     // Si no es a crédito, proceder normalmente
-    navigate(`/ventas/${venta.id}/pagos/nuevo`);
+    navigate(`/app/ventas/${venta.id}/pagos/nuevo`);
   };
 
   if (isLoading) {
@@ -267,7 +267,7 @@ const VentaList = () => {
         <Button
           leftIcon={<AddIcon />}
           colorScheme="blue"
-          onClick={() => navigate('/ventas/nueva')}
+          onClick={() => navigate('/app/ventas/nueva')}
         >
           Nueva Venta
         </Button>
@@ -318,10 +318,10 @@ const VentaList = () => {
                     size="sm"
                   />
                   <MenuList>
-                    <MenuItem icon={<ViewIcon />} onClick={() => navigate(`/ventas/${venta.id}`)}>
+                    <MenuItem icon={<ViewIcon />} onClick={() => navigate(`/app/ventas/${venta.id}`)}>
                       Ver Detalles
                     </MenuItem>
-                    <MenuItem icon={<EditIcon />} onClick={() => navigate(`/ventas/${venta.id}/editar`)}>
+                    <MenuItem icon={<EditIcon />} onClick={() => navigate(`/app/ventas/${venta.id}/editar`)}>
                       Editar
                     </MenuItem>
                     {venta.tipo_venta !== 'contado' && venta.estado !== 'pagado' && (

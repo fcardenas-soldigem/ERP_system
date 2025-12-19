@@ -129,7 +129,7 @@ const ProveedorForm = () => {
         duration: 3000,
         isClosable: true,
       });
-      navigate('/proveedores');
+      navigate('/app/proveedores');
     },
     onError: (error) => {
       toast({
@@ -272,7 +272,7 @@ const ProveedorForm = () => {
                 </FormControl>
 
                 <HStack justify="flex-end" spacing={4} pt={4} width="100%">
-                  <Button variant="ghost" onClick={() => navigate('/proveedores')}>
+                  <Button variant="ghost" onClick={() => navigate('/app/proveedores')}>
                     Cancelar
                   </Button>
                   <Button

@@ -254,7 +254,7 @@ const AddProducto = () => {
         status: 'success',
         duration: 3000,
       });
-      navigate('/inventario');
+      navigate('/app/inventario');
     },
     onError: (error) => {
       console.error('Error en mutación:', error);

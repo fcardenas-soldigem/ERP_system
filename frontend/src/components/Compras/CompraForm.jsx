@@ -122,7 +122,7 @@ const CompraForm = () => {
         status: 'success',
         duration: 2000
       });
-      navigate('/compras');
+      navigate('/app/compras');
     },
     onError: (error) => {
       toast({
@@ -344,7 +344,7 @@ const CompraForm = () => {
         duration: 2000
       });
       
-      navigate('/compras');
+      navigate('/app/compras');
     } catch (error) {
       console.error('Error al crear la compra:', error);
       toast({
@@ -623,7 +623,7 @@ const CompraForm = () => {
                 </Box>
 
                 <HStack justify="flex-end" spacing={4} pt={4}>
-                  <Button onClick={() => navigate('/compras')}>Cancelar</Button>
+                  <Button onClick={() => navigate('/app/compras')}>Cancelar</Button>
                   <Button
                     type="submit"
                     colorScheme="blue"

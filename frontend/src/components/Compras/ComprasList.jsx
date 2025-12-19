@@ -196,7 +196,7 @@ const ComprasList = () => {
                     <Button
                         leftIcon={<AddIcon />}
                         colorScheme="blue"
-                        onClick={() => navigate('/compras/nueva')}
+                        onClick={() => navigate('/app/compras/nueva')}
                     >
                         Nueva Compra
                     </Button>
@@ -285,13 +285,13 @@ const ComprasList = () => {
                                             <MenuList>
                                                 <MenuItem 
                                                     icon={<ViewIcon />} 
-                                                    onClick={() => navigate(`/compras/${compra.id}`)}
+                                                    onClick={() => navigate(`/app/compras/${compra.id}`)}
                                                 >
                                                     Ver Detalles
                                                 </MenuItem>
                                                 <MenuItem 
                                                     icon={<EditIcon />} 
-                                                    onClick={() => navigate(`/compras/${compra.id}/editar`)}
+                                                    onClick={() => navigate(`/app/compras/${compra.id}/editar`)}
                                                 >
                                                     Editar
                                                 </MenuItem>

@@ -2,9 +2,9 @@ import React from 'react';
 import { Outlet, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import Navbar from '../Navbar/Navbar';
-import Sidebar from './Sidebar';
+import AnimatedSidebar from './AnimatedSidebar';
 import { Box, Flex, Spinner, Center } from '@chakra-ui/react';
-import { FaShoppingCart, FaRobot, FaBox, FaUsers, FaCog, FaChartBar, FaMoneyBillWave } from 'react-icons/fa';
+import { FaShoppingCart, FaRobot, FaBox, FaUsers, FaCog, FaChartBar, FaMoneyBillWave, FaBrain, FaFileInvoice, FaIndustry } from 'react-icons/fa';
 
 const Layout = () => {
   const { isAuthenticated, isLoading } = useAuth();
@@ -14,17 +14,22 @@ const Layout = () => {
     {
       name: 'Dashboard',
       icon: FaChartBar,
-      path: '/dashboard'
+      path: '/app/dashboard'
     },
     {
       name: 'Ventas',
       icon: FaShoppingCart,
-      path: '/ventas'
+      path: '/app/ventas'
+    },
+    {
+      name: 'Cotizaciones',
+      icon: FaFileInvoice,
+      path: '/app/cotizaciones'
     },
     {
       name: 'Compras',
       icon: FaBox,
-      path: '/compras'
+      path: '/app/compras'
     },
     {
       name: 'Cuentas',
@@ -32,38 +37,61 @@ const Layout = () => {
       subItems: [
         {
           name: 'Cuentas por Cobrar',
-          path: '/cuentas/por-cobrar'
+          path: '/app/cuentas/por-cobrar'
         },
         {
           name: 'Cuentas por Pagar',
-          path: '/cuentas/por-pagar'
+          path: '/app/cuentas/por-pagar'
         }
       ]
     },
     {
       name: 'Inventario',
       icon: FaBox,
-      path: '/inventario'
+      path: '/app/inventario'
+    },
+    {
+      name: 'Producción',
+      icon: FaIndustry,
+      subItems: [
+        {
+          name: 'Dashboard',
+          path: '/produccion/dashboard'
+        },
+        {
+          name: 'Recetas (BOM)',
+          path: '/produccion/recetas'
+        },
+        {
+          name: 'Órdenes de Producción',
+          path: '/produccion/ordenes'
+        }
+      ]
     },
     {
       name: 'Proveedores',
       icon: FaUsers,
-      path: '/proveedores'
+      path: '/app/proveedores'
     },
     {
       name: 'Clientes',
       icon: FaUsers,
-      path: '/clientes'
+      path: '/app/clientes'
     },
     {
       name: 'Asistente Virtual',
       icon: FaRobot,
-      path: '/ai-assistant'
+      path: '/app/ai-assistant'
+    },
+    {
+      name: 'Machine Learning',
+      icon: FaBrain,
+      path: '/app/ml-dashboard'
     },
     {
       name: 'Configuración',
       icon: FaCog,
-      path: '/configuracion'
+      path: '/app/configuracion'
     }
   ];
 
@@ -80,15 +108,15 @@ const Layout = () => {
   }
 
   return (
-    <Box minH="100vh">
-      <Navbar />
-      <Flex>
-        <Sidebar menuItems={menuItems} />
-        <Box flex="1" p={4}>
+    <Flex minH="100vh" bg="gray.50" _dark={{ bg: "gray.900" }}>
+      <AnimatedSidebar menuItems={menuItems} />
+      <Box flex="1" overflow="auto">
+        <Navbar />
+        <Box p={6}>
           <Outlet />
         </Box>
-      </Flex>
-    </Box>
+      </Box>
+    </Flex>
   );
 };
 

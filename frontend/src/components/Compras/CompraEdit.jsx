@@ -98,7 +98,7 @@ const CompraEdit = () => {
         status: 'success',
         duration: 2000,
       });
-      navigate('/compras');
+      navigate('/app/compras');
     } catch (error) {
       console.error('Error al actualizar la compra:', error);
       toast({
@@ -149,7 +149,7 @@ const CompraEdit = () => {
     return (
       <Box p={4}>
         <Text>No se encontró la compra solicitada.</Text>
-        <Button mt={4} onClick={() => navigate('/compras')}>
+        <Button mt={4} onClick={() => navigate('/app/compras')}>
           Volver a Compras
         </Button>
       </Box>
@@ -221,7 +221,7 @@ const CompraEdit = () => {
             )}
 
             <HStack justify="flex-end" spacing={4} pt={4}>
-              <Button onClick={() => navigate('/compras')}>
+              <Button onClick={() => navigate('/app/compras')}>
                 Cancelar
               </Button>
               <Button

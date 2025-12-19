@@ -69,7 +69,7 @@ const EmpresaForm = ({ isOpen, onClose }) => {
       toast.success('Empresa creada exitosamente');
       await checkAuth();
       onClose();
-      navigate('/dashboard');
+      navigate('/app/dashboard');
     },
     onError: (error) => {
       const errorMessage = error.response?.data?.detail || 'Error al crear la empresa';
@@ -85,7 +85,7 @@ const EmpresaForm = ({ isOpen, onClose }) => {
   // Si el usuario ya tiene una empresa, redirigir al dashboard
   React.useEffect(() => {
     if (user?.empresa) {
-      navigate('/dashboard');
+      navigate('/app/dashboard');
     }
   }, [user, navigate]);
 

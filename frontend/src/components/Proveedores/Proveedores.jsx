@@ -59,7 +59,7 @@ const Proveedores = () => {
           <Button 
             colorScheme="teal" 
             leftIcon={<AddIcon />}
-            onClick={() => navigate('/proveedores/nuevo')}
+            onClick={() => navigate('/app/proveedores/nuevo')}
           >
             Nuevo Proveedor
           </Button>
