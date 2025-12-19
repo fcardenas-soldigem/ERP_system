@@ -1,0 +1,30 @@
+# ============================================
+# DEPENDENCIAS DE MACHINE LEARNING
+# ============================================
+# Instalar con: pip install -r requirements_ml.txt
+
+# Core ML Libraries
+scikit-learn==1.3.2
+pandas==2.1.4
+numpy==1.26.4
+
+# Time Series Forecasting
+prophet==1.1.5
+
+# Association Rules / Market Basket Analysis
+mlxtend==0.23.0
+
+# Model Persistence
+joblib==1.3.2
+
+# Visualization (opcional, para notebooks)
+matplotlib==3.8.2
+seaborn==0.13.0
+
+# Progress bars
+tqdm==4.67.1
+
+# Utilities
+python-dateutil==2.9.0
+pytz==2025.2
+
