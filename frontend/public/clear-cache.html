@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Limpiando Caché...</title>
+</head>
+<body>
+    <h1>Limpiando caché y tokens...</h1>
+    <p id="status">Procesando...</p>
+    <script>
+        localStorage.clear();
+        sessionStorage.clear();
+        document.getElementById('status').innerHTML = '✅ Caché limpiado. Redirigiendo...';
+        setTimeout(() => {
+            window.location.href = '/login';
+        }, 1000);
+    </script>
+</body>
+</html>

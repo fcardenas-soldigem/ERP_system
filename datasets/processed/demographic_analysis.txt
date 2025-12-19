@@ -1,0 +1,27 @@
+ANÁLISIS DEMOGRÁFICO
+================================================================================
+
+POR GÉNERO:
+       Total Amount               Quantity
+                sum    mean count      sum
+Gender                                    
+Female       232840  456.55   510     1298
+Male         223160  455.43   490     1216
+
+POR EDAD:
+          Total Amount               Quantity
+                   sum    mean count      sum
+Age Group                                    
+18-25            84550  500.30   169      412
+26-35            98480  480.39   205      540
+36-45            91870  454.80   202      506
+46-55           100690  439.69   229      588
+55+              80410  412.36   195      468
+
+POR CATEGORÍA:
+                 Total Amount               Quantity
+                          sum    mean count      sum
+Product Category                                    
+Beauty                 143515  467.48   307      771
+Clothing               155580  443.25   351      894
+Electronics            156905  458.79   342      849

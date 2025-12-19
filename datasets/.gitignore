@@ -1,0 +1,8 @@
+# Datasets - No subir a Git
+*.csv
+*.xlsx
+*.xls
+*.json
+*.parquet
+!.gitkeep
+!README.md
