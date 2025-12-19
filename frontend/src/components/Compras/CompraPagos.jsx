@@ -79,7 +79,7 @@ const CompraPagos = () => {
                     <Button
                         leftIcon={<AddIcon />}
                         colorScheme="blue"
-                        onClick={() => navigate(`/compras/${id}/pagos/nuevo`)}
+                        onClick={() => navigate(`/app/compras/${id}/pagos/nuevo`)}
                     >
                         Nuevo Pago
                     </Button>

@@ -211,7 +211,7 @@ const CompraDetalle = () => {
                   {saldoPendiente > 0 && (
                     <Button
                       colorScheme="blue"
-                      onClick={() => navigate(`/compras/${id}/pagos/nuevo`)}
+                      onClick={() => navigate(`/app/compras/${id}/pagos/nuevo`)}
                     >
                       Registrar Nuevo Pago
                     </Button>
@@ -303,13 +303,13 @@ const CompraDetalle = () => {
         </Card>
 
         <HStack justify="flex-end" spacing={4}>
-          <Button onClick={() => navigate('/compras')}>
+          <Button onClick={() => navigate('/app/compras')}>
             Volver a Compras
           </Button>
           {compra.estado !== 'anulada' && (
             <Button
               colorScheme="blue"
-              onClick={() => navigate(`/compras/${id}/editar`)}
+              onClick={() => navigate(`/app/compras/${id}/editar`)}
             >
               Editar Compra
             </Button>
@@ -317,7 +317,7 @@ const CompraDetalle = () => {
           {compra.metodo_pago.startsWith('credito_') && saldoPendiente > 0 && (
             <Button
               colorScheme="green"
-              onClick={() => navigate(`/compras/${id}/pagos`)}
+              onClick={() => navigate(`/app/compras/${id}/pagos`)}
             >
               Ver Pagos
             </Button>

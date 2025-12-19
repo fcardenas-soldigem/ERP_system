@@ -56,7 +56,7 @@ const VentaPagoForm = () => {
         duration: 5000,
         isClosable: true
       });
-      navigate('/cuentas/por-cobrar');
+      navigate('/app/cuentas/por-cobrar');
     },
     onError: (error) => {
       toast({
@@ -82,7 +82,7 @@ const VentaPagoForm = () => {
           duration: 5000,
           isClosable: true
         });
-        navigate('/ventas');
+        navigate('/app/ventas');
       }
     }
   });
@@ -112,7 +112,7 @@ const VentaPagoForm = () => {
         duration: 5000,
         isClosable: true
       });
-      navigate('/cuentas/por-cobrar');
+      navigate('/app/cuentas/por-cobrar');
     }
   }, [venta, saldoPendiente, navigate]);
 
@@ -294,7 +294,7 @@ const VentaPagoForm = () => {
               <HStack spacing={4} justify="flex-end">
                 <Button
                   variant="outline"
-                  onClick={() => navigate('/cuentas/por-cobrar')}
+                  onClick={() => navigate('/app/cuentas/por-cobrar')}
                 >
                   Cancelar
                 </Button>

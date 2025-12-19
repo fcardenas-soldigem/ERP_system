@@ -71,7 +71,7 @@ const VentaPagoForm = () => {
         duration: 5000,
         isClosable: true
       });
-      navigate('/cuentas/por-cobrar');
+      navigate('/app/cuentas/por-cobrar');
     }
   }, [cuenta, navigate, toast, toastShown]);
 
@@ -94,7 +94,7 @@ const VentaPagoForm = () => {
         duration: 5000,
         isClosable: true
       });
-      navigate('/cuentas/por-cobrar');
+      navigate('/app/cuentas/por-cobrar');
     },
     onError: (error) => {
       toast({
@@ -186,7 +186,7 @@ const VentaPagoForm = () => {
       <Box p={5}>
         <Text color="red.500" mb={4}>Error al cargar la cuenta por cobrar: {queryError.message}</Text>
         <Text mb={4}>ID solicitado: {id}</Text>
-        <Button mt={4} onClick={() => navigate('/cuentas/por-cobrar')}>
+        <Button mt={4} onClick={() => navigate('/app/cuentas/por-cobrar')}>
           Volver al listado
         </Button>
       </Box>
@@ -200,7 +200,7 @@ const VentaPagoForm = () => {
         <Text mb={4} fontSize="sm" color="gray.600">
           Esto puede ocurrir si la venta no es a crédito o ya está completamente pagada.
         </Text>
-        <Button mt={4} onClick={() => navigate('/cuentas/por-cobrar')}>
+        <Button mt={4} onClick={() => navigate('/app/cuentas/por-cobrar')}>
           Volver al listado
         </Button>
       </Box>
@@ -329,7 +329,7 @@ const VentaPagoForm = () => {
               <HStack spacing={4} justify="flex-end">
                 <Button
                   variant="outline"
-                  onClick={() => navigate('/cuentas/por-cobrar')}
+                  onClick={() => navigate('/app/cuentas/por-cobrar')}
                 >
                   Cancelar
                 </Button>

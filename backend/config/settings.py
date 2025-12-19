@@ -95,6 +95,9 @@ INSTALLED_APPS = [
     'apps.dashboard',
     'apps.ai_assistant',
     'apps.core',
+    'apps.ml_models',  # Machine Learning models
+    'apps.cotizaciones',  # Cotizaciones
+    'apps.produccion',  # Producción
 ]
 
 # Middleware

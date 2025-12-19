@@ -223,13 +223,13 @@ const CuentasPorPagar = () => {
                           <IconButton
                             size="sm"
                             icon={<ViewIcon />}
-                            onClick={() => navigate(`/compras/${compra.id}`)}
+                            onClick={() => navigate(`/app/compras/${compra.id}`)}
                           />
                         </Tooltip>
                         <Button
                           size="sm"
                           colorScheme="green"
-                          onClick={() => navigate(`/cuentas/por-pagar/${compra.id}/registrar-pago`)}
+                          onClick={() => navigate(`/app/cuentas/por-pagar/${compra.id}/registrar-pago`)}
                           isDisabled={parseFloat(compra.saldo_pendiente || 0) <= 0}
                         >
                           Registrar Pago

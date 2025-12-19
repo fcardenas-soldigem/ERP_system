@@ -81,7 +81,7 @@ const CompraPagoForm = () => {
         status: 'success',
         duration: 3000
       });
-      navigate(`/compras/${id}/pagos`);
+      navigate(`/app/compras/${id}/pagos`);
     },
     onError: (error) => {
       toast({
@@ -321,7 +321,7 @@ const CompraPagoForm = () => {
                 </FormControl>
 
                 <HStack justify="flex-end" spacing={4} pt={4}>
-                  <Button onClick={() => navigate(`/compras/${id}/pagos`)}>
+                  <Button onClick={() => navigate(`/app/compras/${id}/pagos`)}>
                     Cancelar
                   </Button>
                   <Button

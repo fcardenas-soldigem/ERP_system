@@ -88,7 +88,7 @@ const RegistrarPagoVenta = () => {
         duration: 5000,
         isClosable: true
       });
-      navigate('/cuentas/por-cobrar');
+      navigate('/app/cuentas/por-cobrar');
     }
   }, [cuenta, saldoPendiente, navigate, toast]);
 
@@ -111,7 +111,7 @@ const RegistrarPagoVenta = () => {
         duration: 5000,
         isClosable: true
       });
-      navigate('/cuentas/por-cobrar');
+      navigate('/app/cuentas/por-cobrar');
     },
     onError: (error) => {
       toast({
@@ -194,7 +194,7 @@ const RegistrarPagoVenta = () => {
     return (
       <Box p={5}>
         <Text color="red.500" mb={4}>Error al cargar la cuenta por cobrar: {queryError.message}</Text>
-        <Button mt={4} onClick={() => navigate('/cuentas/por-cobrar')}>
+        <Button mt={4} onClick={() => navigate('/app/cuentas/por-cobrar')}>
           Volver al listado
         </Button>
       </Box>
@@ -205,7 +205,7 @@ const RegistrarPagoVenta = () => {
     return (
       <Box p={5}>
         <Text mb={2}>No se encontró la cuenta por cobrar</Text>
-        <Button mt={4} onClick={() => navigate('/cuentas/por-cobrar')}>
+        <Button mt={4} onClick={() => navigate('/app/cuentas/por-cobrar')}>
           Volver al listado
         </Button>
       </Box>
@@ -343,7 +343,7 @@ const RegistrarPagoVenta = () => {
               <HStack spacing={4} justify="flex-end">
                 <Button
                   variant="outline"
-                  onClick={() => navigate('/cuentas/por-cobrar')}
+                  onClick={() => navigate('/app/cuentas/por-cobrar')}
                 >
                   Cancelar
                 </Button>

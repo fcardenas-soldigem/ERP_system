@@ -37,6 +37,19 @@ import CuentasPorCobrar from './components/Cuentas/CuentasPorCobrar';
 import CuentasPorPagar from './components/Cuentas/CuentasPorPagar';
 import RegistrarPagoVenta from './components/Cuentas/RegistrarPagoVenta';
 import RegistrarPagoCompra from './components/Cuentas/RegistrarPagoCompra';
+import MLDashboard from './components/ML/MLDashboard';
+import CotizacionList from './components/Cotizaciones/CotizacionList';
+import CotizacionFormSimple from './components/Cotizaciones/CotizacionFormSimple';
+import LandingPage from './pages/LandingPage';
+import DashboardProduccion from './components/Produccion/DashboardProduccion';
+import RecetasList from './components/Produccion/RecetasList';
+import RecetaForm from './components/Produccion/RecetaForm';
+import RecetaDetalle from './components/Produccion/RecetaDetalle';
+import OrdenProduccionList from './components/Produccion/OrdenProduccionList';
+import OrdenProduccionForm from './components/Produccion/OrdenProduccionForm';
+import OrdenProduccionEjecucion from './components/Produccion/OrdenProduccionEjecucion';
+import OrdenDetalle from './components/Produccion/OrdenDetalle';
+
 
 const queryClient = new QueryClient({
     defaultOptions: {
@@ -55,9 +68,10 @@ function App() {
                 <ChakraProvider>
                     <AuthProvider>
                         <Routes>
+                            <Route path="/" element={<LandingPage />} />
                             <Route path="/login" element={<Login />} />
-                            <Route path="/" element={<PrivateRoute><Layout /></PrivateRoute>}>
-                                <Route index element={<Navigate to="/dashboard" replace />} />
+                            <Route path="/app" element={<PrivateRoute><Layout /></PrivateRoute>}>
+                                <Route index element={<Navigate to="/app/dashboard" replace />} />
                                 <Route path="dashboard" element={<Dashboard />} />
                                 <Route path="ventas" element={<Ventas />} />
                                 <Route path="ventas/nueva" element={<NuevaVenta />} />
@@ -81,10 +95,23 @@ function App() {
                                 <Route path="proveedores/:id/editar" element={<ProveedorForm />} />
                                 <Route path="configuracion" element={<Configuracion />} />
                                 <Route path="ai-assistant" element={<AIAssistant />} />
+                                <Route path="ml-dashboard" element={<MLDashboard />} />
+                                <Route path="cotizaciones" element={<CotizacionList />} />
+                                <Route path="cotizaciones/nueva" element={<CotizacionFormSimple />} />
+                                <Route path="cotizaciones/:id/editar" element={<CotizacionFormSimple />} />
                                 <Route path="cuentas/por-cobrar" element={<CuentasPorCobrar />} />
                                 <Route path="cuentas/por-cobrar/:ventaId/registrar-pago" element={<RegistrarPagoVenta />} />
                                 <Route path="cuentas/por-pagar" element={<CuentasPorPagar />} />
                                 <Route path="cuentas/por-pagar/:compraId/registrar-pago" element={<RegistrarPagoCompra />} />
+                                <Route path="produccion/dashboard" element={<DashboardProduccion />} />
+                                <Route path="produccion/recetas" element={<RecetasList />} />
+                                <Route path="produccion/recetas/nueva" element={<RecetaForm />} />
+                                <Route path="produccion/recetas/:id" element={<RecetaDetalle />} />
+                                <Route path="produccion/recetas/:id/editar" element={<RecetaForm />} />
+                                <Route path="produccion/ordenes" element={<OrdenProduccionList />} />
+                                <Route path="produccion/ordenes/nueva" element={<OrdenProduccionForm />} />
+                                <Route path="produccion/ordenes/:id" element={<OrdenDetalle />} />
+                                <Route path="produccion/ordenes/:id/ejecutar" element={<OrdenProduccionEjecucion />} />
                                 <Route path="*" element={<NotFound />} />
                             </Route>
                         </Routes>

@@ -11,6 +11,12 @@ class Producto(models.Model):
         ('stock_bajo', 'Stock Bajo'),
     ]
     
+    TIPO_PRODUCTO_CHOICES = [
+        ('RAW', 'Materia Prima / Insumo'),
+        ('SEMIFINISHED', 'Semi-Terminado'),
+        ('FINISHED', 'Producto Terminado'),
+    ]
+    
     MONEDA_CHOICES = [
         ('PEN', 'Sol Peruano (S/)'),
         ('USD', 'Dólar Americano ($)'),
@@ -20,6 +26,8 @@ class Producto(models.Model):
         ('unidad', 'Unidad'),
         ('kilo', 'Kilogramo'),
         ('gramo', 'Gramo'),
+        ('litro', 'Litro'),
+        ('metro', 'Metro'),
         ('decena', 'Decena'),
         ('docena', 'Docena'),
         ('centenar', 'Centenar'),
@@ -29,6 +37,13 @@ class Producto(models.Model):
     empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE, related_name='productos')
     sku = models.CharField(max_length=50, verbose_name='SKU')
     nombre = models.CharField(max_length=200, verbose_name='Nombre')
+    tipo_producto = models.CharField(
+        max_length=20,
+        choices=TIPO_PRODUCTO_CHOICES,
+        default='RAW',
+        verbose_name='Tipo de Producto',
+        help_text='Clasificación del producto para producción'
+    )
     descripcion = models.TextField(blank=True, verbose_name='Descripción')
     stock_total = models.DecimalField(max_digits=10, decimal_places=2, default=0, verbose_name='Stock Total')
     stock_minimo = models.DecimalField(max_digits=10, decimal_places=2, default=0, verbose_name='Stock Mínimo')

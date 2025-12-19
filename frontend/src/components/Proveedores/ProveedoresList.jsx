@@ -93,7 +93,7 @@ const ProveedoresList = () => {
   });
 
   const handleEdit = (proveedor) => {
-    navigate(`/proveedores/${proveedor.id}/editar`);
+    navigate(`/app/proveedores/${proveedor.id}/editar`);
   };
 
   const handleDelete = async (id) => {

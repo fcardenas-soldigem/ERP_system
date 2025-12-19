@@ -131,7 +131,7 @@ const RegistrarPagoCompra = () => {
         duration: 5000,
         isClosable: true
       });
-      navigate('/cuentas/por-pagar');
+      navigate('/app/cuentas/por-pagar');
     }
   }, [cuenta, saldoPendiente, navigate, toast]);
 
@@ -154,7 +154,7 @@ const RegistrarPagoCompra = () => {
         duration: 5000,
         isClosable: true
       });
-      navigate('/cuentas/por-pagar');
+      navigate('/app/cuentas/por-pagar');
     },
     onError: (error) => {
       toast({
@@ -250,7 +250,7 @@ const RegistrarPagoCompra = () => {
       <Box p={5}>
         <Text color="red.500" mb={4}>Error al cargar la cuenta por pagar: {queryError.message}</Text>
         <Text mb={4}>ID solicitado: {compraId}</Text>
-        <Button mt={4} onClick={() => navigate('/cuentas/por-pagar')}>
+        <Button mt={4} onClick={() => navigate('/app/cuentas/por-pagar')}>
           Volver al listado
         </Button>
       </Box>
@@ -264,7 +264,7 @@ const RegistrarPagoCompra = () => {
         <Text mb={4} fontSize="sm" color="gray.600">
           Esto puede ocurrir si la compra no es a crédito o ya está completamente pagada.
         </Text>
-        <Button mt={4} onClick={() => navigate('/cuentas/por-pagar')}>
+        <Button mt={4} onClick={() => navigate('/app/cuentas/por-pagar')}>
           Volver al listado
         </Button>
       </Box>
@@ -423,7 +423,7 @@ const RegistrarPagoCompra = () => {
               <HStack spacing={4} justify="flex-end">
                 <Button
                   variant="outline"
-                  onClick={() => navigate('/cuentas/por-pagar')}
+                  onClick={() => navigate('/app/cuentas/por-pagar')}
                 >
                   Cancelar
                 </Button>

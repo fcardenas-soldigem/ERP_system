@@ -137,14 +137,14 @@ const ResumenCuentas = () => {
                 <Button
                   variant="contained"
                   color="primary"
-                  onClick={() => navigate('/cuentas/por-cobrar')}
+                  onClick={() => navigate('/app/cuentas/por-cobrar')}
                 >
                   Ver Cuentas por Cobrar
                 </Button>
                 <Button
                   variant="contained"
                   color="secondary"
-                  onClick={() => navigate('/cuentas/por-pagar')}
+                  onClick={() => navigate('/app/cuentas/por-pagar')}
                 >
                   Ver Cuentas por Pagar
                 </Button>

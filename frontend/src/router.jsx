@@ -14,6 +14,16 @@ import CuentasPorPagar from './components/Cuentas/CuentasPorPagar';
 import CuentasPorCobrar from './components/Cuentas/CuentasPorCobrar';
 import VentaPagoForm from './components/Cuentas/VentaPagoForm';
 import VentaPagos from './components/Ventas/VentaPagos';
+import MLDashboard from './components/ML/MLDashboard';
+// Producción
+import RecetasList from './components/Produccion/RecetasList';
+import RecetaForm from './components/Produccion/RecetaForm';
+import RecetaDetalle from './components/Produccion/RecetaDetalle';
+import OrdenProduccionList from './components/Produccion/OrdenProduccionList';
+import OrdenProduccionForm from './components/Produccion/OrdenProduccionForm';
+import OrdenProduccionEjecucion from './components/Produccion/OrdenProduccionEjecucion';
+import OrdenDetalle from './components/Produccion/OrdenDetalle';
+import DashboardProduccion from './components/Produccion/DashboardProduccion';
 
 const router = createBrowserRouter([
   {
@@ -71,6 +81,47 @@ const router = createBrowserRouter([
       {
         path: '/cuentas/por-cobrar/:id/registrar-pago',
         element: <VentaPagoForm />,
+      },
+      {
+        path: '/ml-dashboard',
+        element: <MLDashboard />,
+      },
+      // Producción
+      {
+        path: '/produccion/dashboard',
+        element: <DashboardProduccion />,
+      },
+      {
+        path: '/produccion/recetas',
+        element: <RecetasList />,
+      },
+      {
+        path: '/produccion/recetas/nueva',
+        element: <RecetaForm />,
+      },
+      {
+        path: '/produccion/recetas/:id',
+        element: <RecetaDetalle />,
+      },
+      {
+        path: '/produccion/recetas/:id/editar',
+        element: <RecetaForm />,
+      },
+      {
+        path: '/produccion/ordenes',
+        element: <OrdenProduccionList />,
+      },
+      {
+        path: '/produccion/ordenes/nueva',
+        element: <OrdenProduccionForm />,
+      },
+      {
+        path: '/produccion/ordenes/:id',
+        element: <OrdenDetalle />,
+      },
+      {
+        path: '/produccion/ordenes/:id/ejecutar',
+        element: <OrdenProduccionEjecucion />,
       },
     ],
   },

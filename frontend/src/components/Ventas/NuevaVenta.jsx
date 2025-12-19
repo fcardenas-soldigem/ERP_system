@@ -301,7 +301,7 @@ const NuevaVenta = () => {
         status: 'success',
         duration: 2000
       });
-      navigate('/ventas');
+      navigate('/app/ventas');
     },
     onError: (error) => {
       toast({

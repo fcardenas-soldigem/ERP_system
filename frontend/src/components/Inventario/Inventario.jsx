@@ -287,7 +287,7 @@ const Inventario = () => {
                     <Button
                         colorScheme="teal"
                         leftIcon={<AddIcon />}
-                        onClick={() => navigate('/inventario/nuevo')}
+                        onClick={() => navigate('/app/inventario/nuevo')}
                     >
                         Nuevo Producto
                     </Button>
@@ -377,7 +377,7 @@ const Inventario = () => {
                                         icon={<EditIcon />}
                                         aria-label="Editar"
                                         size="sm"
-                                        onClick={() => navigate(`/inventario/${producto.id}/editar`)}
+                                        onClick={() => navigate(`/app/inventario/${producto.id}/editar`)}
                                     />
                                     <IconButton
                                         icon={<DeleteIcon />}

@@ -51,3 +51,13 @@ frontend/dist/
 *.temp
 
 .venv/
+ml_models_cache/
+
+# Machine Learning Datasets
+datasets/*.csv
+datasets/*.xlsx
+datasets/*.xls
+datasets/*.json
+datasets/*.parquet
+datasets/**/*.csv
+datasets/**/*.xlsx
