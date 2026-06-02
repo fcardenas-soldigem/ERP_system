@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { TableSkeleton } from '../common/SkeletonLoaders';
 import {
   Box,
   Button,
@@ -21,8 +22,8 @@ import {
   Select,
   HStack,
   Text,
-  Spinner,
-  Center
+  Center,
+  Tooltip,
 } from '@chakra-ui/react';
 import {
   FaPlus,
@@ -32,36 +33,63 @@ import {
   FaFilePdf,
   FaCopy,
   FaExchangeAlt,
-  FaTrash
+  FaTrash,
+  FaTools,
+  FaChevronLeft,
+  FaChevronRight,
 } from 'react-icons/fa';
 import { useNavigate } from 'react-router-dom';
 import cotizacionesService from '../../services/cotizacionesService';
+import CrearProductosCotizacionModal from './CrearProductosCotizacionModal';
+
+const PAGE_SIZE = 20;
 
 const CotizacionList = () => {
   const [cotizaciones, setCotizaciones] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [filtros, setFiltros] = useState({
-    search: '',
-    estado: ''
+  const [paginacion, setPaginacion] = useState({
+    count: 0,
+    page: 1,
+    totalPages: 1,
+    hasPrev: false,
+    hasNext: false,
+  });
+  const [filtros, setFiltros] = useState({ search: '', estado: '' });
+  const [modalProductos, setModalProductos] = useState({
+    isOpen: false,
+    productos: [],
+    moneda: 'PEN',
+    cotizacionId: null,
   });
   const navigate = useNavigate();
   const toast = useToast();
 
-  useEffect(() => {
-    cargarCotizaciones();
-  }, [filtros]);
-
-  const cargarCotizaciones = async () => {
+  const cargarCotizaciones = useCallback(async (page = 1) => {
     try {
       setLoading(true);
-      const data = await cotizacionesService.getAll(filtros);
-      // Si la respuesta es paginada, extraer los resultados
+      const data = await cotizacionesService.getAll({
+        ...filtros,
+        page,
+        page_size: PAGE_SIZE,
+      });
+
       if (data && Array.isArray(data.results)) {
         setCotizaciones(data.results);
+        const total = data.count || 0;
+        const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+        setPaginacion({
+          count: total,
+          page,
+          totalPages,
+          hasPrev: !!data.previous,
+          hasNext: !!data.next,
+        });
       } else if (Array.isArray(data)) {
         setCotizaciones(data);
+        setPaginacion({ count: data.length, page: 1, totalPages: 1, hasPrev: false, hasNext: false });
       } else {
         setCotizaciones([]);
+        setPaginacion({ count: 0, page: 1, totalPages: 1, hasPrev: false, hasNext: false });
       }
     } catch (error) {
       console.error('Error al cargar cotizaciones:', error);
@@ -76,7 +104,11 @@ const CotizacionList = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [filtros, toast]);
+
+  useEffect(() => {
+    cargarCotizaciones(1);
+  }, [filtros]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleExportarPDF = async (id) => {
     try {
@@ -109,7 +141,7 @@ const CotizacionList = () => {
         duration: 3000,
         isClosable: true,
       });
-      cargarCotizaciones();
+      cargarCotizaciones(paginacion.page);
     } catch (error) {
       toast({
         title: 'Error al duplicar',
@@ -121,21 +153,38 @@ const CotizacionList = () => {
     }
   };
 
-  const handleConvertirVenta = async (id) => {
+  const handleConvertirVenta = async (cotizacionId) => {
     try {
-      const result = await cotizacionesService.convertirVenta(id);
+      const result = await cotizacionesService.convertirVenta(cotizacionId);
       toast({
         title: 'Convertida a venta',
-        description: result.message,
+        description: result.message || `Venta ${result.venta_numero} creada exitosamente`,
         status: 'success',
-        duration: 3000,
+        duration: 4000,
         isClosable: true,
       });
-      cargarCotizaciones();
+      if (result.venta_id) {
+        navigate(`/app/ventas/${result.venta_id}`);
+      } else {
+        cargarCotizaciones(paginacion.page);
+      }
     } catch (error) {
+      const data = error.response?.data;
+      if (data?.error === 'productos_faltantes' && data?.productos_faltantes?.length) {
+        setModalProductos({
+          isOpen: true,
+          productos: data.productos_faltantes,
+          moneda: data.moneda || 'PEN',
+          cotizacionId: data.cotizacion_id || cotizacionId,
+        });
+        return;
+      }
       toast({
         title: 'Error al convertir',
-        description: error.response?.data?.detail || error.message,
+        description:
+          data?.error ||
+          data?.detail ||
+          error.message,
         status: 'error',
         duration: 5000,
         isClosable: true,
@@ -153,7 +202,12 @@ const CotizacionList = () => {
           duration: 3000,
           isClosable: true,
         });
-        cargarCotizaciones();
+        // Si era el último item de la página, retroceder una página
+        const nuevaPagina =
+          cotizaciones.length === 1 && paginacion.page > 1
+            ? paginacion.page - 1
+            : paginacion.page;
+        cargarCotizaciones(nuevaPagina);
       } catch (error) {
         toast({
           title: 'Error al eliminar',
@@ -182,13 +236,22 @@ const CotizacionList = () => {
     <Box p={6}>
       <Flex justify="space-between" align="center" mb={6}>
         <Heading size="lg">Cotizaciones</Heading>
-        <Button
-          leftIcon={<FaPlus />}
-          colorScheme="blue"
-          onClick={() => navigate('/app/cotizaciones/nueva')}
-        >
-          Nueva Cotización
-        </Button>
+        <HStack spacing={2}>
+          <Button
+            leftIcon={<FaTools />}
+            colorScheme="green"
+            onClick={() => navigate('/app/cotizaciones/servicios/nueva')}
+          >
+            Nueva Cot. Servicios
+          </Button>
+          <Button
+            leftIcon={<FaPlus />}
+            colorScheme="blue"
+            onClick={() => navigate('/app/cotizaciones/nueva')}
+          >
+            Nueva Cotización
+          </Button>
+        </HStack>
       </Flex>
 
       {/* Filtros */}
@@ -216,9 +279,7 @@ const CotizacionList = () => {
 
       {/* Tabla */}
       {loading ? (
-        <Center py={10}>
-          <Spinner size="xl" color="blue.500" />
-        </Center>
+        <Box py={4}><TableSkeleton rows={6} columns={6} /></Box>
       ) : cotizaciones.length === 0 ? (
         <Center py={10}>
           <Text color="gray.500">No hay cotizaciones registradas</Text>
@@ -251,6 +312,17 @@ const CotizacionList = () => {
                     {cotizacion.moneda === 'PEN' ? 'S/' : '$'} {parseFloat(cotizacion.total || 0).toFixed(2)}
                   </Td>
                   <Td>
+                    <HStack spacing={1}>
+                      <Tooltip label="Exportar PDF" hasArrow>
+                        <IconButton
+                          icon={<FaFilePdf />}
+                          size="sm"
+                          variant="ghost"
+                          colorScheme="red"
+                          aria-label="Exportar PDF"
+                          onClick={() => handleExportarPDF(cotizacion.id)}
+                        />
+                      </Tooltip>
                     <Menu>
                       <MenuButton
                         as={IconButton}
@@ -300,6 +372,7 @@ const CotizacionList = () => {
                         </MenuItem>
                       </MenuList>
                     </Menu>
+                    </HStack>
                   </Td>
                 </Tr>
               ))}
@@ -307,6 +380,85 @@ const CotizacionList = () => {
           </Table>
         </Box>
       )}
+
+      {/* Paginación */}
+      {!loading && paginacion.totalPages > 1 && (
+        <Flex justify="space-between" align="center" mt={4} px={1}>
+          <Text fontSize="sm" color="gray.500">
+            Mostrando{' '}
+            <b>
+              {Math.min((paginacion.page - 1) * PAGE_SIZE + 1, paginacion.count)}–
+              {Math.min(paginacion.page * PAGE_SIZE, paginacion.count)}
+            </b>{' '}
+            de <b>{paginacion.count}</b> cotizaciones
+          </Text>
+          <HStack spacing={1}>
+            <IconButton
+              icon={<FaChevronLeft />}
+              size="sm"
+              variant="outline"
+              aria-label="Página anterior"
+              isDisabled={!paginacion.hasPrev}
+              onClick={() => cargarCotizaciones(paginacion.page - 1)}
+            />
+            {Array.from({ length: paginacion.totalPages }, (_, i) => i + 1)
+              .filter(
+                (p) =>
+                  p === 1 ||
+                  p === paginacion.totalPages ||
+                  Math.abs(p - paginacion.page) <= 2
+              )
+              .reduce((acc, p, idx, arr) => {
+                if (idx > 0 && p - arr[idx - 1] > 1) {
+                  acc.push('…');
+                }
+                acc.push(p);
+                return acc;
+              }, [])
+              .map((p, idx) =>
+                p === '…' ? (
+                  <Text key={`ellipsis-${idx}`} px={2} color="gray.400" fontSize="sm">
+                    …
+                  </Text>
+                ) : (
+                  <Button
+                    key={p}
+                    size="sm"
+                    variant={p === paginacion.page ? 'solid' : 'outline'}
+                    colorScheme={p === paginacion.page ? 'blue' : 'gray'}
+                    minW="36px"
+                    onClick={() => cargarCotizaciones(p)}
+                  >
+                    {p}
+                  </Button>
+                )
+              )}
+            <IconButton
+              icon={<FaChevronRight />}
+              size="sm"
+              variant="outline"
+              aria-label="Página siguiente"
+              isDisabled={!paginacion.hasNext}
+              onClick={() => cargarCotizaciones(paginacion.page + 1)}
+            />
+          </HStack>
+        </Flex>
+      )}
+
+      <CrearProductosCotizacionModal
+        isOpen={modalProductos.isOpen}
+        onClose={() => setModalProductos((prev) => ({ ...prev, isOpen: false }))}
+        productosFaltantes={modalProductos.productos}
+        cotizacionId={modalProductos.cotizacionId}
+        moneda={modalProductos.moneda}
+        onConversionExitosa={(result) => {
+          if (result?.venta_id) {
+            navigate(`/app/ventas/${result.venta_id}`);
+          } else {
+            cargarCotizaciones();
+          }
+        }}
+      />
     </Box>
   );
 };

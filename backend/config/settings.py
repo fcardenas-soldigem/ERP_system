@@ -11,8 +11,8 @@ from dotenv import load_dotenv
 # BASE_DIR apunta a la carpeta "backend"
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Cargar variables de entorno desde .env
-load_dotenv(os.path.join(BASE_DIR, '.env'))
+# Cargar variables de entorno desde .env (override=True para que .env siempre tenga prioridad)
+load_dotenv(os.path.join(BASE_DIR, '.env'), override=True)
 
 # === SECURITY: SECRET KEYS ===
 # CRITICAL: Must be set via environment variables in production
@@ -85,6 +85,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'corsheaders',
     'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',
     
     # Local apps
     'apps.authentication',
@@ -97,7 +98,11 @@ INSTALLED_APPS = [
     'apps.core',
     'apps.ml_models',  # Machine Learning models
     'apps.cotizaciones',  # Cotizaciones
-    'apps.produccion',  # Producción
+    'apps.produccion',   # Producción
+    'apps.finanzas',     # Módulo de Finanzas
+    'apps.importador',   # Importador Excel
+    'apps.guias',        # Guías de Remisión
+    'apps.servicios',    # Órdenes de Servicio de Reparación
 ]
 
 # Middleware
@@ -109,6 +114,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'apps.core.middleware.tenant.TenantMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -145,7 +151,61 @@ DATABASES = {
         'PASSWORD': os.getenv('DB_PASSWORD', ''),
         'HOST': os.getenv('DB_HOST', 'localhost'),
         'PORT': os.getenv('DB_PORT', '5432'),
+        'CONN_MAX_AGE': 60,
+        'CONN_HEALTH_CHECKS': True,
+        'ATOMIC_REQUESTS': False,
+        'OPTIONS': {
+            'connect_timeout': 30,
+            'keepalives': 1,
+            'keepalives_idle': 30,
+            'keepalives_interval': 10,
+            'keepalives_count': 5,
+            'sslmode': 'require' if ('supabase' in os.getenv('DB_HOST', '') or 'pooler' in os.getenv('DB_HOST', '')) else 'prefer',
+        }
     }
+}
+
+# ========================================
+# CACHE CONFIGURATION
+# ========================================
+# Usar Redis si está disponible, sino memoria local
+REDIS_URL = os.getenv('REDIS_URL', None)
+
+if REDIS_URL:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+            'LOCATION': REDIS_URL,
+            'OPTIONS': {
+                'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+            },
+            'KEY_PREFIX': 'erp',
+            'TIMEOUT': 300,  # 5 minutos por defecto
+        }
+    }
+else:
+    # Cache en memoria local (para desarrollo o si no hay Redis)
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'unique-snowflake',
+            'TIMEOUT': 300,  # 5 minutos
+            'OPTIONS': {
+                'MAX_ENTRIES': 1000
+            }
+        }
+    }
+
+# Timeouts de cache específicos (en segundos)
+CACHE_TIMEOUTS = {
+    'productos': 120,        # 2 minutos - cambia frecuentemente
+    'categorias': 600,       # 10 minutos - cambia poco
+    'almacenes': 600,        # 10 minutos
+    'inventario_mp': 60,     # 1 minuto - crítico
+    'inventario_pt': 60,     # 1 minuto - crítico
+    'resumen': 30,           # 30 segundos
+    'alertas': 60,           # 1 minuto
+    'estadisticas': 300,     # 5 minutos
 }
 
 # Validadores de contraseñas
@@ -259,14 +319,25 @@ CLAUDE_API_KEY = os.getenv('CLAUDE_API_KEY')
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
-# Logging para capturar tracebacks en Cloud Run
+# Logging estructurado para Cloud Run
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {name} {message}',
+            'style': '{',
+        },
+    },
     'handlers': {
         'console': {
             'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
         },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'WARNING',
     },
     'loggers': {
         'django.request': {
@@ -277,6 +348,16 @@ LOGGING = {
         'django.server': {
             'handlers': ['console'],
             'level': 'ERROR',
+            'propagate': False,
+        },
+        'apps': {
+            'handlers': ['console'],
+            'level': 'DEBUG' if DEBUG else 'INFO',
+            'propagate': False,
+        },
+        'apps.core.middleware.tenant': {
+            'handlers': ['console'],
+            'level': 'DEBUG' if DEBUG else 'WARNING',
             'propagate': False,
         },
     },

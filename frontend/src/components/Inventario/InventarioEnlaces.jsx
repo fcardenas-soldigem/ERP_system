@@ -8,24 +8,24 @@ const InventarioEnlaces = () => {
 
     const enlaces = [
         {
-            titulo: 'Kardex Mejorado',
+            titulo: 'Kardex',
             descripcion: 'Control detallado de entradas, salidas y saldos con formato profesional',
             icono: FaClipboardList,
-            ruta: '/inventario/kardex-mejorado',
+            ruta: '/app/inventario/kardex',
             color: 'blue'
         },
         {
-            titulo: 'Kardex Clásico',
-            descripcion: 'Vista tradicional de movimientos de inventario',
+            titulo: 'Listado de Productos',
+            descripcion: 'Vista tradicional de productos e inventario',
             icono: FaHistory,
-            ruta: '/inventario',
+            ruta: '/app/inventario',
             color: 'green'
         },
         {
             titulo: 'Agregar Producto',
             descripcion: 'Registrar nuevos productos en el inventario',
             icono: FaPlus,
-            ruta: '/inventario/nuevo',
+            ruta: '/app/inventario/nuevo',
             color: 'orange'
         }
     ];

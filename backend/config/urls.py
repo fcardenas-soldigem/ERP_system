@@ -22,6 +22,10 @@ urlpatterns = [
     path('api/ml/', include('apps.ml_models.urls')),  # Machine Learning APIs
     path('api/', include('apps.cotizaciones.urls')),  # Cotizaciones
     path('api/produccion/', include('apps.produccion.urls')),  # Producción
+    path('api/finanzas/',   include('apps.finanzas.urls')),    # Finanzas
+    path('api/importador/', include('apps.importador.urls')), # Importador Excel
+    path('api/guias/', include('apps.guias.urls')),           # Guías de Remisión
+    path('api/servicios/', include('apps.servicios.urls')),  # Órdenes de Servicio
 ]
 
 # Solo mapear estáticos vía Django si DEBUG=True. En producción usa WhiteNoise.

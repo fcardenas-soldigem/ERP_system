@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Box,
   Button,
@@ -25,9 +25,11 @@ import {
   Flex,
   Text,
   Switch,
-  Divider
+  Divider,
+  InputGroup,
+  InputRightElement,
 } from '@chakra-ui/react';
-import { FaPlus, FaTrash, FaSave, FaArrowLeft } from 'react-icons/fa';
+import { FaPlus, FaTrash, FaSave, FaArrowLeft, FaSearch } from 'react-icons/fa';
 import { useNavigate, useParams } from 'react-router-dom';
 import cotizacionesService from '../../services/cotizacionesService';
 import { clientesService } from '../../services/clientes.service';
@@ -40,14 +42,14 @@ const CotizacionForm = () => {
   const [loading, setLoading] = useState(false);
   const [clientes, setClientes] = useState([]);
   const [productos, setProductos] = useState([]);
-  
+
   const [formData, setFormData] = useState({
     cliente: '',
     asunto: '',
     descripcion: '',
     fecha_vencimiento: '',
     moneda: 'PEN',
-    incluye_igv: true,
+    incluye_igv: false,
     porcentaje_igv: 18,
     descuento: 0,
     forma_pago: 'Contado',
@@ -56,44 +58,56 @@ const CotizacionForm = () => {
     validez_oferta: '30 días',
     notas: '',
     terminos_condiciones: '',
-    detalles: []
+    detalles: [],
   });
+
+  // ── Búsqueda de clientes ──
+  const [busquedaCliente, setBusquedaCliente] = useState('');
+  const [resultadosClientes, setResultadosClientes] = useState([]);
+  const [mostrarResultados, setMostrarResultados] = useState(false);
+  const dropdownRef = useRef(null);
+
+  // ── Descuento ──
+  const [descuento_tipo, setDescuentoTipo] = useState('porcentaje');
+  const [descuento_valor, setDescuentoValor] = useState(0);
 
   useEffect(() => {
     cargarDatos();
     if (id) {
       cargarCotizacion();
     } else {
-      // Fecha de vencimiento por defecto: 30 días
       const fecha = new Date();
       fecha.setDate(fecha.getDate() + 30);
       setFormData(prev => ({
         ...prev,
-        fecha_vencimiento: fecha.toISOString().split('T')[0]
+        fecha_vencimiento: fecha.toISOString().split('T')[0],
       }));
     }
   }, [id]);
+
+  // Cerrar dropdown al hacer click fuera
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setMostrarResultados(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const cargarDatos = async () => {
     try {
       const [clientesData, productosData] = await Promise.all([
         clientesService.getClientes(),
-        productosService.getProductos()
+        productosService.getProductosParaVenta(),
       ]);
-      
-      // Manejar respuestas paginadas
-      const clientesArray = Array.isArray(clientesData?.results) 
-        ? clientesData.results 
-        : Array.isArray(clientesData) 
-          ? clientesData 
-          : [];
-      
-      const productosArray = Array.isArray(productosData?.results) 
-        ? productosData.results 
-        : Array.isArray(productosData) 
-          ? productosData 
-          : [];
-      
+      const clientesArray = Array.isArray(clientesData?.results)
+        ? clientesData.results
+        : Array.isArray(clientesData) ? clientesData : [];
+      const productosArray = Array.isArray(productosData?.results)
+        ? productosData.results
+        : Array.isArray(productosData) ? productosData : [];
       setClientes(clientesArray);
       setProductos(productosArray);
     } catch (error) {
@@ -117,8 +131,17 @@ const CotizacionForm = () => {
       setFormData({
         ...data,
         cliente: data.cliente,
-        fecha_vencimiento: data.fecha_vencimiento
+        fecha_vencimiento: data.fecha_vencimiento,
+        incluye_igv: !!data.precios_incluyen_igv,
       });
+      // Cargar descuento
+      if (data.descuento_tipo) {
+        setDescuentoTipo(data.descuento_tipo);
+        setDescuentoValor(parseFloat(data.descuento_valor) || 0);
+      } else if (data.descuento && parseFloat(data.descuento) > 0) {
+        setDescuentoTipo('monto');
+        setDescuentoValor(parseFloat(data.descuento) || 0);
+      }
     } catch (error) {
       toast({
         title: 'Error al cargar cotización',
@@ -132,11 +155,36 @@ const CotizacionForm = () => {
     }
   };
 
+  // ── Búsqueda de clientes por nombre/RUC ──
+  const handleBuscarCliente = useCallback(async (termino) => {
+    setBusquedaCliente(termino);
+    if (termino.length >= 3) {
+      try {
+        const data = await clientesService.getClientes({ search: termino });
+        const arr = Array.isArray(data?.results) ? data.results : Array.isArray(data) ? data : [];
+        setResultadosClientes(arr.slice(0, 6));
+        setMostrarResultados(true);
+      } catch {
+        setResultadosClientes([]);
+        setMostrarResultados(false);
+      }
+    } else {
+      setResultadosClientes([]);
+      setMostrarResultados(false);
+    }
+  }, []);
+
+  const seleccionarCliente = (c) => {
+    setFormData(prev => ({ ...prev, cliente: c.id }));
+    setBusquedaCliente('');
+    setMostrarResultados(false);
+  };
+
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
     setFormData(prev => ({
       ...prev,
-      [name]: type === 'checkbox' ? checked : value
+      [name]: type === 'checkbox' ? checked : value,
     }));
   };
 
@@ -152,67 +200,58 @@ const CotizacionForm = () => {
           cantidad: 1,
           precio_unitario: 0,
           descuento_item: 0,
-          orden: prev.detalles.length
-        }
-      ]
+          orden: prev.detalles.length,
+        },
+      ],
     }));
   };
 
   const eliminarDetalle = (index) => {
     setFormData(prev => ({
       ...prev,
-      detalles: prev.detalles.filter((_, i) => i !== index)
+      detalles: prev.detalles.filter((_, i) => i !== index),
     }));
   };
 
   const handleDetalleChange = (index, field, value) => {
     setFormData(prev => {
       const nuevosDetalles = [...prev.detalles];
-      nuevosDetalles[index] = {
-        ...nuevosDetalles[index],
-        [field]: value
-      };
-
-      // Si se selecciona un producto, autocompletar datos
+      nuevosDetalles[index] = { ...nuevosDetalles[index], [field]: value };
       if (field === 'producto' && value) {
         const producto = productos.find(p => p.id === parseInt(value));
         if (producto) {
           nuevosDetalles[index] = {
             ...nuevosDetalles[index],
-            codigo: producto.sku || '',  // Usar 'sku' en lugar de 'codigo'
+            codigo: producto.sku || '',
             descripcion: producto.nombre,
-            precio_unitario: producto.precio_venta || 0
+            precio_unitario: producto.precio_venta || 0,
           };
         }
       }
-
       return { ...prev, detalles: nuevosDetalles };
     });
   };
 
   const calcularSubtotalDetalle = (detalle) => {
-    const subtotal = (detalle.cantidad * detalle.precio_unitario) - (detalle.descuento_item || 0);
-    return subtotal > 0 ? subtotal : 0;
+    const sub = (detalle.cantidad * detalle.precio_unitario) - (detalle.descuento_item || 0);
+    return sub > 0 ? sub : 0;
   };
 
   const calcularTotales = () => {
-    const subtotal = formData.detalles.reduce((sum, detalle) => {
-      return sum + calcularSubtotalDetalle(detalle);
-    }, 0);
+    const subtotal = formData.detalles.reduce((sum, d) => sum + calcularSubtotalDetalle(d), 0);
 
-    const subtotalConDescuento = subtotal - (parseFloat(formData.descuento) || 0);
-    
+    const montoDesc = descuento_tipo === 'porcentaje'
+      ? subtotal * ((parseFloat(descuento_valor) || 0) / 100)
+      : Math.min(parseFloat(descuento_valor) || 0, subtotal);
+
+    const subtotalConDescuento = Math.max(0, subtotal - montoDesc);
+
     let baseImponible, igv, total;
-    
     if (formData.incluye_igv) {
-      // Si el IGV está INCLUIDO en el precio
-      // El subtotal ya tiene el IGV incluido, debemos extraerlo
       baseImponible = subtotalConDescuento / (1 + (formData.porcentaje_igv / 100));
       igv = subtotalConDescuento - baseImponible;
       total = subtotalConDescuento;
     } else {
-      // Si el IGV NO está incluido
-      // El IGV se suma al subtotal
       baseImponible = subtotalConDescuento;
       igv = subtotalConDescuento * (formData.porcentaje_igv / 100);
       total = subtotalConDescuento + igv;
@@ -220,52 +259,55 @@ const CotizacionForm = () => {
 
     return {
       subtotal: subtotal.toFixed(2),
-      baseImponible: baseImponible.toFixed(2),
-      igv: igv.toFixed(2),
-      total: total.toFixed(2)
+      montoDescuento: montoDesc.toFixed(2),
+      baseImponible: Math.max(0, baseImponible).toFixed(2),
+      igv: Math.max(0, igv).toFixed(2),
+      total: Math.max(0, total).toFixed(2),
     };
+  };
+
+  const handleDescuentoValorChange = (v) => {
+    const val = parseFloat(v) || 0;
+    const totalesActuales = calcularTotales();
+    if (descuento_tipo === 'porcentaje' && val > 100) {
+      toast({ title: 'El descuento no puede superar el 100%', status: 'warning', duration: 2000 });
+      return;
+    }
+    if (descuento_tipo === 'monto' && val > parseFloat(totalesActuales.subtotal)) {
+      toast({ title: 'El descuento no puede ser mayor al subtotal', status: 'warning', duration: 2000 });
+      return;
+    }
+    setDescuentoValor(val);
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
-    // Validaciones
     if (!formData.cliente) {
-      toast({
-        title: 'Error',
-        description: 'Debe seleccionar un cliente',
-        status: 'error',
-        duration: 3000,
-      });
+      toast({ title: 'Error', description: 'Debe seleccionar un cliente', status: 'error', duration: 3000 });
       return;
     }
-
     if (formData.detalles.length === 0) {
-      toast({
-        title: 'Error',
-        description: 'Debe agregar al menos un producto o servicio',
-        status: 'error',
-        duration: 3000,
-      });
+      toast({ title: 'Error', description: 'Debe agregar al menos un producto o servicio', status: 'error', duration: 3000 });
       return;
     }
-
+    const totales = calcularTotales();
+    const submitData = {
+      ...formData,
+      incluye_igv: true,
+      precios_incluyen_igv: !!formData.incluye_igv,
+      descuento: parseFloat(totales.montoDescuento) || 0,
+      descuento_tipo,
+      descuento_valor: parseFloat(descuento_valor) || 0,
+      descuento_monto: parseFloat(totales.montoDescuento) || 0,
+    };
     try {
       setLoading(true);
       if (id) {
-        await cotizacionesService.update(id, formData);
-        toast({
-          title: 'Cotización actualizada',
-          status: 'success',
-          duration: 3000,
-        });
+        await cotizacionesService.update(id, submitData);
+        toast({ title: 'Cotización actualizada', status: 'success', duration: 3000 });
       } else {
-        await cotizacionesService.create(formData);
-        toast({
-          title: 'Cotización creada',
-          status: 'success',
-          duration: 3000,
-        });
+        await cotizacionesService.create(submitData);
+        toast({ title: 'Cotización creada', status: 'success', duration: 3000 });
       }
       navigate('/app/cotizaciones');
     } catch (error) {
@@ -288,21 +330,73 @@ const CotizacionForm = () => {
     <Box p={6}>
       <Flex justify="space-between" align="center" mb={6}>
         <Heading size="lg">{id ? 'Editar' : 'Nueva'} Cotización</Heading>
-        <Button
-          leftIcon={<FaArrowLeft />}
-          variant="ghost"
-          onClick={() => navigate('/app/cotizaciones')}
-        >
+        <Button leftIcon={<FaArrowLeft />} variant="ghost" onClick={() => navigate('/app/cotizaciones')}>
           Volver
         </Button>
       </Flex>
 
       <form onSubmit={handleSubmit}>
         <VStack spacing={6} align="stretch">
-          {/* Información del Cliente */}
+          {/* ── Información del Cliente ── */}
           <Box bg="white" p={6} borderRadius="lg" shadow="sm">
             <Heading size="md" mb={4}>Información del Cliente</Heading>
             <Grid templateColumns="repeat(2, 1fr)" gap={4}>
+
+              {/* Búsqueda por nombre */}
+              <GridItem colSpan={2}>
+                <FormControl>
+                  <FormLabel>Buscar Cliente Existente</FormLabel>
+                  <Box position="relative" ref={dropdownRef}>
+                    <InputGroup>
+                      <Input
+                        value={busquedaCliente}
+                        onChange={(e) => handleBuscarCliente(e.target.value)}
+                        placeholder="Buscar por nombre o RUC..."
+                      />
+                      <InputRightElement pointerEvents="none">
+                        <FaSearch color="gray" />
+                      </InputRightElement>
+                    </InputGroup>
+                    {mostrarResultados && (
+                      <Box
+                        position="absolute"
+                        top="100%"
+                        left={0}
+                        right={0}
+                        zIndex={1000}
+                        bg="white"
+                        borderRadius="md"
+                        shadow="lg"
+                        border="1px solid"
+                        borderColor="gray.200"
+                        mt={1}
+                      >
+                        {resultadosClientes.length === 0 ? (
+                          <Text py={2} px={3} fontSize="sm" color="gray.500">No se encontraron clientes</Text>
+                        ) : (
+                          resultadosClientes.map((c) => (
+                            <Box
+                              key={c.id}
+                              py={2}
+                              px={3}
+                              cursor="pointer"
+                              _hover={{ bg: 'blue.50' }}
+                              onClick={() => seleccionarCliente(c)}
+                              borderBottom="1px solid"
+                              borderColor="gray.100"
+                              _last={{ borderBottom: 'none' }}
+                            >
+                              <Text fontSize="sm" fontWeight="bold">{c.nombre}</Text>
+                              <Text fontSize="xs" color="gray.500">{c.documento || c.ruc || ''}</Text>
+                            </Box>
+                          ))
+                        )}
+                      </Box>
+                    )}
+                  </Box>
+                </FormControl>
+              </GridItem>
+
               <GridItem colSpan={2}>
                 <FormControl isRequired>
                   <FormLabel>Cliente</FormLabel>
@@ -348,7 +442,7 @@ const CotizacionForm = () => {
             </Grid>
           </Box>
 
-          {/* Configuración */}
+          {/* ── Configuración ── */}
           <Box bg="white" p={6} borderRadius="lg" shadow="sm">
             <Heading size="md" mb={4}>Configuración</Heading>
             <Grid templateColumns="repeat(3, 1fr)" gap={4}>
@@ -380,7 +474,7 @@ const CotizacionForm = () => {
                 />
               </FormControl>
 
-              <FormControl display="flex" alignItems="center" flexDirection="column" alignItems="flex-start">
+              <FormControl display="flex" flexDirection="column" alignItems="flex-start">
                 <HStack spacing={3} mb={1}>
                   <FormLabel mb="0">IGV Incluido en Precio</FormLabel>
                   <Switch
@@ -391,8 +485,8 @@ const CotizacionForm = () => {
                   />
                 </HStack>
                 <Text fontSize="xs" color="gray.600">
-                  {formData.incluye_igv 
-                    ? '✓ El precio ya incluye el 18% de IGV' 
+                  {formData.incluye_igv
+                    ? '✓ El precio ya incluye el 18% de IGV'
                     : '✗ El IGV se sumará al precio (18% adicional)'}
                 </Text>
               </FormControl>
@@ -411,16 +505,11 @@ const CotizacionForm = () => {
             </Grid>
           </Box>
 
-          {/* Productos/Servicios */}
+          {/* ── Productos/Servicios ── */}
           <Box bg="white" p={6} borderRadius="lg" shadow="sm">
             <Flex justify="space-between" align="center" mb={4}>
               <Heading size="md">Productos / Servicios</Heading>
-              <Button
-                leftIcon={<FaPlus />}
-                colorScheme="blue"
-                size="sm"
-                onClick={agregarDetalle}
-              >
+              <Button leftIcon={<FaPlus />} colorScheme="blue" size="sm" onClick={agregarDetalle}>
                 Agregar Ítem
               </Button>
             </Flex>
@@ -455,9 +544,7 @@ const CotizacionForm = () => {
                             placeholder="Seleccionar"
                           >
                             {productos.map(prod => (
-                              <option key={prod.id} value={prod.id}>
-                                {prod.nombre}
-                              </option>
+                              <option key={prod.id} value={prod.id}>{prod.nombre}</option>
                             ))}
                           </Select>
                         </Td>
@@ -530,28 +617,64 @@ const CotizacionForm = () => {
               </Box>
             )}
 
-            {/* Totales */}
+            {/* ── Totales ── */}
             <Box mt={4} p={4} bg="gray.50" borderRadius="md">
-              <Grid templateColumns="1fr auto" gap={2} maxW="400px" ml="auto">
+              <Grid templateColumns="1fr auto" gap={2} maxW="420px" ml="auto" alignItems="center">
                 <Text fontWeight="bold">Subtotal:</Text>
                 <Text textAlign="right">{simboloMoneda} {totales.subtotal}</Text>
 
-                <Text fontWeight="bold">Descuento:</Text>
+                {/* Descuento con selector tipo */}
+                <HStack spacing={1}>
+                  <Text fontWeight="bold" whiteSpace="nowrap">Descuento:</Text>
+                  <Select
+                    size="xs"
+                    w="60px"
+                    flexShrink={0}
+                    value={descuento_tipo}
+                    onChange={(e) => {
+                      setDescuentoTipo(e.target.value);
+                      setDescuentoValor(0);
+                    }}
+                  >
+                    <option value="porcentaje">%</option>
+                    <option value="monto">{simboloMoneda}</option>
+                  </Select>
+                </HStack>
                 <NumberInput
                   size="sm"
-                  value={formData.descuento}
-                  onChange={(value) => setFormData(prev => ({ ...prev, descuento: parseFloat(value) || 0 }))}
+                  value={descuento_valor}
                   min={0}
+                  max={descuento_tipo === 'porcentaje' ? 100 : parseFloat(totales.subtotal)}
+                  step={descuento_tipo === 'porcentaje' ? 1 : 0.01}
+                  onChange={handleDescuentoValorChange}
                   maxW="150px"
+                  ml="auto"
                 >
                   <NumberInputField />
                 </NumberInput>
 
+                {/* Monto descontado en gris si es porcentaje */}
+                {descuento_tipo === 'porcentaje' && parseFloat(totales.montoDescuento) > 0 && (
+                  <>
+                    <Box />
+                    <Text fontSize="xs" color="gray.500" textAlign="right">
+                      - {simboloMoneda} {totales.montoDescuento}
+                    </Text>
+                  </>
+                )}
+
+                {parseFloat(totales.montoDescuento) > 0 && (
+                  <>
+                    <Text fontWeight="medium" color="gray.600">Subtotal neto:</Text>
+                    <Text fontWeight="semibold" textAlign="right" color="gray.700">
+                      {simboloMoneda} {totales.baseImponible}
+                    </Text>
+                  </>
+                )}
+
                 {formData.incluye_igv && (
                   <>
-                    <Text fontWeight="bold" fontSize="sm" color="gray.600">
-                      Base Imponible:
-                    </Text>
+                    <Text fontWeight="bold" fontSize="sm" color="gray.600">Base Imponible:</Text>
                     <Text textAlign="right" fontSize="sm" color="gray.600">
                       {simboloMoneda} {totales.baseImponible}
                     </Text>
@@ -567,7 +690,7 @@ const CotizacionForm = () => {
                 <Text fontSize="xl" fontWeight="bold" color="green.600" textAlign="right">
                   {simboloMoneda} {totales.total}
                 </Text>
-                
+
                 {formData.incluye_igv && (
                   <Text gridColumn="1 / -1" fontSize="xs" color="gray.500" textAlign="right" mt={1}>
                     * Precio incluye IGV
@@ -577,7 +700,7 @@ const CotizacionForm = () => {
             </Box>
           </Box>
 
-          {/* Condiciones Comerciales */}
+          {/* ── Condiciones Comerciales ── */}
           <Box bg="white" p={6} borderRadius="lg" shadow="sm">
             <Heading size="md" mb={4}>Condiciones Comerciales</Heading>
             <Grid templateColumns="repeat(2, 1fr)" gap={4}>
@@ -616,7 +739,7 @@ const CotizacionForm = () => {
             </Grid>
           </Box>
 
-          {/* Notas y Términos */}
+          {/* ── Notas y Términos ── */}
           <Box bg="white" p={6} borderRadius="lg" shadow="sm">
             <Heading size="md" mb={4}>Notas y Términos</Heading>
             <VStack spacing={4}>
@@ -644,12 +767,9 @@ const CotizacionForm = () => {
             </VStack>
           </Box>
 
-          {/* Botones */}
+          {/* ── Botones ── */}
           <Flex justify="flex-end" gap={4}>
-            <Button
-              variant="outline"
-              onClick={() => navigate('/app/cotizaciones')}
-            >
+            <Button variant="outline" onClick={() => navigate('/app/cotizaciones')}>
               Cancelar
             </Button>
             <Button
@@ -668,4 +788,3 @@ const CotizacionForm = () => {
 };
 
 export default CotizacionForm;
-

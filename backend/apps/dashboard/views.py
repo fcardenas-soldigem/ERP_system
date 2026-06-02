@@ -158,6 +158,25 @@ class DashboardResumen(APIView):
                 stock_total__gt=0
             ).count()
 
+            # Cuentas por cobrar: ventas pendientes de pago
+            ventas_pendientes = Venta.objects.filter(empresa=empresa, estado='pendiente')
+            por_cobrar = sum(
+                convertir_a_pen(v.total, v.moneda, tipo_cambio) for v in ventas_pendientes
+            )
+
+            # Cuentas por pagar: compras pendientes de pago
+            compras_pendientes = Compra.objects.filter(empresa=empresa, estado='pendiente')
+            por_pagar = sum(
+                convertir_a_pen(c.total, c.moneda, tipo_cambio) for c in compras_pendientes
+            )
+
+            # Compras en borrador (no contadas en la utilidad — advertencia)
+            compras_borrador = Compra.objects.filter(empresa=empresa, estado='borrador')
+            compras_borrador_count = compras_borrador.count()
+            compras_borrador_total = sum(
+                convertir_a_pen(c.total, c.moneda, tipo_cambio) for c in compras_borrador
+            )
+
             response_data = {
                 'ventas': {
                     'total': float(ventas_totales),
@@ -177,6 +196,14 @@ class DashboardResumen(APIView):
                     'igv_ventas': float(igv_ventas),
                     'igv_compras': float(igv_compras),
                     'por_pagar': float(igv_ventas - igv_compras),
+                },
+                'cuentas': {
+                    'por_cobrar': float(por_cobrar),
+                    'por_pagar': float(por_pagar),
+                    'ventas_pendientes_count': ventas_pendientes.count(),
+                    'compras_pendientes_count': compras_pendientes.count(),
+                    'compras_borrador_count': compras_borrador_count,
+                    'compras_borrador_total': float(compras_borrador_total),
                 },
                 'inventario': {
                     'total_productos': productos_stock['total_productos'] or 0,
@@ -214,52 +241,51 @@ class DashboardStatsView(APIView):
         fecha_fin = timezone.now()
         fecha_inicio = fecha_fin - timedelta(days=days)
         empresa = request.user.empresa
-        
-        # Obtener tipo de cambio del día
-        tipo_cambio = obtener_tipo_cambio_venta()
-        
-        # Crear estructura de datos diarios
+
+        # Tipo de cambio: preferir el configurado en empresa, luego API del día
+        tipo_cambio = float(getattr(empresa, 'tipo_cambio_usd', None) or obtener_tipo_cambio_venta())
+
+        # Fetch all ventas and compras in range at once (evita 60 queries en el loop)
+        fecha_inicio_date = fecha_inicio.date()
+        fecha_fin_date = fecha_fin.date()
+
+        todas_ventas = Venta.objects.filter(
+            empresa=empresa,
+            fecha_emision__range=(fecha_inicio_date, fecha_fin_date),
+            estado='pagado',
+        ).values('fecha_emision', 'moneda', 'total')
+
+        todas_compras = Compra.objects.filter(
+            empresa=empresa,
+            fecha_emision__range=(fecha_inicio_date, fecha_fin_date),
+            estado='pagada',
+        ).values('fecha_emision', 'moneda', 'total')
+
+        # Build date→PEN total dicts
+        ventas_por_fecha = {}
+        for v in todas_ventas:
+            dia = v['fecha_emision']
+            ventas_por_fecha[dia] = ventas_por_fecha.get(dia, 0.0) + convertir_a_pen(v['total'], v['moneda'], tipo_cambio)
+
+        compras_por_fecha = {}
+        for c in todas_compras:
+            dia = c['fecha_emision']
+            compras_por_fecha[dia] = compras_por_fecha.get(dia, 0.0) + convertir_a_pen(c['total'], c['moneda'], tipo_cambio)
+
         labels = []
         ventas_data = []
         compras_data = []
-        
-        # Generar datos para cada día en el rango
+
         for i in range(days):
-            fecha = (fecha_fin - timedelta(days=days-1-i)).date()
+            fecha = (fecha_fin - timedelta(days=days - 1 - i)).date()
             labels.append(fecha.strftime('%d/%m'))
-            
-            # Obtener ventas del día
-            ventas_dia = Venta.objects.filter(
-                empresa=empresa,
-                fecha_emision=fecha,
-                estado='pagado'
-            ).aggregate(total=Sum('total'))['total'] or 0
-            
-            # Convertir a PEN si es necesario
-            ventas_pen = convertir_a_pen(ventas_dia, 'PEN', tipo_cambio)
-            ventas_data.append(float(ventas_pen))
-            
-            # Obtener compras del día
-            compras_dia = Compra.objects.filter(
-                empresa=empresa,
-                fecha_emision=fecha,
-                estado='pagada'
-            ).aggregate(total=Sum('total'))['total'] or 0
-            
-            # Convertir a PEN si es necesario
-            compras_pen = convertir_a_pen(compras_dia, 'PEN', tipo_cambio)
-            compras_data.append(float(compras_pen))
+            ventas_data.append(round(ventas_por_fecha.get(fecha, 0.0), 2))
+            compras_data.append(round(compras_por_fecha.get(fecha, 0.0), 2))
 
         return Response({
-            'ventas': {
-                'labels': labels,
-                'data': ventas_data
-            },
-            'compras': {
-                'labels': labels, 
-                'data': compras_data
-            },
-            'tipo_cambio': tipo_cambio
+            'ventas': {'labels': labels, 'data': ventas_data},
+            'compras': {'labels': labels, 'data': compras_data},
+            'tipo_cambio': tipo_cambio,
         })
 
 class DashboardResumenView(APIView):
@@ -267,30 +293,25 @@ class DashboardResumenView(APIView):
 
     def get(self, request):
         empresa = request.user.empresa
+        tipo_cambio = float(getattr(empresa, 'tipo_cambio_usd', None) or obtener_tipo_cambio_venta())
+
+        def _sum_con_conversion(qs, campo):
+            """Suma un campo monetario agrupando por moneda y convirtiendo a PEN."""
+            pen = float(qs.filter(moneda='PEN').aggregate(t=Sum(campo, output_field=FloatField()))['t'] or 0)
+            usd = float(qs.filter(moneda='USD').aggregate(t=Sum(campo, output_field=FloatField()))['t'] or 0)
+            return pen + usd * tipo_cambio
 
         # Ventas históricas
-        ventas = Venta.objects.filter(
-            empresa=empresa,
-            estado='pagado'
-        )
-        
-        ventas_resumen = ventas.aggregate(
-            total_ventas=Sum('total', output_field=FloatField()) or 0,
-            cantidad=Count('numero'),
-            total_igv=Sum('igv', output_field=FloatField()) or 0
-        )
+        ventas = Venta.objects.filter(empresa=empresa, estado='pagado')
+        total_ventas = _sum_con_conversion(ventas, 'total')
+        total_igv_ventas = _sum_con_conversion(ventas, 'igv')
+        cantidad_ventas = ventas.count()
 
         # Compras históricas
-        compras = Compra.objects.filter(
-            empresa=empresa,
-            estado='pagada'
-        )
-        
-        compras_resumen = compras.aggregate(
-            total_compras=Sum('total', output_field=FloatField()) or 0,
-            cantidad=Count('numero'),
-            total_igv=Sum('igv', output_field=FloatField()) or 0
-        )
+        compras = Compra.objects.filter(empresa=empresa, estado='pagada')
+        total_compras = _sum_con_conversion(compras, 'total')
+        total_igv_compras = _sum_con_conversion(compras, 'igv')
+        cantidad_compras = compras.count()
 
         # Productos en stock
         productos_stock = Stock.objects.filter(
@@ -308,53 +329,51 @@ class DashboardResumenView(APIView):
             stock_total__gt=0
         ).count()
 
-        # Calcular utilidad = Ventas - Compras (antes de impuestos)
-        ventas_sin_igv = ventas_resumen['total_ventas'] / 1.18
-        compras_sin_igv = compras_resumen['total_compras'] / 1.18
-        
-        # Calcular utilidad bruta
+        ventas_sin_igv = total_ventas / 1.18
+        compras_sin_igv = total_compras / 1.18
         utilidad_bruta = ventas_sin_igv - compras_sin_igv
-        
-        # La utilidad neta es la misma que la bruta ya que trabajamos antes de impuestos
-        utilidad_neta = utilidad_bruta
-        
-        # Calcular margen basado en ventas sin IGV
-        margen = (utilidad_neta / ventas_sin_igv * 100) if ventas_sin_igv > 0 else 0
+        margen = (utilidad_bruta / ventas_sin_igv * 100) if ventas_sin_igv > 0 else 0
+        igv_por_pagar = total_igv_ventas - total_igv_compras
 
-        # Calcular IGV por pagar
-        igv_por_pagar = ventas_resumen['total_igv'] - compras_resumen['total_igv']
+        # Cuentas por cobrar / pagar reales (pendientes de pago)
+        ventas_pendientes_h = Venta.objects.filter(empresa=empresa, estado='pendiente')
+        por_cobrar_h = float(_sum_con_conversion(ventas_pendientes_h, 'total'))
+        compras_pendientes_h = Compra.objects.filter(empresa=empresa, estado='pendiente')
+        por_pagar_h = float(_sum_con_conversion(compras_pendientes_h, 'total'))
+        compras_borrador_h = Compra.objects.filter(empresa=empresa, estado='borrador')
+        compras_borrador_count_h = compras_borrador_h.count()
+        compras_borrador_total_h = float(_sum_con_conversion(compras_borrador_h, 'total'))
 
-        # Log para debug
-        logger.warning(f"Ventas históricas encontradas: {ventas.count()}")
-        logger.warning(f"Total ventas histórico: {ventas_resumen['total_ventas']}")
-        logger.warning(f"Total IGV ventas: {ventas_resumen['total_igv']}")
-        logger.warning(f"Total IGV compras: {compras_resumen['total_igv']}")
+        logger.info('DashboardResumenView — ventas=%s compras=%s tc=%s', total_ventas, total_compras, tipo_cambio)
 
         return Response({
-            'ventas': {
-                'total': ventas_resumen['total_ventas'],
-                'cantidad': ventas_resumen['cantidad'] or 0,
-            },
-            'compras': {
-                'total': compras_resumen['total_compras'],
-                'cantidad': compras_resumen['cantidad'] or 0,
-            },
+            'ventas': {'total': total_ventas, 'cantidad': cantidad_ventas},
+            'compras': {'total': total_compras, 'cantidad': cantidad_compras},
             'utilidad': {
-                'total': utilidad_neta,
+                'total': utilidad_bruta,
                 'margen': round(margen, 2),
                 'utilidad_bruta': utilidad_bruta,
                 'impuestos': utilidad_bruta * 0.18,
             },
             'impuestos': {
-                'igv_ventas': ventas_resumen['total_igv'],
-                'igv_compras': compras_resumen['total_igv'],
+                'igv_ventas': total_igv_ventas,
+                'igv_compras': total_igv_compras,
                 'por_pagar': igv_por_pagar,
+            },
+            'cuentas': {
+                'por_cobrar': por_cobrar_h,
+                'por_pagar': por_pagar_h,
+                'ventas_pendientes_count': ventas_pendientes_h.count(),
+                'compras_pendientes_count': compras_pendientes_h.count(),
+                'compras_borrador_count': compras_borrador_count_h,
+                'compras_borrador_total': compras_borrador_total_h,
             },
             'inventario': {
                 'total_productos': productos_stock['total_productos'] or 0,
                 'total_cantidad': productos_stock['total_cantidad'] or 0,
-                'productos_bajo_stock': productos_bajo_stock
-            }
+                'productos_bajo_stock': productos_bajo_stock,
+            },
+            'tipo_cambio': {'valor': tipo_cambio, 'moneda_base': 'PEN'},
         })
 
 @api_view(['GET'])
@@ -409,41 +428,19 @@ class UtilityDashboardView(APIView):
         prev_start_date = datetime(prev_year, prev_month, 1)
         prev_end_date = datetime(prev_year, prev_month, prev_last_day, 23, 59, 59)
 
-        # Obtener ventas del mes actual
-        ventas_mes = Venta.objects.filter(
-            empresa=empresa,
-            fecha_emision__range=(start_date, end_date),
-            estado='pagado'
-        ).aggregate(
-            total=Sum('total', output_field=FloatField()) or 0
-        )['total'] or 0
+        # Tipo de cambio configurable (empresa) con fallback a API del día
+        tipo_cambio = float(getattr(empresa, 'tipo_cambio_usd', None) or obtener_tipo_cambio_venta())
 
-        # Obtener ventas del mes anterior
-        ventas_mes_anterior = Venta.objects.filter(
-            empresa=empresa,
-            fecha_emision__range=(prev_start_date, prev_end_date),
-            estado='pagado'
-        ).aggregate(
-            total=Sum('total', output_field=FloatField()) or 0
-        )['total'] or 0
+        def _total_pen(qs_class, filters, tc):
+            """Suma total convirtiendo USD a PEN."""
+            pen = float(qs_class.filter(**filters, moneda='PEN').aggregate(t=Sum('total', output_field=FloatField()))['t'] or 0)
+            usd = float(qs_class.filter(**filters, moneda='USD').aggregate(t=Sum('total', output_field=FloatField()))['t'] or 0)
+            return pen + usd * tc
 
-        # Obtener compras del mes actual
-        compras_mes = Compra.objects.filter(
-            empresa=empresa,
-            fecha_emision__range=(start_date, end_date),
-            estado='pagada'
-        ).aggregate(
-            total=Sum('total', output_field=FloatField()) or 0
-        )['total'] or 0
-
-        # Obtener compras del mes anterior
-        compras_mes_anterior = Compra.objects.filter(
-            empresa=empresa,
-            fecha_emision__range=(prev_start_date, prev_end_date),
-            estado='pagada'
-        ).aggregate(
-            total=Sum('total', output_field=FloatField()) or 0
-        )['total'] or 0
+        ventas_mes = _total_pen(Venta, {'empresa': empresa, 'fecha_emision__range': (start_date, end_date), 'estado': 'pagado'}, tipo_cambio)
+        ventas_mes_anterior = _total_pen(Venta, {'empresa': empresa, 'fecha_emision__range': (prev_start_date, prev_end_date), 'estado': 'pagado'}, tipo_cambio)
+        compras_mes = _total_pen(Compra, {'empresa': empresa, 'fecha_emision__range': (start_date, end_date), 'estado': 'pagada'}, tipo_cambio)
+        compras_mes_anterior = _total_pen(Compra, {'empresa': empresa, 'fecha_emision__range': (prev_start_date, prev_end_date), 'estado': 'pagada'}, tipo_cambio)
 
         # Calcular utilidad (ventas - compras antes de IGV)
         utilidad_mes = (ventas_mes / 1.18) - (compras_mes / 1.18)
@@ -461,31 +458,36 @@ class UtilityDashboardView(APIView):
         compras_diarias = []
         utilidades_diarias = []
         
+        # Pre-fetch all ventas/compras del mes para evitar N queries en el loop
+        todas_ventas_mes = Venta.objects.filter(
+            empresa=empresa,
+            fecha_emision__range=(start_date, end_date),
+            estado='pagado',
+        ).values('fecha_emision', 'moneda', 'total')
+
+        todas_compras_mes = Compra.objects.filter(
+            empresa=empresa,
+            fecha_emision__range=(start_date, end_date),
+            estado='pagada',
+        ).values('fecha_emision', 'moneda', 'total')
+
+        ventas_por_dia = {}
+        for v in todas_ventas_mes:
+            d = v['fecha_emision'].day if hasattr(v['fecha_emision'], 'day') else v['fecha_emision']
+            ventas_por_dia[d] = ventas_por_dia.get(d, 0.0) + convertir_a_pen(v['total'], v['moneda'], tipo_cambio)
+
+        compras_por_dia = {}
+        for c in todas_compras_mes:
+            d = c['fecha_emision'].day if hasattr(c['fecha_emision'], 'day') else c['fecha_emision']
+            compras_por_dia[d] = compras_por_dia.get(d, 0.0) + convertir_a_pen(c['total'], c['moneda'], tipo_cambio)
+
         for dia in range(1, last_day + 1):
-            fecha_inicio = datetime(year, month, dia)
-            fecha_fin = datetime(year, month, dia, 23, 59, 59)
-            
             dias_mes.append(dia)
-            
-            ventas_dia = Venta.objects.filter(
-                empresa=empresa,
-                fecha_emision__range=(fecha_inicio, fecha_fin),
-                estado='pagado'
-            ).aggregate(
-                total=Sum('total', output_field=FloatField()) or 0
-            )['total'] or 0
-            ventas_diarias.append(ventas_dia)
-            
-            compras_dia = Compra.objects.filter(
-                empresa=empresa,
-                fecha_emision__range=(fecha_inicio, fecha_fin),
-                estado='pagada'
-            ).aggregate(
-                total=Sum('total', output_field=FloatField()) or 0
-            )['total'] or 0
-            compras_diarias.append(compras_dia)
-            
-            utilidades_diarias.append((ventas_dia / 1.18) - (compras_dia / 1.18))
+            v_dia = ventas_por_dia.get(dia, 0.0)
+            c_dia = compras_por_dia.get(dia, 0.0)
+            ventas_diarias.append(round(v_dia, 2))
+            compras_diarias.append(round(c_dia, 2))
+            utilidades_diarias.append(round((v_dia / 1.18) - (c_dia / 1.18), 2))
 
         # Imprimir para debug
         logger.info(f"Ventas mes: {ventas_mes}")

@@ -27,20 +27,12 @@ import { ventasService } from '../../services/ventas.service';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { ESTADOS_DISPLAY, TIPOS_VENTA_DISPLAY, METODOS_PAGO_DISPLAY } from './constants';
+import { getSimboloMoneda } from '../../utils/currency';
 
 const VentaPagos = () => {
     const { id } = useParams();
     const navigate = useNavigate();
     const toast = useToast();
-
-    // Función para obtener el símbolo de moneda
-    const getSimboloMoneda = (moneda) => {
-        const simbolos = {
-            'PEN': 'S/',
-            'USD': '$'
-        };
-        return simbolos[moneda] || 'S/';
-    };
 
     const { data: venta, isLoading: isLoadingVenta } = useQuery({
         queryKey: ['venta', id],

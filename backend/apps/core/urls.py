@@ -18,9 +18,9 @@ from rest_framework_simplejwt.views import (
 )
 
 router = DefaultRouter()
-router.register(r'empresas', EmpresaViewSet)
-router.register(r'usuarios', UsuarioViewSet)
-router.register(r'perfiles', PerfilViewSet)
+router.register(r'empresas', EmpresaViewSet, basename='empresa')
+router.register(r'usuarios', UsuarioViewSet, basename='usuario')
+router.register(r'perfiles', PerfilViewSet, basename='perfil')
 
 urlpatterns = [
     # === AUTENTICACIÓN JWT ===

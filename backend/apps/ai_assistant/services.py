@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timedelta
 from django.db.models import Sum, Avg, F, Count, Max, Min
 from django.db import transaction
@@ -12,6 +13,7 @@ import numpy as np
 from openai import OpenAI
 import anthropic
 import json
+logger = logging.getLogger(__name__)
 
 class AIAssistantService:
     def __init__(self, conversation):
@@ -88,7 +90,7 @@ class AIAssistantService:
             }
             
         except Exception as e:
-            print(f"Error obteniendo historial de usuario: {e}")
+            logger.error(f"Error obteniendo historial de usuario: {e}")
             return {
                 'total_conversations': 0,
                 'total_messages': 0,
@@ -272,7 +274,7 @@ class AIAssistantService:
             return context
 
         except Exception as e:
-            print(f"Error obteniendo contexto del sistema: {e}")
+            logger.error(f"Error obteniendo contexto del sistema: {e}")
             return {}
 
     def generate_proactive_insights(self, user_history, sistema_context):
@@ -310,7 +312,7 @@ class AIAssistantService:
             return insights[:2]  # Máximo 2 insights proactivos
             
         except Exception as e:
-            print(f"Error generando insights proactivos: {e}")
+            logger.error(f"Error generando insights proactivos: {e}")
             return []
 
     def process_message(self, content):
@@ -448,7 +450,7 @@ PERSONALIDAD: Sé amable, entusiasta, profesional pero cercano. Usa emojis aprop
             return ai_response
 
         except Exception as e:
-            print(f"Error en process_message: {e}")
+            logger.error(f"Error en process_message: {e}")
             # En caso de error, enviar una respuesta con datos básicos del sistema
             try:
                 basic_info = self.get_basic_system_info()

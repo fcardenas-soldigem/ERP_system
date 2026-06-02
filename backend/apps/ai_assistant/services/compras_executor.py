@@ -12,13 +12,11 @@ class ComprasExecutor:
     def crear_compra(self, **kwargs):
         """Crear una nueva orden de compra"""
         try:
-            print(f"📦 Iniciando creación de compra para empresa {self.empresa}")
             
             # Validar proveedor
             proveedor_id = kwargs.get('proveedor_id')
             try:
                 proveedor = Proveedor.objects.get(id=proveedor_id, empresa=self.empresa)
-                print(f"✅ Proveedor encontrado: {proveedor.razon_social}")
             except Proveedor.DoesNotExist:
                 return {
                     'success': False,
@@ -29,7 +27,6 @@ class ComprasExecutor:
             almacen_id = kwargs.get('almacen_id')
             try:
                 almacen = Almacen.objects.get(id=almacen_id, empresa=self.empresa)
-                print(f"✅ Almacén encontrado: {almacen.nombre}")
             except Almacen.DoesNotExist:
                 return {
                     'success': False,
@@ -51,7 +48,6 @@ class ComprasExecutor:
                         sku=producto_data['producto_sku'],
                         empresa=self.empresa
                     )
-                    print(f"✅ Producto validado: {producto.nombre} (SKU: {producto.sku}) - Cantidad: {producto_data['cantidad']}")
                     
                     detalles_data.append({
                         'producto': producto.id,
@@ -83,14 +79,11 @@ class ComprasExecutor:
                 'notas': kwargs.get('notas', '')
             }
 
-            print(f"📝 Datos preparados para compra: {compra_data}")
 
             # Crear la compra usando el serializer
             datos_completos = compra_data.copy()
             datos_completos['detalles'] = detalles_data
             
-            print(f"🔧 Detalles preparados: {detalles_data}")
-            print(f"📋 Datos completos enviados al serializer: {datos_completos}")
             
             context = {'request': type('Request', (), {'user': self.user})()}
             serializer = CompraSerializer(data=datos_completos, context=context)
@@ -118,7 +111,6 @@ class ComprasExecutor:
                 }
 
         except Exception as e:
-            print(f"❌ Error en crear_compra: {str(e)}")
             return {
                 'success': False,
                 'error': f'Error interno: {str(e)}'

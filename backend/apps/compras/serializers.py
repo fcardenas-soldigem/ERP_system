@@ -142,10 +142,8 @@ class CompraSerializer(serializers.ModelSerializer):
 
     @transaction.atomic
     def create(self, validated_data):
-        print(f"📝 CompraSerializer.create() - validated_data recibido: {validated_data}")
         
         detalles_data = validated_data.pop('detalles', [])
-        print(f"📦 Detalles extraídos: {detalles_data}")
         # comprobante = validated_data.pop('comprobante', None)
         
         # Asignar la empresa del usuario autenticado
@@ -153,19 +151,15 @@ class CompraSerializer(serializers.ModelSerializer):
         
         # Crear la compra
         compra = Compra.objects.create(**validated_data)
-        print(f"✅ Compra creada: {compra.id}")
         
         # Crear los detalles directamente sin usar el serializer
         for detalle_data in detalles_data:
-            print(f"📋 Creando detalle: {detalle_data}")
             detalle_data['compra'] = compra  # Asignar la compra creada
             CompraDetalle.objects.create(**detalle_data)
         
-        print(f"📊 Total detalles creados: {len(detalles_data)}")
         
         # Actualizar totales
         compra.actualizar_totales()
-        print(f"💰 Totales actualizados - Subtotal: {compra.subtotal}, Total: {compra.total}")
         
         # Actualizar stock del inventario (mercancía recibida)
         # Solo para compras pagadas (al contado) o que no estén en estado borrador
@@ -258,31 +252,13 @@ class PagoCompraSerializer(serializers.ModelSerializer):
         return data
 
 class OrdenCompraSerializer(serializers.ModelSerializer):
-    producto_detail = ProductoSerializer(source='producto', read_only=True)
-    almacen_detail = AlmacenSerializer(source='almacen', read_only=True)
-    producto_nombre = serializers.CharField(source='producto.nombre', read_only=True)
-    proveedor_nombre = serializers.CharField(source='proveedor.razon_social', read_only=True)
-
     class Meta:
         model = OrdenCompra
         fields = [
             'id', 'numero', 'empresa', 'proveedor_nombre', 'fecha_creacion',
             'fecha_entrega', 'subtotal', 'igv', 'total', 'estado', 'notas',
-            'producto_detail', 'almacen_detail', 'producto_nombre'
         ]
         read_only_fields = ['id', 'numero', 'fecha_creacion']
-
-    def to_representation(self, instance):
-        data = super().to_representation(instance)
-        estado_map = {
-            'borrador': 'Borrador',
-            'aprobada': 'Aprobada',
-            'rechazada': 'Rechazada',
-            'completada': 'Completada',
-            'anulada': 'Anulada'
-        }
-        data['estado'] = estado_map.get(data['estado'], data['estado'])
-        return data
 
 class RecepcionCompraSerializer(serializers.ModelSerializer):
     class Meta:

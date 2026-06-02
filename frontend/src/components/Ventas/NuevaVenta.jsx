@@ -36,9 +36,11 @@ import { ventasService } from '../../services/ventas.service';
 import { clientesService } from '../../services/clientes.service';
 import { TIPOS_VENTA, METODOS_PAGO, TIPOS_VENTA_DISPLAY, METODOS_PAGO_DISPLAY } from './constants';
 import { addDays } from 'date-fns';
-import useConsultaDocumentos from '../../hooks/useConsultaDocumentos';
+import { useClienteSelector } from '../../hooks/useClienteSelector';
+import { getSimboloMoneda } from '../../utils/currency';
 
 const NuevaVenta = () => {
+  // Core form state — reduced from 11 useState to 2
   const [formData, setFormData] = useState({
     cliente: '',
     fecha_emision: new Date().toISOString().split('T')[0],
@@ -46,46 +48,18 @@ const NuevaVenta = () => {
     estado: 'borrador',
     tipo_venta: 'contado',
     metodo_pago: 'efectivo',
+    modo_venta: 'stock',
     igv_incluido: false,
     moneda: 'PEN',
     referencia: '',
     comprobante: null,
-    detalles: [{
-      producto: '',
-      cantidad: 1,
-      precio_unitario: 0
-    }]
+    detalles: [{ producto: '', cantidad: 1, precio_unitario: 0 }],
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [clienteSearch, setClienteSearch] = useState('');
-  const [showClienteDropdown, setShowClienteDropdown] = useState(false);
-  const [filteredClientes, setFilteredClientes] = useState([]);
-  const [selectedClienteIndex, setSelectedClienteIndex] = useState(-1);
-  const [documentoSearch, setDocumentoSearch] = useState('');
-  const [tipoDocumento, setTipoDocumento] = useState('dni');
-  const [consultandoDocumento, setConsultandoDocumento] = useState(false);
-  const [modoConsultaDocumento, setModoConsultaDocumento] = useState(false);
 
   const toast = useToast();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-
-  // Función para obtener el símbolo de moneda
-  const getSimboloMoneda = (moneda) => {
-    const simbolos = {
-      'PEN': 'S/',
-      'USD': '$'
-    };
-    return simbolos[moneda] || 'S/';
-  };
-
-  const { 
-    consultarDocumento, 
-    validarDocumento, 
-    loading: consultando, 
-    error: errorConsulta,
-    limpiarError
-  } = useConsultaDocumentos();
 
   // Limpiar caché al montar el componente
   useEffect(() => {
@@ -106,188 +80,39 @@ const NuevaVenta = () => {
     queryKey: ['clientes'],
     queryFn: () => ventasService.getClientes(),
     staleTime: 0,
-    cacheTime: 0
+    gcTime: 0
   });
 
   const { data: productosData = [] } = useQuery({
     queryKey: ['productos'],
     queryFn: () => ventasService.getProductos(),
     staleTime: 0,
-    cacheTime: 0
+    gcTime: 0
   });
 
-  // Asegurar que productos sea un array válido
+  // Ensure arrays
   const productos = Array.isArray(productosData) ? productosData : [];
   const clientesArray = Array.isArray(clientes) ? clientes : [];
 
-  // Debug logs para diagnosticar el problema
-  console.log('Debug en NuevaVenta:', {
-    productosData,
-    productos,
+  // ── useClienteSelector: replaces 8 useState calls ────────────────────────
+  const {
+    clienteSearch, showClienteDropdown, filteredClientes, selectedIndex: selectedClienteIndex,
+    handleSearchChange: handleClienteSearchChange,
+    handleSearchKeyDown,
+    selectCliente: handleClienteSelect,
+    closeDropdown,
+    documentoSearch, setDocumentoSearch,
+    tipoDocumento, setTipoDocumento,
+    consultando: consultandoDocumento,
+    modoDocumento: modoConsultaDocumento,
+    toggleModo: toggleModoConsultaDocumento,
+    buscarOCrearPorDocumento: handleBuscarOCrearCliente,
+  } = useClienteSelector(
     clientesArray,
-    cantidadProductos: productos.length,
-    cantidadClientes: clientesArray.length
-  });
-
-  // Efectos para filtrar clientes
-  useEffect(() => {
-    if (clienteSearch.length > 0) {
-      const filtered = clientesArray.filter(cliente =>
-        cliente.nombre.toLowerCase().includes(clienteSearch.toLowerCase()) ||
-        cliente.documento.includes(clienteSearch)
-      );
-      setFilteredClientes(filtered);
-      setShowClienteDropdown(true);
-    } else {
-      setFilteredClientes([]);
-      setShowClienteDropdown(false);
-    }
-  }, [clienteSearch, clientesArray]);
-
-  // Función para manejar la selección de cliente
-  const handleClienteSelect = (cliente) => {
-    setFormData(prev => ({
-      ...prev,
-      cliente: cliente.id
-    }));
-    setClienteSearch(cliente.nombre);
-    setShowClienteDropdown(false);
-  };
-
-  // Función para manejar el cambio en el input de búsqueda de cliente
-  const handleClienteSearchChange = (e) => {
-    const value = e.target.value;
-    setClienteSearch(value);
-    setSelectedClienteIndex(-1);
-    
-    if (value === '') {
-      setFormData(prev => ({
-        ...prev,
-        cliente: ''
-      }));
-    }
-  };
-
-  // Función principal para buscar cliente existente o crear nuevo
-  const handleBuscarOCrearCliente = async () => {
-    if (!validarDocumento(documentoSearch, tipoDocumento)) {
-      toast({
-        title: 'Documento inválido',
-        description: `El ${tipoDocumento.toUpperCase()} debe tener ${tipoDocumento === 'dni' ? '8' : '11'} dígitos`,
-        status: 'error',
-        duration: 3000,
-        isClosable: true,
-      });
-      return;
-    }
-
-    setConsultandoDocumento(true);
-    
-    try {
-      // 1. Buscar si el cliente ya existe
-      const clienteExistente = clientesArray.find(c => c.documento === documentoSearch);
-      
-      if (clienteExistente) {
-        // Cliente ya existe, seleccionarlo
-        handleClienteSelect(clienteExistente);
-        setModoConsultaDocumento(false);
-        setDocumentoSearch('');
-        toast({
-          title: '👤 Cliente encontrado',
-          description: `Cliente "${clienteExistente.nombre}" cargado correctamente`,
-          status: 'success',
-          duration: 3000,
-          isClosable: true,
-        });
-        return;
-      }
-
-      // 2. Cliente no existe, consultar datos externos y crear
-      const datosConsulta = await consultarDocumento(documentoSearch, tipoDocumento);
-      
-      if (!datosConsulta) {
-        toast({
-          title: 'No se pudieron obtener los datos',
-          description: 'Verifique el número de documento e intente nuevamente',
-          status: 'error',
-          duration: 3000,
-          isClosable: true,
-        });
-        return;
-      }
-
-      // 3. Crear cliente automáticamente con los datos consultados
-      let nombreCompleto = '';
-      
-      if (tipoDocumento === 'dni') {
-        nombreCompleto = datosConsulta.nombre_completo || 
-          `${datosConsulta.nombres} ${datosConsulta.apellido_paterno} ${datosConsulta.apellido_materno}`.trim();
-      } else if (tipoDocumento === 'ruc') {
-        nombreCompleto = datosConsulta.razon_social || datosConsulta.nombre_comercial || '';
-      }
-
-      if (!nombreCompleto) {
-        toast({
-          title: 'Datos incompletos',
-          description: 'No se pudo obtener el nombre desde la consulta externa',
-          status: 'error',
-          duration: 3000,
-          isClosable: true,
-        });
-        return;
-      }
-
-      const nuevoClienteData = {
-        nombre: nombreCompleto,
-        documento: documentoSearch,
-        tipo_documento: tipoDocumento,
-        direccion: tipoDocumento === 'ruc' ? (datosConsulta.direccion || '') : '',
-        telefono: '',
-        email: ''
-      };
-
-      // Crear el cliente
-      const nuevoCliente = await clientesService.createCliente(nuevoClienteData);
-      
-      // Actualizar la lista de clientes en cache
-      queryClient.invalidateQueries(['clientes']);
-      
-      // Seleccionar el nuevo cliente
-      handleClienteSelect(nuevoCliente);
-      setModoConsultaDocumento(false);
-      setDocumentoSearch('');
-      
-      toast({
-        title: '✅ Cliente creado y seleccionado',
-        description: `Cliente "${nombreCompleto}" registrado automáticamente`,
-        status: 'success',
-        duration: 4000,
-        isClosable: true,
-      });
-
-    } catch (error) {
-      console.error('Error al buscar/crear cliente:', error);
-      toast({
-        title: 'Error al procesar cliente',
-        description: 'Hubo un problema al buscar o crear el cliente',
-        status: 'error',
-        duration: 3000,
-        isClosable: true,
-      });
-    } finally {
-      setConsultandoDocumento(false);
-    }
-  };
-
-  // Función para cambiar entre modo búsqueda por nombre y por documento
-  const toggleModoConsultaDocumento = () => {
-    setModoConsultaDocumento(!modoConsultaDocumento);
-    setClienteSearch('');
-    setDocumentoSearch('');
-    setShowClienteDropdown(false);
-    setFormData(prev => ({ ...prev, cliente: '' }));
-    limpiarError();
-  };
+    toast,
+    queryClient,
+    (clienteId) => setFormData(prev => ({ ...prev, cliente: clienteId }))
+  );
 
   const crearVentaMutation = useMutation({
     mutationFn: ventasService.crearVenta,
@@ -480,7 +305,6 @@ const NuevaVenta = () => {
 
       await crearVentaMutation.mutateAsync(formData);
     } catch (error) {
-      console.error('Error al enviar la venta:', error);
       setIsSubmitting(false);
     }
   };
@@ -675,6 +499,23 @@ const NuevaVenta = () => {
                   </option>
                 ))}
               </Select>
+            </FormControl>
+
+            <FormControl flex="1">
+              <FormLabel>Modo de Venta</FormLabel>
+              <Select
+                name="modo_venta"
+                value={formData.modo_venta}
+                onChange={(e) => setFormData(prev => ({ ...prev, modo_venta: e.target.value }))}
+              >
+                <option value="stock">Desde Stock (PT disponible)</option>
+                <option value="pedido">A Pedido (descontar MP)</option>
+              </Select>
+              <FormHelperText fontSize="xs">
+                {formData.modo_venta === 'pedido' 
+                  ? 'Se descontarán las materias primas según la receta' 
+                  : 'Se descontará del inventario de productos terminados'}
+              </FormHelperText>
             </FormControl>
 
             <FormControl isRequired flex="1">

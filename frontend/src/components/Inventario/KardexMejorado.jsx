@@ -26,7 +26,7 @@ import {
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { DownloadIcon, SearchIcon } from '@chakra-ui/icons';
-import { api } from '../../api';
+import { api } from '../../lib/api';
 
 const KardexMejorado = () => {
     const [movimientos, setMovimientos] = useState([]);

@@ -1,19 +1,5 @@
-import { api } from '../api';
+import { api } from '../lib/api';
 import { queryClient } from '../lib/queryClient';
-
-// Configurar el interceptor para incluir el token en todas las peticiones
-api.interceptors.request.use(
-  (config) => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-  },
-  (error) => {
-    return Promise.reject(error);
-  }
-);
 
 export const ventasService = {
   getVentas: async (page = 1, pageSize = 10) => {
@@ -49,9 +35,6 @@ export const ventasService = {
   async getProductos() {
     try {
       const response = await api.get('/api/inventario/productos/');
-      console.log('Respuesta raw de productos en ventas:', response);
-      console.log('Datos de productos en ventas:', response.data);
-
       // Asegurarnos de que los datos se procesen igual que en inventarioService
       const productos = Array.isArray(response.data) ? response.data : 
                        Array.isArray(response.data.results) ? response.data.results : [];
@@ -70,7 +53,6 @@ export const ventasService = {
         };
       });
 
-      console.log('Productos procesados en ventas:', productosProcessed);
       return productosProcessed;
     } catch (error) {
       console.error('Error detallado al obtener productos en ventas:', error);

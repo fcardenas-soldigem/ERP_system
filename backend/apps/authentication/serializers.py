@@ -44,11 +44,22 @@ class UserSerializer(serializers.ModelSerializer):
         data = super().to_representation(instance)
         # Agregar información adicional de la empresa si existe
         if instance.empresa:
+            request = self.context.get('request')
+            def _url(field):
+                if field and request:
+                    return request.build_absolute_uri(field.url)
+                return None
+
             data['empresa_info'] = {
                 'id': instance.empresa.id,
                 'nombre': instance.empresa.nombre,
+                'razon_social': instance.empresa.nombre,
                 'ruc': instance.empresa.ruc,
-                'is_active': instance.empresa.is_active
+                'direccion': instance.empresa.direccion or '',
+                'logo_url': _url(instance.empresa.logo),
+                'firma_elaborado_url': _url(instance.empresa.firma_elaborado),
+                'firma_aprobado_url': _url(instance.empresa.firma_aprobado),
+                'is_active': instance.empresa.is_active,
             }
         return data
 

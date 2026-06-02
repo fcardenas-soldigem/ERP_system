@@ -24,6 +24,8 @@ backend/.env
 backend/media/
 backend/backup.sql
 backup.sql
+erp_backup.sql
+*_backup.sql
 *.bak
 *.dump
 *.tar
@@ -61,3 +63,4 @@ datasets/*.json
 datasets/*.parquet
 datasets/**/*.csv
 datasets/**/*.xlsx
+.gstack/

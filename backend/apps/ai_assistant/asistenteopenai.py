@@ -14,13 +14,10 @@ thread_message = client.beta.threads.messages.create(
 thread_messages = client.beta.threads.messages.list(
     thread_id=thread.id,
 )
-for message in thread_messages:
-    print(message.content[0].text.value)
 run = client.beta.threads.runs.create(
     thread_id=thread.id,
     assistant_id=ASSISTANT_ID,
 )
-print(run.id)
 
 
     

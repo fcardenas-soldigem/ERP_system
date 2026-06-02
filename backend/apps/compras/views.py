@@ -1,3 +1,4 @@
+import logging
 from rest_framework import viewsets, status, permissions
 from rest_framework.response import Response
 from rest_framework.decorators import action
@@ -14,6 +15,8 @@ from openpyxl.utils import get_column_letter
 from apps.core.permissions import HasEmpresaPermission
 from .models import Compra, CompraDetalle, Proveedor, OrdenCompra, RecepcionCompra, PagoCompra
 from apps.inventario.models import Producto, Almacen
+
+logger = logging.getLogger(__name__)
 from .serializers import (
     CompraSerializer,
     CompraDetalleSerializer,
@@ -55,11 +58,9 @@ class CompraViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         try:
             if not hasattr(self.request.user, 'empresa'):
-                print(f'Usuario {self.request.user.username} no tiene empresa asignada')
                 raise PermissionDenied('Usuario no tiene empresa asignada')
 
             empresa = self.request.user.empresa
-            print(f'Filtrando compras para empresa: {empresa.nombre} (ID: {empresa.id})')
 
             queryset = self.queryset.filter(empresa=empresa)
             
@@ -69,14 +70,12 @@ class CompraViewSet(viewsets.ModelViewSet):
             if tipo_compra_in:
                 tipos = tipo_compra_in.split(',')
                 queryset = queryset.filter(tipo_compra__in=tipos)
-                print(f'Filtrando por tipo_compra__in: {tipos}')
             
             # Filtro por estado
             estado_in = self.request.query_params.get('estado__in')
             if estado_in:
                 estados = estado_in.split(',')
                 queryset = queryset.filter(estado__in=estados)
-                print(f'Filtrando por estado__in: {estados}')
             
             queryset = queryset.select_related(
                 'empresa',
@@ -88,10 +87,9 @@ class CompraViewSet(viewsets.ModelViewSet):
                 'pagos'
             ).order_by('-fecha_emision', '-id')
 
-            print(f'Queryset final: {queryset.count()} compras encontradas')
             return queryset
         except Exception as e:
-            print(f'Error en get_queryset: {str(e)}')
+            logger.error('Error en get_queryset: %s', e, exc_info=True)
             raise
 
     def retrieve(self, request, *args, **kwargs):
@@ -100,7 +98,7 @@ class CompraViewSet(viewsets.ModelViewSet):
             serializer = self.get_serializer(instance)
             return Response(serializer.data)
         except Exception as e:
-            print(f'Error en retrieve: {str(e)}')
+            logger.error('Error en retrieve: %s', e, exc_info=True)
             return Response(
                 {'detail': str(e)},
                 status=status.HTTP_400_BAD_REQUEST
@@ -113,7 +111,6 @@ class CompraViewSet(viewsets.ModelViewSet):
 
     def list(self, request, *args, **kwargs):
         try:
-            print(f'Usuario {request.user.username} solicitando lista de compras')
             queryset = self.get_queryset()
             
             # Aplicar paginación
@@ -130,7 +127,7 @@ class CompraViewSet(viewsets.ModelViewSet):
                 'results': serializer.data
             })
         except Exception as e:
-            print(f'Error en list: {str(e)}')
+            logger.error('Error en list: %s', e, exc_info=True)
             return Response(
                 {'detail': str(e)},
                 status=status.HTTP_400_BAD_REQUEST
@@ -175,6 +172,69 @@ class CompraViewSet(viewsets.ModelViewSet):
         
         serializer = self.get_serializer(compra)
         return Response(serializer.data)
+
+    @action(detail=False, methods=['post'], url_path='bulk-estado')
+    def bulk_cambiar_estado(self, request):
+        """
+        Cambia el estado de múltiples compras en una sola operación.
+        Solo permite transiciones válidas; las anuladas no se pueden reactivar.
+        Seguridad multi-tenant: filtra por empresa del usuario autenticado.
+        """
+        ids = request.data.get('ids', [])
+        nuevo_estado = request.data.get('estado', '').lower()
+
+        VALID_STATES = {'borrador', 'pendiente', 'pagada', 'anulada'}
+        VALID_TRANSITIONS = {
+            'borrador':  {'pendiente', 'pagada', 'anulada'},
+            'pendiente': {'pagada', 'anulada'},
+            'pagada':    {'anulada'},
+            'anulada':   set(),
+        }
+
+        if not ids or not isinstance(ids, list):
+            return Response({'detail': 'El campo ids es requerido y debe ser una lista.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        if nuevo_estado not in VALID_STATES:
+            return Response({'detail': f'Estado "{nuevo_estado}" no válido. Opciones: {", ".join(sorted(VALID_STATES))}'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        empresa = request.user.empresa
+        compras_qs = Compra.objects.filter(id__in=ids, empresa=empresa)
+        encontradas = {c.id for c in compras_qs}
+
+        errores = []
+        for id_solicitado in ids:
+            if id_solicitado not in encontradas:
+                errores.append({'id': id_solicitado, 'error': 'No encontrada o no pertenece a tu empresa.'})
+
+        # Validar transiciones individualmente
+        actualizables = []
+        for compra in compras_qs:
+            permitidos = VALID_TRANSITIONS.get(compra.estado, set())
+            if nuevo_estado in permitidos:
+                actualizables.append(compra)
+            else:
+                errores.append({
+                    'id': compra.id,
+                    'numero': compra.numero,
+                    'error': f'Transición {compra.estado} → {nuevo_estado} no permitida.'
+                })
+
+        if not actualizables and errores:
+            return Response({'detail': 'Ninguna compra pudo ser actualizada.', 'errores': errores},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        with transaction.atomic():
+            for compra in actualizables:
+                compra.estado = nuevo_estado
+                compra.save(update_fields=['estado', 'updated_at'])
+
+        serializer = self.get_serializer(actualizables, many=True)
+        return Response({
+            'actualizadas': len(actualizables),
+            'errores': errores,
+            'compras': serializer.data,
+        })
 
     @action(detail=False, methods=['get'])
     def exportar_excel(self, request):
@@ -373,8 +433,6 @@ class CompraViewSet(viewsets.ModelViewSet):
             
             elif request.method == 'POST':
                 # Crear un nuevo pago
-                print(f'Creando pago para compra {compra.id}')
-                print(f'Datos recibidos: {request.data}')
                 
                 # Validar que la compra sea a crédito o tenga saldo pendiente
                 if compra.tipo_compra not in ['credito_30', 'credito_60'] and compra.estado == 'pagada':
@@ -418,7 +476,6 @@ class CompraViewSet(viewsets.ModelViewSet):
                 serializer = PagoCompraSerializer(data=data)
                 
                 if serializer.is_valid():
-                    print(f'Datos validados: {serializer.validated_data}')
                     pago = serializer.save()
                     
                     # Actualizar el estado de la compra si es necesario
@@ -426,7 +483,6 @@ class CompraViewSet(viewsets.ModelViewSet):
                     if pagos_total >= compra.total:
                         compra.estado = 'pagada'
                         compra.save()
-                        print(f'Compra {compra.id} marcada como pagada')
                     
                     return Response({
                         'pago': PagoCompraSerializer(pago).data,
@@ -434,11 +490,11 @@ class CompraViewSet(viewsets.ModelViewSet):
                         'saldo_restante': float(compra.total - pagos_total)
                     }, status=status.HTTP_201_CREATED)
                 
-                print(f'Errores de validación: {serializer.errors}')
+                logger.debug('Errores de validación pago compra: %s', serializer.errors)
                 return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
                 
         except Exception as e:
-            print(f'Error en pagos: {str(e)}')
+            logger.error('Error en pagos: %s', e, exc_info=True)
             return Response(
                 {'detail': str(e)},
                 status=status.HTTP_400_BAD_REQUEST
@@ -523,7 +579,7 @@ class CompraViewSet(viewsets.ModelViewSet):
                 'count': len(compras_procesadas)
             })
         except Exception as e:
-            print(f'Error en compras_pendientes: {str(e)}')
+            logger.error('Error en compras_pendientes: %s', e, exc_info=True)
             return Response(
                 {'error': str(e)},
                 status=status.HTTP_400_BAD_REQUEST
@@ -536,10 +592,39 @@ class CompraViewSet(viewsets.ModelViewSet):
             saldo = compra.get_saldo_pendiente()
             return Response({'saldo_pendiente': saldo})
         except Exception as e:
-            print(f'Error en saldo_pendiente: {str(e)}')
+            logger.error('Error en saldo_pendiente: %s', e, exc_info=True)
             return Response(
                 {'detail': str(e)},
                 status=status.HTTP_400_BAD_REQUEST
+            )
+
+    @action(detail=True, methods=['get'], url_path='exportar-pdf')
+    def exportar_pdf(self, request, pk=None):
+        """
+        Exportar Orden de Compra a PDF profesional
+        """
+        import traceback
+        compra = self.get_object()
+        
+        try:
+            from .utils.pdf_generator import OrdenCompraPDFGenerator
+            
+            pdf_generator = OrdenCompraPDFGenerator(compra)
+            pdf_buffer = pdf_generator.generar_pdf()
+            
+            # Preparar respuesta
+            response = HttpResponse(pdf_buffer.getvalue(), content_type='application/pdf')
+            filename = f'OC_{compra.numero}.pdf'
+            response['Content-Disposition'] = f'attachment; filename="{filename}"'
+            
+            return response
+        
+        except Exception as e:
+            error_traceback = traceback.format_exc()
+            logger.error("Error al generar PDF: %s", e, exc_info=True)
+            return Response(
+                {'error': f'Error al generar PDF: {str(e)}', 'detail': error_traceback},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
     @action(detail=False, methods=['GET'])
@@ -577,7 +662,6 @@ class CompraViewSet(viewsets.ModelViewSet):
         Método personalizado para crear compras con detalles de productos
         """
         try:
-            print(f'Datos recibidos en create: {dict(request.data)}')
             
             with transaction.atomic():
                 # Obtener datos básicos de la compra
@@ -597,9 +681,8 @@ class CompraViewSet(viewsets.ModelViewSet):
                             detalles_data = json.loads(detalles_json)
                         else:
                             detalles_data = detalles_json
-                        print(f'Detalles procesados: {detalles_data}')
                     except Exception as e:
-                        print(f'Error al procesar detalles: {str(e)}')
+                        logger.error('Error al procesar detalles: %s', e, exc_info=True)
                         return Response(
                             {'error': f'Error al procesar detalles: {str(e)}'},
                             status=status.HTTP_400_BAD_REQUEST
@@ -622,25 +705,20 @@ class CompraViewSet(viewsets.ModelViewSet):
                 serializer.is_valid(raise_exception=True)
                 compra = serializer.save(empresa=empresa)
 
-                print(f'Compra creada: {compra.id}')
 
                 # Crear los detalles
                 from .models import CompraDetalle
                 from apps.inventario.models.producto import Producto
                 
-                print(f"=== CREANDO DETALLES PARA COMPRA {compra.numero} ===")
-                print(f"Número de detalles a crear: {len(detalles_data)}")
                 
                 for idx, detalle_data in enumerate(detalles_data):
                     try:
-                        print(f"Creando detalle {idx + 1}/{len(detalles_data)}")
                         
                         # Validar datos del detalle
                         producto_id = detalle_data.get('producto')
                         cantidad = detalle_data.get('cantidad')
                         precio_unitario = detalle_data.get('precio_unitario')
 
-                        print(f"Datos del detalle: producto_id={producto_id}, cantidad={cantidad}, precio={precio_unitario}")
 
                         if not producto_id or not cantidad or not precio_unitario:
                             raise ValueError('Faltan datos en el detalle del producto')
@@ -658,32 +736,25 @@ class CompraViewSet(viewsets.ModelViewSet):
                             cantidad=Decimal(str(cantidad)),
                             precio_unitario=Decimal(str(precio_unitario))
                         )
-                        print(f'Detalle creado: ID={detalle.id}, Producto {producto.nombre}, Cantidad {cantidad}, Precio {precio_unitario}')
 
                     except Exception as e:
-                        print(f'Error al crear detalle: {str(e)}')
+                        logger.error('Error al crear detalle: %s', e, exc_info=True)
                         raise ValueError(f'Error al procesar producto: {str(e)}')
                 
-                print(f"=== DETALLES CREADOS PARA COMPRA {compra.numero} ===")
 
                 # Actualizar totales de la compra
                 compra.actualizar_totales()
-                print(f'Totales actualizados - Subtotal: {compra.subtotal}, IGV: {compra.igv}, Total: {compra.total}')
 
                 # Si la compra está pagada, actualizar el stock inmediatamente
                 if compra.estado == 'pagada':
-                    print(f"=== LLAMANDO ACTUALIZAR_STOCK DESDE CREATE COMPRA ===")
-                    print(f"Compra: {compra.numero}, Estado: {compra.estado}")
                     compra.actualizar_stock()
-                    print(f'Stock actualizado para compra {compra.numero}')
-                    print(f"=== FIN ACTUALIZAR_STOCK DESDE CREATE COMPRA ===")
 
                 # Retornar la compra creada
                 response_serializer = self.get_serializer(compra)
                 return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
         except Exception as e:
-            print(f'Error en create de CompraViewSet: {str(e)}')
+            logger.error('Error en create CompraViewSet: %s', e, exc_info=True)
             return Response(
                 {'error': str(e)},
                 status=status.HTTP_400_BAD_REQUEST
@@ -820,7 +891,7 @@ class ProveedorViewSet(viewsets.ModelViewSet):
             return response
 
         except Exception as e:
-            print(f"Error en exportar: {str(e)}")
+            logger.error("Error en exportar compras: %s", e, exc_info=True)
             return Response(
                 {'error': str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -832,10 +903,196 @@ class OrdenCompraViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, HasEmpresaPermission]
 
     def get_queryset(self):
-        return self.queryset.filter(empresa=self.request.user.empresa)
+        qs = self.queryset.filter(empresa=self.request.user.empresa)
+        estado = self.request.query_params.get('estado')
+        if estado:
+            qs = qs.filter(estado=estado)
+        return qs
 
     def perform_create(self, serializer):
         serializer.save(empresa=self.request.user.empresa)
+
+    @action(detail=True, methods=['post'], url_path='cambiar-estado')
+    def cambiar_estado(self, request, pk=None):
+        orden = self.get_object()
+        nuevo_estado = request.data.get('estado')
+        estados_validos = [s[0] for s in OrdenCompra.ESTADO_CHOICES]
+        if nuevo_estado not in estados_validos:
+            return Response(
+                {'error': f'Estado inválido. Opciones: {estados_validos}'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        orden.estado = nuevo_estado
+        orden.save(update_fields=['estado'])
+        return Response(OrdenCompraSerializer(orden).data)
+
+    @action(detail=True, methods=['get'], url_path='exportar-pdf')
+    def exportar_pdf(self, request, pk=None):
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.enums import TA_LEFT, TA_RIGHT, TA_CENTER
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, HRFlowable
+        from datetime import datetime
+
+        orden = self.get_object()
+        empresa = orden.empresa
+        buffer = BytesIO()
+
+        PRIMARY = colors.HexColor('#2B6CB0')
+        LIGHT = colors.HexColor('#EBF8FF')
+        DARK = colors.HexColor('#1a1a1a')
+        GRAY = colors.HexColor('#666666')
+        BORDER = colors.HexColor('#cccccc')
+        WHITE = colors.white
+        PAGE_W, _ = A4
+        MARGIN = 40
+
+        styles = getSampleStyleSheet()
+        lbl = ParagraphStyle('lbl', fontSize=8, textColor=GRAY)
+        val = ParagraphStyle('val', fontSize=10, fontName='Helvetica-Bold', textColor=DARK)
+        bar_s = ParagraphStyle('bar', fontSize=9, fontName='Helvetica-Bold', textColor=WHITE, leading=12)
+        cell_s = ParagraphStyle('cell', fontSize=9, textColor=DARK)
+        cell_r = ParagraphStyle('cellr', fontSize=9, textColor=DARK, alignment=TA_RIGHT)
+
+        def section_bar(text):
+            t = Table([[Paragraph(text, bar_s)]], colWidths=[PAGE_W - 2 * MARGIN])
+            t.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, -1), PRIMARY),
+                ('TOPPADDING', (0, 0), (-1, -1), 5),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+                ('LEFTPADDING', (0, 0), (-1, -1), 8),
+            ]))
+            return t
+
+        def lv(label, value):
+            return Table(
+                [[Paragraph(label, lbl)], [Paragraph(str(value) if value else '—', val)]],
+                colWidths=[(PAGE_W - 2 * MARGIN) / 2],
+            )
+
+        doc = SimpleDocTemplate(
+            buffer, pagesize=A4,
+            leftMargin=MARGIN, rightMargin=MARGIN,
+            topMargin=MARGIN, bottomMargin=MARGIN + 10,
+        )
+
+        def page_decor(c, d):
+            c.saveState()
+            c.setFont('Helvetica', 7)
+            c.setFillColor(GRAY)
+            c.drawString(MARGIN, 20, f'OC-{orden.numero or "---"}')
+            c.drawRightString(PAGE_W - MARGIN, 20, datetime.now().strftime('%d/%m/%Y %H:%M'))
+            c.drawCentredString(PAGE_W / 2, 20, f'Página {c.getPageNumber()}')
+            c.restoreState()
+
+        W = PAGE_W - 2 * MARGIN
+
+        # Header
+        right_data = [
+            [Paragraph(f'Fecha: {orden.fecha_creacion.strftime("%d/%m/%Y")}',
+                       ParagraphStyle('h', fontSize=8, textColor=GRAY, alignment=TA_RIGHT))],
+            [Paragraph('ORDEN DE COMPRA', ParagraphStyle('h2', fontSize=10, fontName='Helvetica-Bold',
+                                                          textColor=DARK, alignment=TA_RIGHT, spaceBefore=4))],
+            [Paragraph(f'<b>OC-{orden.numero or "---"}</b>',
+                       ParagraphStyle('h3', fontSize=16, fontName='Helvetica-Bold',
+                                      textColor=PRIMARY, alignment=TA_RIGHT))],
+        ]
+        right_t = Table(right_data, colWidths=[W * 0.45])
+        logo_cell = ''
+        if empresa.logo:
+            try:
+                import os as _os
+                from reportlab.platypus import Image as _Img
+                logo_path = empresa.logo.path
+                if _os.path.exists(logo_path):
+                    logo_cell = _Img(logo_path, width=130, height=60, kind='proportional')
+            except Exception:
+                pass
+        if not logo_cell:
+            logo_cell = Paragraph(f'<b>{empresa.nombre}</b>',
+                                  ParagraphStyle('en', fontSize=14, fontName='Helvetica-Bold',
+                                                 textColor=PRIMARY))
+        header_t = Table([[logo_cell, right_t]], colWidths=[W * 0.55, W * 0.45])
+        header_t.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'MIDDLE')]))
+
+        # Info empresa + proveedor
+        emp_rows = [
+            [lv('Empresa', empresa.nombre), lv('RUC', empresa.ruc or '—')],
+            [lv('Dirección', empresa.direccion or '—'), ''],
+        ]
+        emp_t = Table(emp_rows, colWidths=[W / 2, W / 2])
+        emp_t.setStyle(TableStyle([
+            ('GRID', (0, 0), (-1, -1), 0.3, BORDER),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            ('LEFTPADDING', (0, 0), (-1, -1), 6),
+        ]))
+
+        prov_rows = [
+            [lv('Proveedor', orden.proveedor_nombre or '—'), lv('Fecha Entrega', orden.fecha_entrega.strftime('%d/%m/%Y'))],
+            [lv('Estado', orden.get_estado_display()), ''],
+        ]
+        prov_t = Table(prov_rows, colWidths=[W / 2, W / 2])
+        prov_t.setStyle(TableStyle([
+            ('GRID', (0, 0), (-1, -1), 0.3, BORDER),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            ('LEFTPADDING', (0, 0), (-1, -1), 6),
+        ]))
+
+        # Totals
+        s_lbl = ParagraphStyle('tl', fontSize=9, textColor=DARK)
+        s_val = ParagraphStyle('tv', fontSize=9, textColor=DARK, alignment=TA_RIGHT)
+        s_lbl_b = ParagraphStyle('tlb', fontSize=10, fontName='Helvetica-Bold', textColor=DARK)
+        s_val_b = ParagraphStyle('tvb', fontSize=10, fontName='Helvetica-Bold', textColor=PRIMARY, alignment=TA_RIGHT)
+        sym = 'S/'
+        tot_rows = [
+            [Paragraph('Subtotal:', s_lbl), Paragraph(f'{sym} {float(orden.subtotal):,.2f}', s_val)],
+            [Paragraph('IGV (18%):', s_lbl), Paragraph(f'{sym} {float(orden.igv):,.2f}', s_val)],
+            [Paragraph('<b>TOTAL:</b>', s_lbl_b), Paragraph(f'<b>{sym} {float(orden.total):,.2f}</b>', s_val_b)],
+        ]
+        tot_col = W - 180
+        tot_t = Table(
+            [[Paragraph('', styles['Normal']), Table(tot_rows, colWidths=[90, 90])]],
+            colWidths=[tot_col, 180],
+        )
+        tot_t.setStyle(TableStyle([
+            ('TOPPADDING', (0, 0), (-1, -1), 0),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
+            ('ALIGN', (1, 0), (1, 0), 'RIGHT'),
+        ]))
+
+        story = [
+            header_t, Spacer(1, 8),
+            section_bar('EMPRESA EMISORA'), emp_t, Spacer(1, 4),
+            section_bar('DATOS DEL PROVEEDOR Y ENTREGA'), prov_t, Spacer(1, 8),
+        ]
+        if orden.notas:
+            story += [section_bar('NOTAS / OBSERVACIONES'),
+                      Paragraph(orden.notas, ParagraphStyle('nn', fontSize=9, textColor=DARK)),
+                      Spacer(1, 8)]
+        story += [section_bar('RESUMEN ECONÓMICO'), Spacer(1, 4), tot_t, Spacer(1, 30)]
+
+        # Signature area
+        sig_t = Table(
+            [[Paragraph('_______________________', styles['Normal']),
+              Paragraph('_______________________', styles['Normal'])],
+             [Paragraph('Firma autorizada', ParagraphStyle('sig', fontSize=8, textColor=GRAY)),
+              Paragraph('Visto bueno proveedor', ParagraphStyle('sig2', fontSize=8, textColor=GRAY, alignment=TA_RIGHT))]],
+            colWidths=[W / 2, W / 2],
+        )
+        story.append(sig_t)
+
+        doc.build(story, onFirstPage=page_decor, onLaterPages=page_decor)
+        buffer.seek(0)
+
+        prov_slug = (orden.proveedor_nombre or 'PROVEEDOR').replace(' ', '_')[:30]
+        fecha_str = orden.fecha_creacion.strftime('%Y-%m-%d')
+        filename = f'OC-{orden.numero or "---"}_{prov_slug}_{fecha_str}.pdf'
+        response = HttpResponse(buffer.getvalue(), content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
 
 class RecepcionCompraViewSet(viewsets.ModelViewSet):
     queryset = RecepcionCompra.objects.all()
@@ -941,7 +1198,7 @@ def descargar_template_compras(request):
         wb.save(response)
         return response
     except Exception as e:
-        print(f"Error al generar template de compras: {str(e)}")
+        logger.error("Error al generar template de compras: %s", e, exc_info=True)
         return HttpResponse(status=500)
 
 class PagoCompraViewSet(viewsets.ModelViewSet):

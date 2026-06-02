@@ -2,7 +2,7 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from .models import Empresa
 from .serializers import EmpresaSerializer
 
@@ -10,16 +10,18 @@ class EmpresaViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = EmpresaSerializer
     queryset = Empresa.objects.none()
-    parser_classes = (MultiPartParser, FormParser)
+    parser_classes = (JSONParser, MultiPartParser, FormParser)
 
     def get_queryset(self):
         if not self.request.user.is_authenticated:
             return Empresa.objects.none()
         
         try:
-            return Empresa.objects.filter(id=self.request.user.empresa.id)
+            if hasattr(self.request.user, 'empresa') and self.request.user.empresa:
+                return Empresa.objects.filter(id=self.request.user.empresa.id)
+            else:
+                return Empresa.objects.none()
         except Exception as e:
-            print(f"Error en EmpresaViewSet.get_queryset: {e}")
             return Empresa.objects.none()
     
     @action(detail=True, methods=['post'], parser_classes=[MultiPartParser, FormParser])

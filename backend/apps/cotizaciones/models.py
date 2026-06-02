@@ -90,6 +90,10 @@ class Cotizacion(models.Model):
     
     # Configuración
     incluye_igv = models.BooleanField(default=True)
+    precios_incluyen_igv = models.BooleanField(
+        default=False,
+        help_text="True si los precios ingresados ya incluyen IGV (se extrae). False si los precios no incluyen IGV (se agrega)."
+    )
     porcentaje_igv = models.DecimalField(
         max_digits=5,
         decimal_places=2,
@@ -140,6 +144,10 @@ class Cotizacion(models.Model):
         """
         Calcula los totales de la cotización basándose en los detalles
         """
+        # Limpiar el cache de prefetch para forzar una consulta fresca a la BD
+        if hasattr(self, '_prefetched_objects_cache'):
+            self._prefetched_objects_cache.pop('detalles', None)
+
         detalles = self.detalles.all()
         
         # Calcular subtotal
@@ -148,14 +156,19 @@ class Cotizacion(models.Model):
         # Aplicar descuento si existe
         subtotal_con_descuento = self.subtotal - self.descuento
         
-        # Calcular IGV si aplica
-        if self.incluye_igv:
-            self.igv = subtotal_con_descuento * (self.porcentaje_igv / Decimal('100'))
+        # Calcular IGV
+        if self.precios_incluyen_igv:
+            # Los precios ya incluyen IGV → extraer
+            pct = self.porcentaje_igv
+            self.igv = (subtotal_con_descuento * pct / (Decimal('100') + pct)).quantize(Decimal('0.01'))
+            self.total = subtotal_con_descuento
+        elif self.incluye_igv:
+            # Los precios NO incluyen IGV → agregar el 18%
+            self.igv = (subtotal_con_descuento * self.porcentaje_igv / Decimal('100')).quantize(Decimal('0.01'))
+            self.total = subtotal_con_descuento + self.igv
         else:
             self.igv = Decimal('0.00')
-        
-        # Calcular total
-        self.total = subtotal_con_descuento + self.igv
+            self.total = subtotal_con_descuento
         
         self.save()
     

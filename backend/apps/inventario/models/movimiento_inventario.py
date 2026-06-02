@@ -9,6 +9,7 @@ class MovimientoInventario(models.Model):
     """
     Modelo para registrar todos los movimientos de inventario
     Implementa el sistema Kardex con método FIFO
+    Soporta trazabilidad completa entre módulos (compras, producción, ventas)
     """
     
     TIPO_MOVIMIENTO_CHOICES = [
@@ -20,6 +21,14 @@ class MovimientoInventario(models.Model):
         ('devolucion_venta', 'Devolución Venta'),
         ('transferencia_entrada', 'Transferencia - Entrada'),
         ('transferencia_salida', 'Transferencia - Salida'),
+        # Nuevos tipos para producción
+        ('entrada_compra', 'Entrada por Compra'),
+        ('salida_produccion', 'Salida a Producción'),
+        ('entrada_produccion', 'Entrada por Producción'),
+        ('salida_venta', 'Salida por Venta'),
+        ('reserva_produccion', 'Reserva para Producción'),
+        ('liberacion_reserva', 'Liberación de Reserva'),
+        ('reserva_venta', 'Reserva para Venta'),
     ]
     
     TIPO_DOCUMENTO_CHOICES = [
@@ -30,6 +39,14 @@ class MovimientoInventario(models.Model):
         ('devolucion_venta', 'Devolución de Venta'),
         ('transferencia', 'Transferencia'),
         ('inventario_inicial', 'Inventario Inicial'),
+        ('orden_produccion', 'Orden de Producción'),
+        ('recepcion_produccion', 'Recepción de Producción'),
+    ]
+    
+    TIPO_INVENTARIO_CHOICES = [
+        ('materia_prima', 'Materia Prima'),
+        ('producto_terminado', 'Producto Terminado'),
+        ('general', 'General'),
     ]
     
     # Relaciones básicas
@@ -43,6 +60,14 @@ class MovimientoInventario(models.Model):
     tipo_documento = models.CharField(max_length=30, choices=TIPO_DOCUMENTO_CHOICES)
     numero_documento = models.CharField(max_length=50, blank=True)
     
+    # Tipo de inventario afectado
+    tipo_inventario = models.CharField(
+        max_length=30, 
+        choices=TIPO_INVENTARIO_CHOICES, 
+        default='general',
+        verbose_name='Tipo de Inventario'
+    )
+    
     # Cantidades
     cantidad_entrada = models.DecimalField(max_digits=12, decimal_places=4, default=0)
     cantidad_salida = models.DecimalField(max_digits=12, decimal_places=4, default=0)
@@ -54,10 +79,43 @@ class MovimientoInventario(models.Model):
     costo_total_salida = models.DecimalField(max_digits=15, decimal_places=4, default=0)
     costo_saldo = models.DecimalField(max_digits=15, decimal_places=4, default=0)
     
+    # Inventarios anterior y actual (para trazabilidad)
+    inventario_anterior = models.DecimalField(
+        max_digits=12, 
+        decimal_places=4, 
+        default=0,
+        verbose_name='Inventario Anterior'
+    )
+    inventario_actual = models.DecimalField(
+        max_digits=12, 
+        decimal_places=4, 
+        default=0,
+        verbose_name='Inventario Actual'
+    )
+    
     # Referencias a documentos originales
     compra_id = models.IntegerField(null=True, blank=True)
     venta_id = models.IntegerField(null=True, blank=True)
     ajuste_id = models.IntegerField(null=True, blank=True)
+    orden_produccion_id = models.IntegerField(null=True, blank=True, verbose_name='ID Orden Producción')
+    
+    # Almacenes para transferencias
+    almacen_origen = models.ForeignKey(
+        Almacen, 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True,
+        related_name='movimientos_origen',
+        verbose_name='Almacén Origen'
+    )
+    almacen_destino = models.ForeignKey(
+        Almacen, 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True,
+        related_name='movimientos_destino',
+        verbose_name='Almacén Destino'
+    )
     
     # Metadatos
     observaciones = models.TextField(blank=True)

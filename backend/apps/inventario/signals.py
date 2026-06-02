@@ -1,3 +1,4 @@
+import logging
 from django.db.models.signals import post_save, pre_save, post_delete
 from django.dispatch import receiver
 from .models import Stock, Producto, Almacen, MovimientoInventario
@@ -8,6 +9,7 @@ from decimal import Decimal
 
 from apps.compras.models import CompraDetalle
 from apps.ventas.models import DetalleVenta
+logger = logging.getLogger(__name__)
 
 @receiver(post_save, sender=Stock)
 def actualizar_stock_producto(sender, instance, **kwargs):
@@ -50,7 +52,7 @@ def crear_stock_inicial(sender, instance, created, **kwargs):
                 ]
                 Stock.objects.bulk_create(stock_objects)
         except Exception as e:
-            print(f"Error creando stock inicial: {str(e)}")
+            logger.debug("Error creando stock inicial: %s (str(e))")
 
 @receiver(post_save, sender=CompraDetalle)
 def registrar_entrada_compra(sender, instance, created, **kwargs):
@@ -83,7 +85,7 @@ def registrar_entrada_compra(sender, instance, created, **kwargs):
     #             )
     #     except Exception as e:
     #         # Log del error pero no interrumpir el flujo
-    #         print(f"Error al registrar entrada en kardex: {e}")
+    #         logger.debug("Error al registrar entrada en kardex: %s (e)")
 
 @receiver(post_save, sender=DetalleVenta)
 def registrar_salida_venta(sender, instance, created, **kwargs):
@@ -115,7 +117,7 @@ def registrar_salida_venta(sender, instance, created, **kwargs):
     #             )
     #     except Exception as e:
     #         # Log del error pero no interrumpir el flujo
-    #         print(f"Error al registrar salida en kardex: {e}")
+    #         logger.debug("Error al registrar salida en kardex: %s (e)")
 
 @receiver(post_delete, sender=CompraDetalle)
 def revertir_entrada_compra(sender, instance, **kwargs):
@@ -142,7 +144,7 @@ def revertir_entrada_compra(sender, instance, **kwargs):
                 usuario=''
             )
     except Exception as e:
-        print(f"Error al revertir entrada en kardex: {e}")
+        logger.debug("Error al revertir entrada en kardex: %s (e)")
 
 @receiver(post_delete, sender=DetalleVenta)
 def revertir_salida_venta(sender, instance, **kwargs):
@@ -177,7 +179,7 @@ def revertir_salida_venta(sender, instance, **kwargs):
                 usuario=''
             )
     except Exception as e:
-        print(f"Error al revertir salida en kardex: {e}")
+        logger.debug("Error al revertir salida en kardex: %s (e)")
 
 # Función para migrar datos existentes al kardex
 def migrar_datos_kardex():
@@ -187,7 +189,7 @@ def migrar_datos_kardex():
     from apps.compras.models import CompraDetalle
     from apps.ventas.models import DetalleVenta
     
-    print("Iniciando migración de datos al kardex...")
+    logger.debug("Iniciando migración de datos al kardex...")
     
     # Migrar compras
     compras_detalle = CompraDetalle.objects.filter(
@@ -223,9 +225,9 @@ def migrar_datos_kardex():
                         documento_id=detalle.compra.id,
                         usuario='sistema'
                     )
-                    print(f"Migrada compra {detalle.compra.numero} - {detalle.producto.sku}")
+                    logger.debug("Migrada compra %s (detalle.compra.numero) - %s (detalle.producto.sku)")
         except Exception as e:
-            print(f"Error migrando compra {detalle.compra.numero}: {e}")
+            logger.debug("Error migrando compra %s (detalle.compra.numero): %s (e)")
     
     # Migrar ventas
     ventas_detalle = DetalleVenta.objects.filter(
@@ -260,8 +262,8 @@ def migrar_datos_kardex():
                         documento_id=detalle.venta.id,
                         usuario='sistema'
                     )
-                    print(f"Migrada venta {detalle.venta.numero} - {detalle.producto.sku}")
+                    logger.debug("Migrada venta %s (detalle.venta.numero) - %s (detalle.producto.sku)")
         except Exception as e:
-            print(f"Error migrando venta {detalle.venta.numero}: {e}")
+            logger.debug("Error migrando venta %s (detalle.venta.numero): %s (e)")
     
-    print("Migración completada.") 
+    logger.debug("Migración completada.")

@@ -1,19 +1,58 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import produccionService from '../../services/produccion.service';
-import { getAlmacenes } from '../../services/almacenes.service';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { produccionService } from '../../services/produccion.service';
+import { almacenesService } from '../../services/almacenes.service';
+import {
+  Box,
+  Heading,
+  Text,
+  Flex,
+  SimpleGrid,
+  Card,
+  CardHeader,
+  CardBody,
+  Button,
+  VStack,
+  HStack,
+  FormControl,
+  FormLabel,
+  Input,
+  Select,
+  Textarea,
+  Alert,
+  AlertIcon,
+  AlertTitle,
+  AlertDescription,
+  Icon,
+  Spinner,
+  Badge,
+  Divider,
+  useColorModeValue,
+  useToast,
+  Table,
+  Thead,
+  Tbody,
+  Tr,
+  Th,
+  Td,
+  Progress
+} from '@chakra-ui/react';
+import { ChevronLeftIcon, CheckIcon, WarningIcon } from '@chakra-ui/icons';
+import { FiPackage, FiBox, FiClock, FiDollarSign, FiCalendar, FiClipboard } from 'react-icons/fi';
 
 const OrdenProduccionForm = () => {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const toast = useToast();
   const [searchParams] = useSearchParams();
   const recetaIdParam = searchParams.get('receta_id');
 
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [recetas, setRecetas] = useState([]);
-  const [almacenes, setAlmacenes] = useState([]);
+  const cardBg = useColorModeValue('white', 'gray.800');
+  const borderColor = useColorModeValue('gray.200', 'gray.600');
+
   const [validacionStock, setValidacionStock] = useState(null);
-  const [recetaSeleccionada, setRecetaSeleccionada] = useState(null);
+  const [loadingValidacion, setLoadingValidacion] = useState(false);
 
   const [formData, setFormData] = useState({
     receta_id: recetaIdParam || '',
@@ -24,51 +63,59 @@ const OrdenProduccionForm = () => {
     observaciones: ''
   });
 
-  useEffect(() => {
-    cargarDatos();
-  }, []);
-
-  useEffect(() => {
-    if (formData.receta_id && recetaIdParam) {
-      cargarReceta(formData.receta_id);
+  // Query para recetas
+  const { data: recetas = [], isLoading: loadingRecetas } = useQuery({
+    queryKey: ['recetas-activas'],
+    queryFn: async () => {
+      const response = await produccionService.getRecetas({ is_active: true });
+      const data = response.data;
+      return data?.results || data || [];
     }
-  }, [formData.receta_id, recetaIdParam]);
+  });
 
-  const cargarDatos = async () => {
-    try {
-      setLoading(true);
-      const [recetasRes, almacenesRes] = await Promise.all([
-        produccionService.getRecetas({ is_active: true }),
-        getAlmacenes()
-      ]);
-      
-      setRecetas(recetasRes.data);
-      setAlmacenes(almacenesRes.data);
-    } catch (err) {
-      console.error('Error al cargar datos:', err);
-      setError('Error al cargar datos iniciales');
-    } finally {
-      setLoading(false);
+  // Query para almacenes
+  const { data: almacenes = [], isLoading: loadingAlmacenes } = useQuery({
+    queryKey: ['almacenes'],
+    queryFn: async () => {
+      const response = await almacenesService.getAlmacenes();
+      const data = response.data;
+      return data?.results || data || [];
     }
-  };
+  });
 
-  const cargarReceta = async (id) => {
-    try {
-      const response = await produccionService.getReceta(id);
-      setRecetaSeleccionada(response.data);
-    } catch (err) {
-      console.error('Error al cargar receta:', err);
+  // Query para receta seleccionada
+  const { data: recetaSeleccionada } = useQuery({
+    queryKey: ['receta', formData.receta_id],
+    queryFn: () => produccionService.getReceta(formData.receta_id),
+    enabled: !!formData.receta_id,
+    select: (response) => response?.data || response
+  });
+
+  // Mutation para crear orden
+  const createMutation = useMutation({
+    mutationFn: (data) => produccionService.createOrden(data),
+    onSuccess: (response) => {
+      queryClient.invalidateQueries(['ordenes-produccion']);
+      toast({
+        title: 'Orden creada exitosamente',
+        status: 'success',
+        duration: 3000
+      });
+      navigate(`/app/produccion/ordenes/${response?.data?.id || response?.id}`);
+    },
+    onError: (error) => {
+      toast({
+        title: 'Error al crear orden',
+        description: error.response?.data?.error || error.message,
+        status: 'error',
+        duration: 5000
+      });
     }
-  };
+  });
 
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
-
-    if (name === 'receta_id') {
-      cargarReceta(value);
-      setValidacionStock(null);
-    }
 
     if (['receta_id', 'cantidad', 'almacen_insumos_id'].includes(name)) {
       setValidacionStock(null);
@@ -77,42 +124,56 @@ const OrdenProduccionForm = () => {
 
   const validarStock = async () => {
     if (!formData.receta_id || !formData.cantidad || !formData.almacen_insumos_id) {
-      alert('Complete receta, cantidad y almacén de insumos para validar');
+      toast({
+        title: 'Campos requeridos',
+        description: 'Complete receta, cantidad y almacén de insumos para validar',
+        status: 'warning',
+        duration: 3000
+      });
       return;
     }
 
     try {
-      setLoading(true);
+      setLoadingValidacion(true);
       const response = await produccionService.validarStock({
         receta_id: parseInt(formData.receta_id),
         cantidad: parseFloat(formData.cantidad),
         almacen_insumos_id: parseInt(formData.almacen_insumos_id)
       });
-      setValidacionStock(response.data);
+      setValidacionStock(response.data || response);
     } catch (err) {
-      console.error('Error al validar stock:', err);
-      alert('Error al validar stock');
+      toast({
+        title: 'Error al validar stock',
+        status: 'error',
+        duration: 3000
+      });
     } finally {
-      setLoading(false);
+      setLoadingValidacion(false);
     }
   };
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = (e) => {
     e.preventDefault();
 
     if (!formData.receta_id || !formData.cantidad || !formData.almacen_insumos_id || !formData.almacen_destino_id) {
-      alert('Complete todos los campos requeridos');
+      toast({
+        title: 'Campos requeridos',
+        description: 'Complete todos los campos obligatorios',
+        status: 'warning',
+        duration: 3000
+      });
       return;
     }
 
     if (parseFloat(formData.cantidad) <= 0) {
-      alert('La cantidad debe ser mayor a 0');
+      toast({
+        title: 'Cantidad inválida',
+        description: 'La cantidad debe ser mayor a 0',
+        status: 'warning',
+        duration: 3000
+      });
       return;
     }
-
-    try {
-      setLoading(true);
-      setError(null);
 
       const dataToSend = {
         receta_id: parseInt(formData.receta_id),
@@ -123,285 +184,317 @@ const OrdenProduccionForm = () => {
         observaciones: formData.observaciones || ''
       };
 
-      const response = await produccionService.createOrden(dataToSend);
-      alert('Orden de producción creada exitosamente');
-      navigate(`/produccion/ordenes/${response.data.id}`);
-    } catch (err) {
-      console.error('Error al crear orden:', err);
-      const errorMsg = err.response?.data?.error || 'Error al crear la orden de producción';
-      setError(errorMsg);
-    } finally {
-      setLoading(false);
-    }
+    createMutation.mutate(dataToSend);
   };
 
-  if (loading && recetas.length === 0) {
+  const formatCurrency = (amount) => {
+    return new Intl.NumberFormat('es-PE', {
+      style: 'currency',
+      currency: 'PEN'
+    }).format(amount || 0);
+  };
+
+  const isLoading = loadingRecetas || loadingAlmacenes;
+
+  if (isLoading) {
     return (
-      <div className="container mx-auto p-6">
-        <div className="flex justify-center items-center h-64">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-        </div>
-      </div>
+      <Box p={6}>
+        <Flex justify="center" align="center" h="300px" direction="column">
+          <Spinner size="xl" color="blue.500" thickness="4px" mb={4} />
+          <Text color="gray.600">Cargando datos...</Text>
+        </Flex>
+      </Box>
     );
   }
 
   return (
-    <div className="container mx-auto p-6">
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-800">Nueva Orden de Producción</h1>
-        <p className="text-gray-600 mt-1">Complete los datos para crear una orden de producción</p>
-      </div>
-
-      {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6 whitespace-pre-wrap">
-          {error}
-        </div>
-      )}
+    <Box p={6}>
+      {/* Header */}
+      <Flex align="center" mb={6}>
+        <Button
+          leftIcon={<ChevronLeftIcon />}
+          variant="ghost"
+          onClick={() => navigate('/app/produccion/ordenes')}
+          mr={4}
+        >
+          Volver
+        </Button>
+        <Box>
+          <Heading size="lg" bgGradient="linear(to-r, blue.600, purple.600)" bgClip="text">
+            Nueva Orden de Producción
+          </Heading>
+          <Text color="gray.600" mt={1}>
+            Complete los datos para crear una orden de producción
+          </Text>
+        </Box>
+      </Flex>
 
       <form onSubmit={handleSubmit}>
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 space-y-6">
+        <SimpleGrid columns={{ base: 1, lg: 3 }} spacing={6}>
+          {/* Formulario Principal */}
+          <Box gridColumn={{ lg: 'span 2' }}>
+            <VStack spacing={6} align="stretch">
             {/* Información Básica */}
-            <div className="bg-white rounded-lg shadow-sm p-6">
-              <h2 className="text-lg font-semibold text-gray-800 mb-4">Información de la Orden</h2>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Receta a Producir *
-                  </label>
-                  <select
+              <Card bg={cardBg} borderWidth="1px" borderColor={borderColor} borderRadius="xl">
+                <CardHeader pb={2}>
+                  <HStack>
+                    <Icon as={FiClipboard} color="blue.500" />
+                    <Heading size="md">Información de la Orden</Heading>
+                  </HStack>
+                </CardHeader>
+                <CardBody>
+                  <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
+                    <FormControl isRequired gridColumn={{ md: 'span 2' }}>
+                      <FormLabel fontWeight="semibold">Receta a Producir</FormLabel>
+                      <Select
                     name="receta_id"
                     value={formData.receta_id}
                     onChange={handleChange}
-                    required
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                        placeholder="Seleccione una receta"
+                        size="lg"
                   >
-                    <option value="">Seleccione una receta</option>
                     {recetas.map(receta => (
                       <option key={receta.id} value={receta.id}>
                         {receta.nombre} - {receta.producto_terminado_nombre} (v{receta.version})
                       </option>
                     ))}
-                  </select>
-                </div>
+                      </Select>
+                    </FormControl>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Cantidad a Producir *
-                  </label>
-                  <input
+                    <FormControl isRequired>
+                      <FormLabel fontWeight="semibold">Cantidad a Producir</FormLabel>
+                      <Input
                     type="number"
                     name="cantidad"
                     value={formData.cantidad}
                     onChange={handleChange}
                     min="0.01"
                     step="0.01"
-                    required
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
+                        size="lg"
+                      />
+                    </FormControl>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Fecha Programada *
-                  </label>
-                  <input
+                    <FormControl isRequired>
+                      <FormLabel fontWeight="semibold">Fecha Programada</FormLabel>
+                      <Input
                     type="date"
                     name="fecha_programada"
                     value={formData.fecha_programada}
                     onChange={handleChange}
-                    required
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
+                        size="lg"
+                      />
+                    </FormControl>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Almacén de Insumos *
-                  </label>
-                  <select
+                    <FormControl isRequired>
+                      <FormLabel fontWeight="semibold">Almacén de Insumos</FormLabel>
+                      <Select
                     name="almacen_insumos_id"
                     value={formData.almacen_insumos_id}
                     onChange={handleChange}
-                    required
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                        placeholder="Seleccione almacén"
                   >
-                    <option value="">Seleccione almacén</option>
                     {almacenes.map(almacen => (
                       <option key={almacen.id} value={almacen.id}>
                         {almacen.nombre}
                       </option>
                     ))}
-                  </select>
-                </div>
+                      </Select>
+                    </FormControl>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Almacén de Destino *
-                  </label>
-                  <select
+                    <FormControl isRequired>
+                      <FormLabel fontWeight="semibold">Almacén de Destino</FormLabel>
+                      <Select
                     name="almacen_destino_id"
                     value={formData.almacen_destino_id}
                     onChange={handleChange}
-                    required
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                        placeholder="Seleccione almacén"
                   >
-                    <option value="">Seleccione almacén</option>
                     {almacenes.map(almacen => (
                       <option key={almacen.id} value={almacen.id}>
                         {almacen.nombre}
                       </option>
                     ))}
-                  </select>
-                </div>
+                      </Select>
+                    </FormControl>
 
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Observaciones
-                  </label>
-                  <textarea
+                    <FormControl gridColumn={{ md: 'span 2' }}>
+                      <FormLabel fontWeight="semibold">Observaciones</FormLabel>
+                      <Textarea
                     name="observaciones"
                     value={formData.observaciones}
                     onChange={handleChange}
-                    rows="3"
                     placeholder="Notas adicionales..."
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-              </div>
-            </div>
+                        rows={3}
+                      />
+                    </FormControl>
+                  </SimpleGrid>
+                </CardBody>
+              </Card>
 
             {/* Validación de Stock */}
             {formData.receta_id && formData.cantidad && formData.almacen_insumos_id && (
-              <div className="bg-white rounded-lg shadow-sm p-6">
-                <div className="flex justify-between items-center mb-4">
-                  <h2 className="text-lg font-semibold text-gray-800">Validación de Stock</h2>
-                  <button
-                    type="button"
+                <Card bg={cardBg} borderWidth="1px" borderColor={borderColor} borderRadius="xl">
+                  <CardHeader pb={2}>
+                    <Flex justify="space-between" align="center">
+                      <HStack>
+                        <Icon as={FiBox} color="purple.500" />
+                        <Heading size="md">Validación de Stock</Heading>
+                      </HStack>
+                      <Button
+                        colorScheme="blue"
+                        size="sm"
                     onClick={validarStock}
-                    disabled={loading}
-                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm"
-                  >
-                    {loading ? 'Validando...' : 'Validar Stock'}
-                  </button>
-                </div>
+                        isLoading={loadingValidacion}
+                      >
+                        Validar Stock
+                      </Button>
+                    </Flex>
+                  </CardHeader>
+                  <CardBody>
+                    {validacionStock ? (
+                      <VStack spacing={4} align="stretch">
+                        <Alert
+                          status={validacionStock.valido ? 'success' : 'warning'}
+                          borderRadius="md"
+                        >
+                          <AlertIcon />
+                          {validacionStock.valido 
+                            ? 'Stock suficiente para todos los insumos'
+                            : 'Stock insuficiente para algunos insumos'
+                          }
+                        </Alert>
 
-                {validacionStock && (
-                  <div className="space-y-2">
-                    {validacionStock.valido ? (
-                      <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg">
-                        ✓ Stock suficiente para todos los insumos
-                      </div>
+                        {validacionStock.insumos && (
+                          <Box overflowX="auto">
+                            <Table size="sm" variant="simple">
+                              <Thead bg="gray.50">
+                                <Tr>
+                                  <Th>Insumo</Th>
+                                  <Th isNumeric>Necesario</Th>
+                                  <Th isNumeric>Disponible</Th>
+                                  <Th textAlign="center">Estado</Th>
+                                </Tr>
+                              </Thead>
+                              <Tbody>
+                                {validacionStock.insumos.map((insumo, idx) => (
+                                  <Tr key={idx}>
+                                    <Td>
+                                      <Text fontWeight="medium">{insumo.insumo_nombre}</Text>
+                                      <Text fontSize="xs" color="gray.500">{insumo.insumo_sku}</Text>
+                                    </Td>
+                                    <Td isNumeric>{insumo.cantidad_necesaria}</Td>
+                                    <Td isNumeric>{insumo.stock_disponible}</Td>
+                                    <Td textAlign="center">
+                                      {insumo.suficiente ? (
+                                        <Badge colorScheme="green">
+                                          <CheckIcon mr={1} /> OK
+                                        </Badge>
+                                      ) : (
+                                        <Badge colorScheme="red">
+                                          <WarningIcon mr={1} /> Falta: {insumo.faltante}
+                                        </Badge>
+                                      )}
+                                    </Td>
+                                  </Tr>
+                                ))}
+                              </Tbody>
+                            </Table>
+                          </Box>
+                        )}
+                      </VStack>
                     ) : (
-                      <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
-                        ✗ Stock insuficiente para algunos insumos
-                      </div>
+                      <Box textAlign="center" py={8}>
+                        <Icon as={FiBox} boxSize={8} color="gray.400" mb={2} />
+                        <Text color="gray.500">
+                          Haz clic en "Validar Stock" para verificar la disponibilidad de insumos
+                        </Text>
+                      </Box>
                     )}
-
-                    <div className="overflow-x-auto">
-                      <table className="min-w-full text-sm">
-                        <thead className="bg-gray-50">
-                          <tr>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Insumo</th>
-                            <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Necesario</th>
-                            <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Disponible</th>
-                            <th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase">Estado</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-200">
-                          {validacionStock.insumos.map((insumo, idx) => (
-                            <tr key={idx}>
-                              <td className="px-3 py-2 text-gray-900">
-                                {insumo.insumo_nombre}
-                                <span className="text-gray-500 text-xs ml-1">({insumo.insumo_sku})</span>
-                              </td>
-                              <td className="px-3 py-2 text-right text-gray-900">{insumo.cantidad_necesaria}</td>
-                              <td className="px-3 py-2 text-right text-gray-900">{insumo.stock_disponible}</td>
-                              <td className="px-3 py-2 text-center">
-                                {insumo.suficiente ? (
-                                  <span className="text-green-600 font-semibold">✓</span>
-                                ) : (
-                                  <span className="text-red-600 font-semibold">✗ Falta: {insumo.faltante}</span>
-                                )}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
+                  </CardBody>
+                </Card>
+              )}
+            </VStack>
+          </Box>
 
           {/* Sidebar - Resumen */}
-          <div className="lg:col-span-1">
-            <div className="bg-white rounded-lg shadow-sm p-6 sticky top-6">
-              <h3 className="text-lg font-semibold text-gray-800 mb-4">Resumen</h3>
-              
+          <Box>
+            <Card bg={cardBg} borderWidth="1px" borderColor={borderColor} borderRadius="xl" position="sticky" top={6}>
+              <CardHeader pb={2}>
+                <HStack>
+                  <Icon as={FiDollarSign} color="green.500" />
+                  <Heading size="md">Resumen</Heading>
+                </HStack>
+              </CardHeader>
+              <CardBody>
               {recetaSeleccionada ? (
-                <div className="space-y-4">
-                  <div>
-                    <div className="text-sm text-gray-600 mb-1">Producto</div>
-                    <div className="text-base font-medium text-gray-900">{recetaSeleccionada.producto_terminado_nombre}</div>
-                  </div>
+                  <VStack spacing={4} align="stretch">
+                    <Box>
+                      <Text fontSize="sm" color="gray.500" mb={1}>Producto</Text>
+                      <Text fontWeight="medium">{recetaSeleccionada.producto_terminado_nombre}</Text>
+                    </Box>
 
-                  <div>
-                    <div className="text-sm text-gray-600 mb-1">Cantidad a Producir</div>
-                    <div className="text-2xl font-bold text-blue-600">{formData.cantidad}</div>
-                  </div>
+                    <Box>
+                      <Text fontSize="sm" color="gray.500" mb={1}>Cantidad a Producir</Text>
+                      <Text fontSize="2xl" fontWeight="bold" color="blue.600">{formData.cantidad}</Text>
+                    </Box>
 
-                  <div>
-                    <div className="text-sm text-gray-600 mb-1">Tiempo Estimado</div>
-                    <div className="text-base font-medium text-gray-900">
+                    <Box>
+                      <Text fontSize="sm" color="gray.500" mb={1}>Tiempo Estimado</Text>
+                      <Text fontWeight="medium">
                       {Math.round((recetaSeleccionada.tiempo_estimado / recetaSeleccionada.cantidad_producida) * parseFloat(formData.cantidad || 0))} min
-                    </div>
-                  </div>
+                      </Text>
+                    </Box>
 
                   {recetaSeleccionada.costos && (
-                    <div>
-                      <div className="text-sm text-gray-600 mb-1">Costo Estimado Total</div>
-                      <div className="text-xl font-bold text-gray-900">
-                        S/ {(recetaSeleccionada.costos.costo_unitario * parseFloat(formData.cantidad || 0)).toFixed(2)}
-                      </div>
-                    </div>
-                  )}
+                      <Box>
+                        <Text fontSize="sm" color="gray.500" mb={1}>Costo Estimado Total</Text>
+                        <Text fontSize="xl" fontWeight="bold" color="green.600">
+                          {formatCurrency(recetaSeleccionada.costos.costo_unitario * parseFloat(formData.cantidad || 0))}
+                        </Text>
+                      </Box>
+                    )}
 
-                  <div className="border-t pt-4">
-                    <div className="text-sm text-gray-600 mb-2">Insumos Requeridos</div>
-                    <div className="text-base font-medium text-gray-900">{recetaSeleccionada.detalles?.length || 0} insumos</div>
-                  </div>
-                </div>
-              ) : (
-                <div className="text-center text-gray-500 py-8">
+                    <Divider />
+
+                    <Box>
+                      <Text fontSize="sm" color="gray.500" mb={1}>Insumos Requeridos</Text>
+                      <Text fontWeight="medium">{recetaSeleccionada.detalles?.length || 0} insumos</Text>
+                    </Box>
+                  </VStack>
+                ) : (
+                  <Box textAlign="center" py={8}>
+                    <Icon as={FiPackage} boxSize={8} color="gray.400" mb={2} />
+                    <Text color="gray.500">
                   Seleccione una receta para ver el resumen
-                </div>
+                    </Text>
+                  </Box>
               )}
 
-              <div className="pt-6 space-y-2">
-                <button
+                <VStack spacing={3} mt={6}>
+                  <Button
                   type="submit"
-                  disabled={loading || (validacionStock && !validacionStock.valido)}
-                  className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {loading ? 'Creando...' : 'Crear Orden'}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => navigate('/produccion/ordenes')}
-                  className="w-full bg-gray-200 hover:bg-gray-300 text-gray-700 py-3 rounded-lg font-medium"
+                    colorScheme="blue"
+                    size="lg"
+                    w="full"
+                    isLoading={createMutation.isLoading}
+                    isDisabled={validacionStock && !validacionStock.valido}
+                  >
+                    Crear Orden
+                  </Button>
+                  <Button
+                    variant="outline"
+                    w="full"
+                  onClick={() => navigate('/app/produccion/ordenes')}
                 >
                   Cancelar
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+                  </Button>
+                </VStack>
+              </CardBody>
+            </Card>
+          </Box>
+        </SimpleGrid>
       </form>
-    </div>
+    </Box>
   );
 };
 

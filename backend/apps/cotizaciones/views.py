@@ -1,3 +1,5 @@
+import logging
+
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -14,6 +16,22 @@ from .serializers import (
 )
 from apps.core.permissions import HasEmpresaPermission
 from .utils.pdf_generator import CotizacionPDFGenerator
+from .services.conversion_service import (
+    convertir_cotizacion_a_venta,
+    CotizacionNoConvertibleError,
+    ProductosFaltantesError,
+)
+
+logger = logging.getLogger(__name__)
+
+
+from rest_framework.pagination import PageNumberPagination
+
+
+class CotizacionPagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = 'page_size'
+    max_page_size = 200
 
 
 class CotizacionViewSet(viewsets.ModelViewSet):
@@ -21,6 +39,7 @@ class CotizacionViewSet(viewsets.ModelViewSet):
     ViewSet para gestionar cotizaciones
     """
     permission_classes = [IsAuthenticated, HasEmpresaPermission]
+    pagination_class = CotizacionPagination
     
     def get_queryset(self):
         """
@@ -53,12 +72,9 @@ class CotizacionViewSet(viewsets.ModelViewSet):
         return queryset
     
     def get_serializer_class(self):
-        """
-        Usar diferentes serializers según la acción
-        """
         if self.action == 'list':
             return CotizacionListSerializer
-        elif self.action == 'create':
+        elif self.action in ('create', 'update', 'partial_update'):
             return CotizacionCreateSerializer
         return CotizacionSerializer
     
@@ -76,6 +92,7 @@ class CotizacionViewSet(viewsets.ModelViewSet):
         """
         Exportar cotización a PDF profesional
         """
+        import traceback
         cotizacion = self.get_object()
         
         try:
@@ -91,33 +108,74 @@ class CotizacionViewSet(viewsets.ModelViewSet):
             return response
         
         except Exception as e:
+            error_traceback = traceback.format_exc()
             return Response(
-                {'error': f'Error al generar PDF: {str(e)}'},
+                {'error': f'Error al generar PDF: {str(e)}', 'detail': error_traceback},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
     
     @action(detail=True, methods=['post'], url_path='cambiar-estado')
     def cambiar_estado(self, request, pk=None):
         """
-        Cambiar el estado de la cotización
+        Cambiar el estado de la cotización.
+
+        Si el nuevo estado es 'aceptada', la cotización se convierte automáticamente
+        a venta y termina en estado 'convertida' con la venta enlazada.
         """
         cotizacion = self.get_object()
         nuevo_estado = request.data.get('estado')
-        
+
         if nuevo_estado not in dict(Cotizacion.ESTADO_CHOICES):
             return Response(
                 {'error': 'Estado inválido'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
-        cotizacion.estado = nuevo_estado
-        
-        # Si se acepta, registrar fecha
+
         if nuevo_estado == 'aceptada':
-            cotizacion.fecha_aceptacion = timezone.now().date()
-        
+            if cotizacion.estado == 'convertida':
+                return Response(
+                    {'error': 'Esta cotización ya fue aceptada y convertida a venta.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            try:
+                cotizacion.fecha_aceptacion = timezone.now().date()
+                cotizacion.save(update_fields=['fecha_aceptacion', 'fecha_modificacion'])
+
+                venta = convertir_cotizacion_a_venta(cotizacion)
+            except ProductosFaltantesError as e:
+                return Response({
+                    'error': 'productos_faltantes',
+                    'message': str(e),
+                    'productos_faltantes': e.productos_faltantes,
+                    'cotizacion_id': cotizacion.id,
+                    'moneda': cotizacion.moneda,
+                }, status=status.HTTP_400_BAD_REQUEST)
+            except CotizacionNoConvertibleError as e:
+                return Response(
+                    {'error': str(e)},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            except Exception as e:
+                logger.exception('Error al convertir cotización %s al aceptar', cotizacion.numero)
+                return Response(
+                    {'error': f'Error al crear la venta: {str(e)}'},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+
+            cotizacion.refresh_from_db()
+            data = self.get_serializer(cotizacion).data
+            data.update({
+                'venta_creada': True,
+                'venta_id': venta.id,
+                'venta_numero': venta.numero,
+                'message': f'Cotización aceptada y convertida a venta {venta.numero}',
+            })
+            return Response(data)
+
+        cotizacion.estado = nuevo_estado
         cotizacion.save()
-        
+
         serializer = self.get_serializer(cotizacion)
         return Response(serializer.data)
     
@@ -170,59 +228,79 @@ class CotizacionViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], url_path='convertir-venta')
     def convertir_venta(self, request, pk=None):
         """
-        Convertir cotización a venta
+        Convertir cotización a venta de forma manual.
+
+        Usa el mismo servicio que la auto-conversión al aceptar.
         """
         cotizacion = self.get_object()
-        
-        if cotizacion.estado == 'convertida':
+
+        try:
+            venta = convertir_cotizacion_a_venta(cotizacion)
+        except ProductosFaltantesError as e:
+            return Response({
+                'error': 'productos_faltantes',
+                'message': str(e),
+                'productos_faltantes': e.productos_faltantes,
+                'cotizacion_id': cotizacion.id,
+                'moneda': cotizacion.moneda,
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except CotizacionNoConvertibleError as e:
             return Response(
-                {'error': 'Esta cotización ya fue convertida a venta'},
+                {'error': str(e)},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
-        try:
-            from apps.ventas.models import Venta, DetalleVenta
-            
-            # Crear venta
-            venta = Venta.objects.create(
-                empresa=cotizacion.empresa,
-                cliente=cotizacion.cliente,
-                tipo_venta='factura',
-                moneda=cotizacion.moneda,
-                forma_pago=cotizacion.forma_pago,
-                notas=f"Generada desde cotización {cotizacion.numero}\n{cotizacion.notas or ''}",
-                igv_incluido=cotizacion.incluye_igv,
-            )
-            
-            # Crear detalles de venta
-            for detalle in cotizacion.detalles.all():
-                if detalle.producto:
-                    DetalleVenta.objects.create(
-                        venta=venta,
-                        producto=detalle.producto,
-                        cantidad=detalle.cantidad,
-                        precio_unitario=detalle.precio_unitario,
-                        descuento=detalle.descuento_item
-                    )
-            
-            # Actualizar cotización
-            cotizacion.estado = 'convertida'
-            cotizacion.venta = venta
-            cotizacion.save()
-            
-            return Response({
-                'success': True,
-                'message': 'Cotización convertida a venta exitosamente',
-                'venta_id': venta.id,
-                'venta_numero': venta.numero
-            })
-        
         except Exception as e:
+            logger.exception('Error al convertir cotización %s a venta', cotizacion.numero)
             return Response(
                 {'error': f'Error al convertir a venta: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+        return Response({
+            'success': True,
+            'message': f'Cotización convertida a venta {venta.numero}',
+            'venta_id': venta.id,
+            'venta_numero': venta.numero,
+        })
     
+    @action(detail=True, methods=['post'], url_path='vincular-producto')
+    def vincular_producto(self, request, pk=None):
+        """
+        Vincula un producto del inventario con una línea de detalle de la cotización.
+        Body: { detalle_id: int, producto_id: int }
+        """
+        cotizacion = self.get_object()
+        detalle_id = request.data.get('detalle_id')
+        producto_id = request.data.get('producto_id')
+
+        if not detalle_id or not producto_id:
+            return Response(
+                {'error': 'Se requiere detalle_id y producto_id'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            detalle = cotizacion.detalles.get(id=detalle_id)
+        except DetalleCotizacion.DoesNotExist:
+            return Response(
+                {'error': f'Detalle {detalle_id} no pertenece a esta cotización'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        from apps.inventario.models import Producto
+        try:
+            producto = Producto.objects.get(id=producto_id, empresa=cotizacion.empresa)
+        except Producto.DoesNotExist:
+            return Response(
+                {'error': f'Producto {producto_id} no encontrado'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        detalle.producto = producto
+        detalle.save(update_fields=['producto'])
+
+        return Response({'success': True, 'detalle_id': detalle.id, 'producto_id': producto.id})
+
     @action(detail=False, methods=['get'], url_path='estadisticas')
     def estadisticas(self, request):
         """

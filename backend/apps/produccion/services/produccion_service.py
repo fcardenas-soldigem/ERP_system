@@ -1,6 +1,8 @@
+import logging
 """
 Servicio de negocio para el módulo de producción.
 Contiene toda la lógica de negocio para gestionar órdenes de producción.
+Integrado con inventarios separados de materias primas y productos terminados.
 """
 from django.db import transaction
 from django.core.exceptions import ValidationError
@@ -8,9 +10,12 @@ from django.utils import timezone
 from decimal import Decimal
 from apps.produccion.models import (
     RecetaProducto, RecetaDetalle, OrdenProduccion, ConsumoReal,
-    ProductionCost, ProductionWaste, ProductionOutput
+    ProductionCost, ProductionWaste, ProductionOutput, HistorialOrdenProduccion
 )
 from apps.inventario.models import Stock, MovimientoInventario, Producto, Almacen
+from apps.inventario.models.inventario_materias_primas import InventarioMateriasPrimas
+from apps.inventario.models.inventario_productos_terminados import InventarioProductosTerminados
+logger = logging.getLogger(__name__)
 
 
 class ProduccionService:
@@ -136,6 +141,19 @@ class ProduccionService:
                 costo_unitario=detalle.insumo.precio_compra
             )
         
+        # Registrar evento en historial
+        HistorialOrdenProduccion.registrar_evento(
+            orden=orden,
+            tipo_evento='creacion',
+            descripcion=f'Orden creada para producir {cantidad} unidades de {receta.producto_terminado.nombre}',
+            usuario=created_by,
+            datos_adicionales={
+                'cantidad_planificada': float(cantidad),
+                'receta': receta.nombre,
+                'producto': receta.producto_terminado.nombre
+            }
+        )
+        
         return orden
     
     @staticmethod
@@ -143,6 +161,7 @@ class ProduccionService:
     def iniciar_orden(orden_id, usuario=None):
         """
         Inicia una orden de producción (cambia estado a En Proceso).
+        DESCUENTA AUTOMÁTICAMENTE el stock de materias primas al iniciar.
         
         Args:
             orden_id: ID de la orden a iniciar
@@ -165,9 +184,10 @@ class ProduccionService:
         if orden.estado != 'pendiente':
             raise ValidationError(f'No se puede iniciar una orden en estado: {orden.get_estado_display()}')
         
-        # Re-validar stock disponible
+        # Re-validar stock disponible y preparar descuentos
         consumos = orden.consumos.select_related('insumo').all()
         insumos_faltantes = []
+        stocks_a_descontar = []
         
         for consumo in consumos:
             try:
@@ -178,7 +198,8 @@ class ProduccionService:
                 )
                 stock_disponible = stock.cantidad
             except Stock.DoesNotExist:
-                stock_disponible = 0
+                stock_disponible = Decimal('0')
+                stock = None
             
             if stock_disponible < consumo.cantidad_teorica:
                 insumos_faltantes.append({
@@ -187,6 +208,13 @@ class ProduccionService:
                     'necesario': consumo.cantidad_teorica,
                     'disponible': stock_disponible,
                     'faltante': consumo.cantidad_teorica - stock_disponible
+                })
+            else:
+                # Guardar referencia para descontar después de validar todos
+                stocks_a_descontar.append({
+                    'stock': stock,
+                    'consumo': consumo,
+                    'cantidad': consumo.cantidad_teorica
                 })
         
         if insumos_faltantes:
@@ -198,12 +226,92 @@ class ProduccionService:
                 mensaje += f"Faltante: {item['faltante']}\n"
             raise ValidationError(mensaje)
         
+        # DESCONTAR STOCK DE MATERIAS PRIMAS (de ambos sistemas)
+        for item in stocks_a_descontar:
+            stock = item['stock']
+            consumo = item['consumo']
+            cantidad_a_descontar = item['cantidad']
+            insumo = consumo.insumo
+            # Asegurar que costo_unitario sea Decimal
+            costo_unitario = Decimal(str(consumo.costo_unitario or insumo.precio_compra or 0))
+            
+            # 1. Descontar del modelo Stock (legacy)
+            stock.cantidad -= cantidad_a_descontar
+            stock.save()
+            
+            # 2. Descontar del modelo InventarioMateriasPrimas (si existe)
+            if insumo.tipo_producto in ['RAW', 'SEMIFINISHED']:
+                try:
+                    inv_mp = InventarioMateriasPrimas.objects.select_for_update().filter(
+                        empresa=orden.empresa,
+                        producto=insumo,
+                        almacen=orden.almacen_insumos
+                    ).first()
+                    
+                    if inv_mp:
+                        # Descontar lo que se pueda (mínimo entre lo solicitado y lo disponible)
+                        cantidad_real_a_descontar = min(cantidad_a_descontar, inv_mp.cantidad_disponible)
+                        if cantidad_real_a_descontar > 0:
+                            inv_mp.cantidad_disponible -= cantidad_real_a_descontar
+                            inv_mp.save()
+                            # Usar el costo del inventario de materias primas
+                            if inv_mp.costo_unitario_promedio:
+                                costo_unitario = Decimal(str(inv_mp.costo_unitario_promedio))
+                            logger.info(f"Descontado de InventarioMP: {insumo.nombre}, cantidad: {cantidad_real_a_descontar}")
+                        else:
+                            logger.info(f"InventarioMP sin stock para {insumo.nombre}")
+                    else:
+                        logger.info(f"No existe registro en InventarioMP para {insumo.nombre}")
+                except Exception as e:
+                    logger.info(f"Error al descontar de InventarioMP {insumo.nombre}: {str(e)}")
+            
+            # 3. Actualizar consumo con cantidad real = cantidad teórica (inicial)
+            consumo.cantidad_real = cantidad_a_descontar
+            consumo.costo_unitario = costo_unitario
+            consumo.save()
+            
+            # 4. Registrar movimiento de inventario (salida)
+            MovimientoInventario.objects.create(
+                empresa=orden.empresa,
+                producto=insumo,
+                almacen=orden.almacen_insumos,
+                fecha=timezone.now(),
+                tipo_movimiento='salida_produccion',
+                tipo_documento='orden_produccion',
+                tipo_inventario='materia_prima' if insumo.tipo_producto in ['RAW', 'SEMIFINISHED'] else 'general',
+                numero_documento=str(orden.numero),
+                cantidad_salida=cantidad_a_descontar,
+                costo_unitario=costo_unitario,
+                costo_total_salida=cantidad_a_descontar * costo_unitario,
+                cantidad_saldo=stock.cantidad,
+                orden_produccion_id=orden.id,
+                observaciones=f'Consumo inicial para orden de producción {orden.numero}',
+                created_by=usuario.username if usuario else ''
+            )
+            
+            # 5. Actualizar stock total del producto
+            insumo.actualizar_stock_total()
+            
+            logger.info(f"Descontado de Stock: {insumo.nombre}, cantidad: {cantidad_a_descontar}, stock restante: {stock.cantidad}")
+        
         # Cambiar estado e iniciar
         orden.estado = 'en_proceso'
         orden.fecha_inicio = timezone.now()
         if usuario and not orden.responsable:
             orden.responsable = usuario
         orden.save()
+        
+        # Registrar evento en historial
+        materiales_consumidos = len(stocks_a_descontar)
+        HistorialOrdenProduccion.registrar_evento(
+            orden=orden,
+            tipo_evento='inicio',
+            descripcion=f'Producción iniciada. Se descontaron {materiales_consumidos} materiales del inventario.',
+            usuario=usuario,
+            datos_adicionales={
+                'materiales_descontados': materiales_consumidos
+            }
+        )
         
         return orden
     
@@ -269,10 +377,11 @@ class ProduccionService:
     ):
         """
         Finaliza una orden de producción.
-        - Descuenta insumos del almacén de insumos
-        - Ingresa productos terminados al almacén destino
+        - Descuenta insumos del almacén de insumos (tanto Stock como InventarioMateriasPrimas)
+        - Ingresa productos terminados al almacén destino (Stock e InventarioProductosTerminados)
         - Calcula costo unitario real
         - Actualiza precio_compra del producto terminado
+        - Registra movimientos de inventario con trazabilidad completa
         
         Args:
             orden_id: ID de la orden a finalizar
@@ -305,62 +414,23 @@ class ProduccionService:
         if cantidad_producida <= 0:
             raise ValidationError('La cantidad producida debe ser mayor a 0')
         
-        # Validar que todos los consumos estén registrados (cantidad_real > 0)
-        consumos_sin_registrar = orden.consumos.filter(cantidad_real=0).count()
-        if consumos_sin_registrar > 0:
-            raise ValidationError(
-                f'Hay {consumos_sin_registrar} insumos sin consumo registrado. '
-                'Por favor registre el consumo real de todos los insumos antes de finalizar.'
-            )
+        # Variables para calcular costo
+        costo_insumos = Decimal('0')
         
-        # Validar merma excesiva (> 20%)
+        # 1. Calcular costo de insumos (ya fueron descontados al iniciar la producción)
         for consumo in orden.consumos.all():
             if consumo.cantidad_real > 0:
-                porcentaje_merma = (consumo.merma / consumo.cantidad_real) * 100
-                if porcentaje_merma > 20:
-                    # Solo advertencia, no bloquea
-                    pass
+                costo_unitario_consumo = consumo.costo_unitario or consumo.insumo.precio_compra
+                costo_insumos += consumo.cantidad_real * costo_unitario_consumo
         
-        # 1. Descontar insumos del almacén de insumos
-        for consumo in orden.consumos.all():
-            if consumo.cantidad_real > 0:
-                try:
-                    stock = Stock.objects.get(
-                        producto=consumo.insumo,
-                        almacen=orden.almacen_insumos,
-                        empresa=orden.empresa
-                    )
-                except Stock.DoesNotExist:
-                    raise ValidationError(
-                        f'No existe stock para {consumo.insumo.nombre} en {orden.almacen_insumos.nombre}'
-                    )
-                
-                # Validar stock suficiente
-                if stock.cantidad < consumo.cantidad_real:
-                    raise ValidationError(
-                        f'Stock insuficiente de {consumo.insumo.nombre}. '
-                        f'Disponible: {stock.cantidad}, Necesario: {consumo.cantidad_real}'
-                    )
-                
-                # Descontar stock
-                stock.cantidad -= consumo.cantidad_real
-                stock.save()
-                
-                # Registrar movimiento de inventario (salida)
-                MovimientoInventario.objects.create(
-                    empresa=orden.empresa,
-                    producto=consumo.insumo,
-                    almacen=orden.almacen_insumos,
-                    tipo_movimiento='salida',
-                    cantidad=consumo.cantidad_real,
-                    motivo='produccion',
-                    referencia=f'OP-{orden.numero}',
-                    notas=f'Consumo para orden de producción {orden.numero}'
-                )
+        # 2. Calcular costo unitario real
+        costo_total = costo_insumos + Decimal(str(costo_mano_obra_real)) + Decimal(str(costo_indirecto_real))
+        costo_unitario_real = costo_total / Decimal(str(cantidad_producida))
         
-        # 2. Ingresar productos terminados al almacén destino
+        # 3. Ingresar productos terminados al almacén destino
         producto_terminado = orden.receta.producto_terminado
         
+        # A. Actualizar Stock legacy
         try:
             stock_destino = Stock.objects.get(
                 producto=producto_terminado,
@@ -378,22 +448,53 @@ class ProduccionService:
                 cantidad=cantidad_producida
             )
         
-        # Registrar movimiento de inventario (entrada)
+        # B. Actualizar InventarioProductosTerminados
+        if producto_terminado.tipo_producto == 'FINISHED':
+            try:
+                # Generar número de lote basado en orden
+                lote_produccion = f"OP-{orden.numero}"
+                
+                inventario_pt = InventarioProductosTerminados.registrar_entrada_produccion(
+                    empresa=orden.empresa,
+                    producto=producto_terminado,
+                    almacen=orden.almacen_destino,
+                    cantidad=cantidad_producida,
+                    costo_produccion=costo_unitario_real,
+                    lote=lote_produccion,
+                    orden_produccion_id=orden.id,
+                    fecha_produccion=timezone.now().date(),
+                    fecha_vencimiento=None,  # Se podría calcular basado en vida útil del producto
+                    ubicacion=''
+                )
+                
+                logger.info(f"Entrada en InventarioPT: {producto_terminado.nombre}, cantidad: {cantidad_producida}, costo: {costo_unitario_real}")
+                
+            except Exception as e:
+                logger.info(f"Error al registrar en InventarioPT: {str(e)}")
+                # No fallar, ya se actualizó el stock legacy
+        
+        # C. Registrar movimiento de inventario (entrada)
         MovimientoInventario.objects.create(
             empresa=orden.empresa,
             producto=producto_terminado,
             almacen=orden.almacen_destino,
-            tipo_movimiento='entrada',
-            cantidad=cantidad_producida,
-            motivo='produccion',
-            referencia=f'OP-{orden.numero}',
-            notas=f'Producción completada - Orden {orden.numero}'
+            fecha=timezone.now(),
+            tipo_movimiento='entrada_produccion',
+            tipo_documento='recepcion_produccion',
+            tipo_inventario='producto_terminado',
+            numero_documento=str(orden.numero),
+            cantidad_entrada=cantidad_producida,
+            costo_unitario=costo_unitario_real,
+            costo_total_entrada=cantidad_producida * costo_unitario_real,
+            cantidad_saldo=stock_destino.cantidad,
+            costo_promedio=costo_unitario_real,
+            orden_produccion_id=orden.id,
+            observaciones=f'Producción completada - Orden {orden.numero}',
+            created_by=''
         )
         
-        # 3. Calcular costo unitario real
-        costo_insumos = sum(consumo.costo_total for consumo in orden.consumos.all())
-        costo_total = costo_insumos + Decimal(str(costo_mano_obra_real)) + Decimal(str(costo_indirecto_real))
-        costo_unitario_real = costo_total / Decimal(str(cantidad_producida))
+        # Actualizar stock total del producto terminado
+        producto_terminado.actualizar_stock_total()
         
         # 4. Actualizar precio_compra del producto terminado (costo de producción)
         producto_terminado.precio_compra = costo_unitario_real
@@ -433,6 +534,20 @@ class ProduccionService:
         # Calcular todos los costos
         costeo.calcular_costos()
         
+        # 8. Registrar evento en historial
+        HistorialOrdenProduccion.registrar_evento(
+            orden=orden,
+            tipo_evento='finalizacion',
+            descripcion=f'Orden finalizada. Se produjeron {cantidad_producida} unidades de {producto_terminado.nombre}',
+            usuario=None,
+            datos_adicionales={
+                'cantidad_producida': float(cantidad_producida),
+                'costo_unitario': float(costo_unitario_real),
+                'costo_total': float(costo_total),
+                'tiempo_real_minutos': tiempo_real_minutos
+            }
+        )
+        
         return orden
     
     @staticmethod
@@ -469,6 +584,17 @@ class ProduccionService:
         if motivo:
             orden.observaciones = f"CANCELADA: {motivo}\n\n{orden.observaciones}"
         orden.save()
+        
+        # Registrar evento en historial
+        HistorialOrdenProduccion.registrar_evento(
+            orden=orden,
+            tipo_evento='cancelacion',
+            descripcion=f'Orden cancelada. Motivo: {motivo or "No especificado"}',
+            usuario=None,
+            datos_adicionales={
+                'motivo': motivo or 'No especificado'
+            }
+        )
         
         return orden
     

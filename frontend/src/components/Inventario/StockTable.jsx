@@ -12,7 +12,7 @@ import {
 } from '@chakra-ui/react';
 import { EditIcon, DeleteIcon } from '@chakra-ui/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api } from '../../utils/api';
+import { api } from '../../lib/api';
 
 const StockTable = ({ onEdit }) => {
   const queryClient = useQueryClient();

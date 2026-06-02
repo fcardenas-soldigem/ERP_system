@@ -1,5 +1,8 @@
 from rest_framework import serializers
-from .models import Almacen, Categoria, Producto, Stock, AjusteInventario, MovimientoInventario
+from .models import (
+    Almacen, Categoria, Producto, Stock, AjusteInventario, MovimientoInventario,
+    InventarioMateriasPrimas, InventarioProductosTerminados
+)
 from django.db import transaction
 from django.db.models import Sum
 from apps.empresas.models import Empresa
@@ -50,6 +53,8 @@ class ProductoSerializer(serializers.ModelSerializer):
     stocks_por_almacen = StockPorAlmacenSerializer(source='stocks', many=True, read_only=True)
     alerta_stock = serializers.SerializerMethodField()
     empresa = serializers.PrimaryKeyRelatedField(read_only=True)
+    tipo_producto_display = serializers.SerializerMethodField()
+    es_materia_prima = serializers.SerializerMethodField()
 
     class Meta:
         model = Producto
@@ -59,9 +64,24 @@ class ProductoSerializer(serializers.ModelSerializer):
             'categoria', 'categoria_nombre', 'almacen',
             'almacen_nombre', 'is_active', 'precio_compra',
             'precio_venta', 'moneda', 'margen', 'stocks_por_almacen',
-            'stock', 'alerta_stock', 'empresa'
+            'stock', 'alerta_stock', 'empresa', 'unidad_medida',
+            'tipo_producto', 'tipo_producto_display', 'es_materia_prima'
         ]
-        read_only_fields = ['empresa', 'margen', 'stock_total', 'alerta_stock']
+        read_only_fields = ['empresa', 'margen', 'stock_total', 'alerta_stock', 'tipo_producto_display', 'es_materia_prima']
+
+    def get_tipo_producto_display(self, obj):
+        """Retorna el nombre legible del tipo de producto"""
+        tipos = {
+            'RAW': 'Materia Prima',
+            'SEMIFINISHED': 'Semi-Elaborado',
+            'FINISHED': 'Producto Terminado',
+            'SERVICE': 'Servicio'
+        }
+        return tipos.get(obj.tipo_producto, obj.tipo_producto)
+    
+    def get_es_materia_prima(self, obj):
+        """Indica si el producto es materia prima o insumo"""
+        return obj.tipo_producto in ['RAW', 'SEMIFINISHED']
 
     def get_stocks_por_almacen(self, obj):
         stocks = Stock.objects.filter(
@@ -96,38 +116,70 @@ class ProductoSerializer(serializers.ModelSerializer):
         return stock_total <= obj.stock_minimo
 
     def create(self, validated_data):
+        from .models import InventarioMateriasPrimas, InventarioProductosTerminados
+        
         request = self.context.get('request')
         stock_inicial = validated_data.pop('stock', 0)
-        almacen_id = validated_data.get('almacen')
         
         if request and request.user and request.user.empresa:
             validated_data['empresa'] = request.user.empresa
         
-        # Crear el producto primero
-        print(f"[DEBUG] validated_data antes de crear producto: {validated_data}")
+        # Crear el producto
         producto = Producto.objects.create(**validated_data)
-        print(f"[DEBUG] Producto creado: id={producto.id}, sku={producto.sku}, almacen={producto.almacen}, empresa={producto.empresa}")
         
-        # Obtener el almacén asociado
         almacen = producto.almacen
         
-        # Crear o actualizar el registro de stock inicial si se proporcionó y hay almacén
-        if stock_inicial > 0 and almacen:
+        # ========================================
+        # CREAR INVENTARIO SEGÚN TIPO DE PRODUCTO
+        # ========================================
+        if producto.tipo_producto in ['RAW', 'SEMIFINISHED']:
+            # Materias primas e insumos → InventarioMateriasPrimas
+            if almacen:
+                inv_mp, created = InventarioMateriasPrimas.objects.get_or_create(
+                    empresa=producto.empresa,
+                    producto=producto,
+                    almacen=almacen,
+                    defaults={
+                        'cantidad_disponible': stock_inicial,
+                        'cantidad_reservada': 0,
+                        'costo_unitario_promedio': producto.precio_compra or 0,
+                        'stock_minimo': producto.stock_minimo,
+                        'stock_maximo': producto.stock_maximo,
+                    }
+                )
+                if not created and stock_inicial > 0:
+                    inv_mp.cantidad_disponible += stock_inicial
+                    inv_mp.save()
+        elif producto.tipo_producto == 'FINISHED':
+            # Productos terminados → InventarioProductosTerminados
+            if almacen:
+                inv_pt, created = InventarioProductosTerminados.objects.get_or_create(
+                    empresa=producto.empresa,
+                    producto=producto,
+                    almacen=almacen,
+                    defaults={
+                        'cantidad_disponible': stock_inicial,
+                        'cantidad_reservada': 0,
+                        'costo_produccion_unitario': producto.precio_compra or 0,
+                        'precio_venta_sugerido': producto.precio_venta or 0,
+                        'stock_minimo': producto.stock_minimo,
+                        'stock_maximo': producto.stock_maximo,
+                    }
+                )
+                if not created and stock_inicial > 0:
+                    inv_pt.cantidad_disponible += stock_inicial
+                    inv_pt.save()
+        # También crear en Stock para compatibilidad con otras partes del sistema
+        if almacen:
             stock_obj, created = Stock.objects.get_or_create(
                 producto=producto,
                 almacen=almacen,
                 empresa=producto.empresa,
-                defaults={'cantidad': 0}
+                defaults={'cantidad': stock_inicial}
             )
-            stock_obj.cantidad += stock_inicial
-            stock_obj.save()
-            print(f"[DEBUG] {'Creado' if created else 'Actualizado'} stock: producto={producto.sku}, almacen={almacen.nombre}, cantidad={stock_obj.cantidad}, empresa={producto.empresa}")
-        else:
-            print(f"[DEBUG] No se creó/actualizó stock inicial para producto={producto.sku} (stock_inicial={stock_inicial}, almacen={almacen})")
-        
-        # Mostrar todos los stocks del producto
-        stocks = Stock.objects.filter(producto=producto)
-        print(f"[DEBUG] Stocks creados/actualizados para producto {producto.sku}: {[{'almacen': s.almacen.nombre, 'cantidad': s.cantidad, 'empresa': s.empresa.nombre if s.empresa else None} for s in stocks]}")
+            if not created and stock_inicial > 0:
+                stock_obj.cantidad += stock_inicial
+                stock_obj.save()
         
         return producto
 
@@ -138,9 +190,17 @@ class ProductoSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
     def validate(self, data):
+        """
+        Validaciones completas para productos:
+        - Categoría y almacén deben pertenecer a la empresa
+        - Stock mínimo no puede ser mayor al máximo
+        - Materias primas: precio_venta = 0, precio_compra obligatorio
+        - Productos terminados: precio_venta obligatorio y >= precio_compra
+        """
         request = self.context.get('request')
+        
+        # Validaciones de empresa
         if request and request.user and request.user.empresa:
-            # Validar que la categoría pertenezca a la empresa del usuario
             if 'categoria' in data:
                 categoria = data['categoria']
                 if categoria.empresa != request.user.empresa:
@@ -148,7 +208,6 @@ class ProductoSerializer(serializers.ModelSerializer):
                         {'categoria': 'Esta categoría no pertenece a tu empresa'}
                     )
 
-            # Validar que el almacén pertenezca a la empresa del usuario
             if 'almacen' in data:
                 almacen = data['almacen']
                 if almacen.empresa != request.user.empresa:
@@ -156,17 +215,69 @@ class ProductoSerializer(serializers.ModelSerializer):
                         {'almacen': 'Este almacén no pertenece a tu empresa'}
                     )
 
+        # Validación de stock
         if 'stock_minimo' in data and 'stock_maximo' in data:
             if data['stock_minimo'] > data['stock_maximo']:
                 raise serializers.ValidationError(
                     'El stock mínimo no puede ser mayor al stock máximo'
                 )
         
-        if 'precio_compra' in data and 'precio_venta' in data:
-            if data['precio_venta'] < data['precio_compra']:
-                raise serializers.ValidationError(
-                    'El precio de venta no puede ser menor al precio de compra'
-                )
+        # ========================================
+        # VALIDACIONES DE TIPO DE PRODUCTO
+        # ========================================
+        tipo_producto = data.get('tipo_producto')
+        if not tipo_producto and self.instance:
+            tipo_producto = self.instance.tipo_producto
+        if not tipo_producto:
+            tipo_producto = 'FINISHED'
+            
+        precio_venta = data.get('precio_venta')
+        precio_compra = data.get('precio_compra')
+        
+        # Materias primas e insumos
+        if tipo_producto in ['RAW', 'SEMIFINISHED']:
+            # Forzar precio_venta = 0 para materias primas
+            data['precio_venta'] = 0
+            
+            # El precio de compra es obligatorio para materias primas
+            if precio_compra is None:
+                raise serializers.ValidationError({
+                    'precio_compra': 'El precio de compra es obligatorio para materias primas.'
+                })
+            try:
+                pc = float(precio_compra)
+                if pc <= 0:
+                    raise serializers.ValidationError({
+                        'precio_compra': 'El precio de compra debe ser mayor a 0 para materias primas.'
+                    })
+            except (ValueError, TypeError):
+                raise serializers.ValidationError({
+                    'precio_compra': 'El precio de compra debe ser un número válido.'
+                })
+        else:
+            # Productos terminados: precio_venta obligatorio y >= precio_compra
+            if self.instance is None or 'precio_venta' in data:
+                if precio_venta is None:
+                    raise serializers.ValidationError({
+                        'precio_venta': 'El precio de venta es obligatorio para productos terminados.'
+                    })
+                try:
+                    pv = float(precio_venta)
+                    if pv <= 0:
+                        raise serializers.ValidationError({
+                            'precio_venta': 'El precio de venta debe ser mayor a 0 para productos terminados.'
+                        })
+                    # Validar que precio_venta >= precio_compra solo para productos terminados
+                    if precio_compra is not None:
+                        pc = float(precio_compra)
+                        if pv < pc:
+                            raise serializers.ValidationError(
+                                'El precio de venta no puede ser menor al precio de compra'
+                            )
+                except (ValueError, TypeError):
+                    raise serializers.ValidationError({
+                        'precio_venta': 'El precio de venta debe ser un número válido.'
+                    })
         
         return data
 
@@ -367,4 +478,532 @@ class MovimientoInventarioCreateSerializer(serializers.ModelSerializer):
                 fecha=validated_data['fecha'],
                 observaciones=validated_data.get('observaciones', ''),
                 usuario=usuario
-            ) 
+            )
+
+
+# =============================
+# SERIALIZERS PARA INVENTARIOS SEPARADOS
+# =============================
+
+class InventarioMateriasPrimasSerializer(serializers.ModelSerializer):
+    """Serializer para inventario de materias primas e insumos"""
+    
+    producto_nombre = serializers.CharField(source='producto.nombre', read_only=True)
+    producto_sku = serializers.CharField(source='producto.sku', read_only=True)
+    producto_unidad = serializers.CharField(source='producto.unidad_medida', read_only=True)
+    almacen_nombre = serializers.CharField(source='almacen.nombre', read_only=True)
+    cantidad_total = serializers.DecimalField(
+        max_digits=12, decimal_places=4, read_only=True
+    )
+    valor_inventario = serializers.DecimalField(
+        max_digits=15, decimal_places=4, read_only=True
+    )
+    estado_stock = serializers.CharField(read_only=True)
+    esta_por_vencer = serializers.BooleanField(read_only=True)
+    empresa = serializers.PrimaryKeyRelatedField(read_only=True)
+    
+    class Meta:
+        model = InventarioMateriasPrimas
+        fields = [
+            'id',
+            'empresa',
+            'producto',
+            'producto_nombre',
+            'producto_sku',
+            'producto_unidad',
+            'almacen',
+            'almacen_nombre',
+            'cantidad_disponible',
+            'cantidad_reservada',
+            'cantidad_total',
+            'costo_unitario_promedio',
+            'valor_inventario',
+            'ubicacion_almacen',
+            'stock_minimo',
+            'stock_maximo',
+            'lote',
+            'fecha_vencimiento',
+            'estado_stock',
+            'esta_por_vencer',
+            'ultima_actualizacion',
+            'created_at',
+        ]
+        read_only_fields = [
+            'empresa', 'cantidad_total', 'valor_inventario', 
+            'estado_stock', 'esta_por_vencer', 'ultima_actualizacion', 'created_at'
+        ]
+    
+    def validate(self, data):
+        request = self.context.get('request')
+        if request and request.user and request.user.empresa:
+            empresa = request.user.empresa
+            
+            # Validar que el producto pertenezca a la empresa
+            producto = data.get('producto')
+            if producto and producto.empresa != empresa:
+                raise serializers.ValidationError(
+                    {'producto': 'Este producto no pertenece a tu empresa'}
+                )
+            
+            # Validar que el producto sea materia prima o semi-terminado
+            if producto and producto.tipo_producto not in ['RAW', 'SEMIFINISHED']:
+                raise serializers.ValidationError(
+                    {'producto': 'Solo se pueden agregar materias primas o productos semi-terminados a este inventario'}
+                )
+            
+            # Validar que el almacén pertenezca a la empresa
+            almacen = data.get('almacen')
+            if almacen and almacen.empresa != empresa:
+                raise serializers.ValidationError(
+                    {'almacen': 'Este almacén no pertenece a tu empresa'}
+                )
+        
+        return data
+    
+    def create(self, validated_data):
+        request = self.context.get('request')
+        if request and request.user and request.user.empresa:
+            validated_data['empresa'] = request.user.empresa
+        return super().create(validated_data)
+
+
+class InventarioMateriasPrimasCreateSerializer(serializers.ModelSerializer):
+    """Serializer para crear/actualizar inventario de materias primas"""
+    
+    class Meta:
+        model = InventarioMateriasPrimas
+        fields = [
+            'producto',
+            'almacen',
+            'cantidad_disponible',
+            'costo_unitario_promedio',
+            'ubicacion_almacen',
+            'stock_minimo',
+            'stock_maximo',
+            'lote',
+            'fecha_vencimiento',
+        ]
+    
+    def validate(self, data):
+        request = self.context.get('request')
+        if request and request.user and request.user.empresa:
+            empresa = request.user.empresa
+            
+            producto = data.get('producto')
+            if producto:
+                if producto.empresa != empresa:
+                    raise serializers.ValidationError(
+                        {'producto': 'Este producto no pertenece a tu empresa'}
+                    )
+                if producto.tipo_producto not in ['RAW', 'SEMIFINISHED']:
+                    raise serializers.ValidationError(
+                        {'producto': 'Solo materias primas o productos semi-terminados permitidos'}
+                    )
+            
+            almacen = data.get('almacen')
+            if almacen and almacen.empresa != empresa:
+                raise serializers.ValidationError(
+                    {'almacen': 'Este almacén no pertenece a tu empresa'}
+                )
+        
+        return data
+    
+    def create(self, validated_data):
+        request = self.context.get('request')
+        if request and request.user and request.user.empresa:
+            validated_data['empresa'] = request.user.empresa
+        return super().create(validated_data)
+
+
+class InventarioProductosTerminadosSerializer(serializers.ModelSerializer):
+    """Serializer para inventario de productos terminados"""
+    
+    producto_nombre = serializers.CharField(source='producto.nombre', read_only=True)
+    producto_sku = serializers.CharField(source='producto.sku', read_only=True)
+    producto_unidad = serializers.CharField(source='producto.unidad_medida', read_only=True)
+    almacen_nombre = serializers.CharField(source='almacen.nombre', read_only=True)
+    cantidad_total = serializers.DecimalField(
+        max_digits=12, decimal_places=4, read_only=True
+    )
+    valor_inventario = serializers.DecimalField(
+        max_digits=15, decimal_places=4, read_only=True
+    )
+    valor_venta_potencial = serializers.DecimalField(
+        max_digits=15, decimal_places=4, read_only=True
+    )
+    margen_utilidad = serializers.DecimalField(
+        max_digits=8, decimal_places=2, read_only=True
+    )
+    estado_stock = serializers.CharField(read_only=True)
+    empresa = serializers.PrimaryKeyRelatedField(read_only=True)
+    
+    class Meta:
+        model = InventarioProductosTerminados
+        fields = [
+            'id',
+            'empresa',
+            'producto',
+            'producto_nombre',
+            'producto_sku',
+            'producto_unidad',
+            'almacen',
+            'almacen_nombre',
+            'cantidad_disponible',
+            'cantidad_reservada',
+            'cantidad_total',
+            'costo_produccion_unitario',
+            'precio_venta_sugerido',
+            'valor_inventario',
+            'valor_venta_potencial',
+            'margen_utilidad',
+            'ubicacion_almacen',
+            'stock_minimo',
+            'stock_maximo',
+            'lote_produccion',
+            'fecha_produccion',
+            'fecha_vencimiento',
+            'orden_produccion_id',
+            'estado_stock',
+            'ultima_actualizacion',
+            'created_at',
+        ]
+        read_only_fields = [
+            'empresa', 'cantidad_total', 'valor_inventario', 'valor_venta_potencial',
+            'margen_utilidad', 'estado_stock', 'ultima_actualizacion', 'created_at'
+        ]
+    
+    def validate(self, data):
+        request = self.context.get('request')
+        if request and request.user and request.user.empresa:
+            empresa = request.user.empresa
+            
+            # Validar que el producto pertenezca a la empresa
+            producto = data.get('producto')
+            if producto and producto.empresa != empresa:
+                raise serializers.ValidationError(
+                    {'producto': 'Este producto no pertenece a tu empresa'}
+                )
+            
+            # Validar que el producto sea producto terminado
+            if producto and producto.tipo_producto != 'FINISHED':
+                raise serializers.ValidationError(
+                    {'producto': 'Solo se pueden agregar productos terminados a este inventario'}
+                )
+            
+            # Validar que el almacén pertenezca a la empresa
+            almacen = data.get('almacen')
+            if almacen and almacen.empresa != empresa:
+                raise serializers.ValidationError(
+                    {'almacen': 'Este almacén no pertenece a tu empresa'}
+                )
+        
+        return data
+    
+    def create(self, validated_data):
+        request = self.context.get('request')
+        if request and request.user and request.user.empresa:
+            validated_data['empresa'] = request.user.empresa
+        return super().create(validated_data)
+
+
+class InventarioProductosTerminadosCreateSerializer(serializers.ModelSerializer):
+    """Serializer para crear/actualizar inventario de productos terminados"""
+    
+    class Meta:
+        model = InventarioProductosTerminados
+        fields = [
+            'producto',
+            'almacen',
+            'cantidad_disponible',
+            'costo_produccion_unitario',
+            'precio_venta_sugerido',
+            'ubicacion_almacen',
+            'stock_minimo',
+            'stock_maximo',
+            'lote_produccion',
+            'fecha_produccion',
+            'fecha_vencimiento',
+        ]
+    
+    def validate(self, data):
+        request = self.context.get('request')
+        if request and request.user and request.user.empresa:
+            empresa = request.user.empresa
+            
+            producto = data.get('producto')
+            if producto:
+                if producto.empresa != empresa:
+                    raise serializers.ValidationError(
+                        {'producto': 'Este producto no pertenece a tu empresa'}
+                    )
+                if producto.tipo_producto != 'FINISHED':
+                    raise serializers.ValidationError(
+                        {'producto': 'Solo productos terminados permitidos'}
+                    )
+            
+            almacen = data.get('almacen')
+            if almacen and almacen.empresa != empresa:
+                raise serializers.ValidationError(
+                    {'almacen': 'Este almacén no pertenece a tu empresa'}
+                )
+        
+        return data
+    
+    def create(self, validated_data):
+        request = self.context.get('request')
+        if request and request.user and request.user.empresa:
+            validated_data['empresa'] = request.user.empresa
+        return super().create(validated_data)
+
+
+class EntradaCompraSerializer(serializers.Serializer):
+    """Serializer para registrar entrada de compra a inventario de materias primas"""
+    
+    producto_id = serializers.IntegerField()
+    almacen_id = serializers.IntegerField()
+    cantidad = serializers.DecimalField(max_digits=12, decimal_places=4)
+    costo_unitario = serializers.DecimalField(max_digits=12, decimal_places=4)
+    lote = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    fecha_vencimiento = serializers.DateField(required=False, allow_null=True)
+    ubicacion = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    compra_id = serializers.IntegerField(required=False, allow_null=True)
+    
+    def validate(self, data):
+        from .models import Producto, Almacen
+        
+        request = self.context.get('request')
+        empresa = request.user.empresa if request else None
+        
+        try:
+            producto = Producto.objects.get(id=data['producto_id'], empresa=empresa)
+            if producto.tipo_producto not in ['RAW', 'SEMIFINISHED']:
+                raise serializers.ValidationError(
+                    {'producto_id': 'Solo se pueden registrar entradas de materias primas o semi-terminados'}
+                )
+            data['producto'] = producto
+        except Producto.DoesNotExist:
+            raise serializers.ValidationError(
+                {'producto_id': 'Producto no encontrado'}
+            )
+        
+        try:
+            almacen = Almacen.objects.get(id=data['almacen_id'], empresa=empresa)
+            data['almacen'] = almacen
+        except Almacen.DoesNotExist:
+            raise serializers.ValidationError(
+                {'almacen_id': 'Almacén no encontrado'}
+            )
+        
+        if data['cantidad'] <= 0:
+            raise serializers.ValidationError(
+                {'cantidad': 'La cantidad debe ser mayor a 0'}
+            )
+        
+        if data['costo_unitario'] < 0:
+            raise serializers.ValidationError(
+                {'costo_unitario': 'El costo unitario no puede ser negativo'}
+            )
+        
+        return data
+
+
+class SalidaProduccionSerializer(serializers.Serializer):
+    """Serializer para registrar salida de materias primas a producción"""
+    
+    producto_id = serializers.IntegerField()
+    almacen_id = serializers.IntegerField()
+    cantidad = serializers.DecimalField(max_digits=12, decimal_places=4)
+    orden_produccion_id = serializers.IntegerField()
+    desde_reserva = serializers.BooleanField(default=True)
+    
+    def validate(self, data):
+        from .models import Producto, Almacen, InventarioMateriasPrimas
+        
+        request = self.context.get('request')
+        empresa = request.user.empresa if request else None
+        
+        try:
+            producto = Producto.objects.get(id=data['producto_id'], empresa=empresa)
+            data['producto'] = producto
+        except Producto.DoesNotExist:
+            raise serializers.ValidationError(
+                {'producto_id': 'Producto no encontrado'}
+            )
+        
+        try:
+            almacen = Almacen.objects.get(id=data['almacen_id'], empresa=empresa)
+            data['almacen'] = almacen
+        except Almacen.DoesNotExist:
+            raise serializers.ValidationError(
+                {'almacen_id': 'Almacén no encontrado'}
+            )
+        
+        # Verificar stock disponible
+        try:
+            inventario = InventarioMateriasPrimas.objects.get(
+                empresa=empresa,
+                producto=data['producto'],
+                almacen=data['almacen']
+            )
+            
+            if data['desde_reserva']:
+                if inventario.cantidad_reservada < data['cantidad']:
+                    raise serializers.ValidationError(
+                        {'cantidad': f'Cantidad reservada insuficiente. Disponible: {inventario.cantidad_reservada}'}
+                    )
+            else:
+                if inventario.cantidad_disponible < data['cantidad']:
+                    raise serializers.ValidationError(
+                        {'cantidad': f'Stock insuficiente. Disponible: {inventario.cantidad_disponible}'}
+                    )
+            
+            data['inventario'] = inventario
+            
+        except InventarioMateriasPrimas.DoesNotExist:
+            raise serializers.ValidationError(
+                {'producto_id': 'No existe inventario para este producto en el almacén especificado'}
+            )
+        
+        return data
+
+
+class EntradaProduccionSerializer(serializers.Serializer):
+    """Serializer para registrar entrada de productos terminados desde producción"""
+    
+    producto_id = serializers.IntegerField()
+    almacen_id = serializers.IntegerField()
+    cantidad = serializers.DecimalField(max_digits=12, decimal_places=4)
+    costo_produccion = serializers.DecimalField(max_digits=12, decimal_places=4)
+    orden_produccion_id = serializers.IntegerField()
+    lote = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    fecha_produccion = serializers.DateField(required=False, allow_null=True)
+    fecha_vencimiento = serializers.DateField(required=False, allow_null=True)
+    ubicacion = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    
+    def validate(self, data):
+        from .models import Producto, Almacen
+        
+        request = self.context.get('request')
+        empresa = request.user.empresa if request else None
+        
+        try:
+            producto = Producto.objects.get(id=data['producto_id'], empresa=empresa)
+            if producto.tipo_producto != 'FINISHED':
+                raise serializers.ValidationError(
+                    {'producto_id': 'Solo se pueden registrar entradas de productos terminados'}
+                )
+            data['producto'] = producto
+        except Producto.DoesNotExist:
+            raise serializers.ValidationError(
+                {'producto_id': 'Producto no encontrado'}
+            )
+        
+        try:
+            almacen = Almacen.objects.get(id=data['almacen_id'], empresa=empresa)
+            data['almacen'] = almacen
+        except Almacen.DoesNotExist:
+            raise serializers.ValidationError(
+                {'almacen_id': 'Almacén no encontrado'}
+            )
+        
+        if data['cantidad'] <= 0:
+            raise serializers.ValidationError(
+                {'cantidad': 'La cantidad debe ser mayor a 0'}
+            )
+        
+        return data
+
+
+class SalidaVentaSerializer(serializers.Serializer):
+    """Serializer para registrar salida de productos terminados por venta"""
+    
+    producto_id = serializers.IntegerField()
+    almacen_id = serializers.IntegerField()
+    cantidad = serializers.DecimalField(max_digits=12, decimal_places=4)
+    venta_id = serializers.IntegerField(required=False, allow_null=True)
+    desde_reserva = serializers.BooleanField(default=False)
+    
+    def validate(self, data):
+        from .models import Producto, Almacen, InventarioProductosTerminados
+        
+        request = self.context.get('request')
+        empresa = request.user.empresa if request else None
+        
+        try:
+            producto = Producto.objects.get(id=data['producto_id'], empresa=empresa)
+            if producto.tipo_producto != 'FINISHED':
+                raise serializers.ValidationError(
+                    {'producto_id': 'Solo se pueden registrar salidas de productos terminados'}
+                )
+            data['producto'] = producto
+        except Producto.DoesNotExist:
+            raise serializers.ValidationError(
+                {'producto_id': 'Producto no encontrado'}
+            )
+        
+        try:
+            almacen = Almacen.objects.get(id=data['almacen_id'], empresa=empresa)
+            data['almacen'] = almacen
+        except Almacen.DoesNotExist:
+            raise serializers.ValidationError(
+                {'almacen_id': 'Almacén no encontrado'}
+            )
+        
+        # Verificar stock disponible
+        try:
+            inventario = InventarioProductosTerminados.objects.get(
+                empresa=empresa,
+                producto=data['producto'],
+                almacen=data['almacen']
+            )
+            
+            if data['desde_reserva']:
+                if inventario.cantidad_reservada < data['cantidad']:
+                    raise serializers.ValidationError(
+                        {'cantidad': f'Cantidad reservada insuficiente. Disponible: {inventario.cantidad_reservada}'}
+                    )
+            else:
+                if inventario.cantidad_disponible < data['cantidad']:
+                    raise serializers.ValidationError(
+                        {'cantidad': f'Stock insuficiente. Disponible: {inventario.cantidad_disponible}'}
+                    )
+            
+            data['inventario'] = inventario
+            
+        except InventarioProductosTerminados.DoesNotExist:
+            raise serializers.ValidationError(
+                {'producto_id': 'No existe inventario para este producto en el almacén especificado'}
+            )
+        
+        return data
+
+
+class AlertaStockSerializer(serializers.Serializer):
+    """Serializer para alertas de stock"""
+    
+    tipo = serializers.CharField()
+    producto = serializers.CharField()
+    almacen = serializers.CharField()
+    cantidad_disponible = serializers.DecimalField(max_digits=12, decimal_places=4, required=False)
+    stock_minimo = serializers.DecimalField(max_digits=12, decimal_places=4, required=False)
+    fecha_vencimiento = serializers.DateField(required=False)
+    mensaje = serializers.CharField()
+
+
+class ResumenInventarioSeparadoSerializer(serializers.Serializer):
+    """Serializer para resumen de inventarios separados"""
+    
+    # Materias Primas
+    total_materias_primas = serializers.IntegerField()
+    valor_total_materias_primas = serializers.DecimalField(max_digits=15, decimal_places=2)
+    materias_primas_stock_bajo = serializers.IntegerField()
+    materias_primas_por_vencer = serializers.IntegerField()
+    
+    # Productos Terminados
+    total_productos_terminados = serializers.IntegerField()
+    valor_total_productos_terminados = serializers.DecimalField(max_digits=15, decimal_places=2)
+    productos_terminados_stock_bajo = serializers.IntegerField()
+    valor_venta_potencial = serializers.DecimalField(max_digits=15, decimal_places=2)
+    
+    # Alertas
+    alertas = AlertaStockSerializer(many=True) 

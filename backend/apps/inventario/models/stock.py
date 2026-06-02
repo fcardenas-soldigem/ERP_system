@@ -50,7 +50,6 @@ class Stock(models.Model):
                 self.producto.actualizar_stock_total()
                 
         except Exception as e:
-            print(f"Error al guardar stock: {str(e)}")
             raise
 
     @classmethod

@@ -25,7 +25,7 @@ import {
 } from '@chakra-ui/react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { productosService } from '../../services/productos.service';
-import { api } from '../../api';
+import { api } from '../../lib/api';
 
 const ProductoForm = ({ isOpen, onClose, productoInicial = null }) => {
   const queryClient = useQueryClient();
@@ -43,6 +43,7 @@ const ProductoForm = ({ isOpen, onClose, productoInicial = null }) => {
     stock_inicial: 0,
     almacen: '',
     activo: true,
+    unidad_medida: 'unidad',
     ...(productoInicial || {})
   });
 
@@ -245,6 +246,25 @@ const ProductoForm = ({ isOpen, onClose, productoInicial = null }) => {
                   value={producto.descripcion}
                   onChange={handleChange}
                 />
+              </FormControl>
+
+              <FormControl isRequired>
+                <FormLabel>Unidad de Medida</FormLabel>
+                <Select
+                  name="unidad_medida"
+                  value={producto.unidad_medida}
+                  onChange={handleChange}
+                >
+                  <option value="unidad">Unidad</option>
+                  <option value="kilo">Kilogramo (Kg)</option>
+                  <option value="gramo">Gramo (g)</option>
+                  <option value="litro">Litro (L)</option>
+                  <option value="metro">Metro (m)</option>
+                  <option value="decena">Decena</option>
+                  <option value="docena">Docena (12 unidades)</option>
+                  <option value="centenar">Centenar (100 unidades)</option>
+                  <option value="millar">Millar (1000 unidades)</option>
+                </Select>
               </FormControl>
 
               <FormControl isRequired>

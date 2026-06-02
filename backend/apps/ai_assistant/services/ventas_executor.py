@@ -12,13 +12,11 @@ class VentasExecutor:
     def crear_venta(self, **kwargs):
         """Crear una nueva venta"""
         try:
-            print(f"🛒 Iniciando creación de venta para empresa {self.empresa}")
             
             # Validar cliente
             cliente_id = kwargs.get('cliente_id')
             try:
                 cliente = Cliente.objects.get(id=cliente_id, empresa=self.empresa)
-                print(f"✅ Cliente encontrado: {cliente.nombre}")
             except Cliente.DoesNotExist:
                 return {
                     'success': False,
@@ -40,7 +38,6 @@ class VentasExecutor:
                         sku=producto_data['producto_sku'],
                         empresa=self.empresa
                     )
-                    print(f"✅ Producto validado: {producto.nombre} (SKU: {producto.sku}) - Cantidad: {producto_data['cantidad']} - Stock disponible: {producto.get_stock_total()}")
                     
                     # Validar stock
                     stock_disponible = producto.get_stock_total()
@@ -73,7 +70,6 @@ class VentasExecutor:
                 'notas': kwargs.get('notas', '')
             }
 
-            print(f"📝 Datos preparados para venta: {venta_data}")
 
             # Crear la venta usando el serializer
             datos_completos = venta_data.copy()
@@ -104,7 +100,6 @@ class VentasExecutor:
                 }
 
         except Exception as e:
-            print(f"❌ Error en crear_venta: {str(e)}")
             return {
                 'success': False,
                 'error': f'Error interno: {str(e)}'

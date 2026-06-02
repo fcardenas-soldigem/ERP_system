@@ -1,279 +1,576 @@
-import React, { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import produccionService from '../../services/produccion.service';
+import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { produccionService } from '../../services/produccion.service';
+import QuickCreateOrden from './QuickCreateOrden';
+import {
+  Box,
+  Heading,
+  Text,
+  Flex,
+  SimpleGrid,
+  Card,
+  CardHeader,
+  CardBody,
+  Button,
+  Stat,
+  StatLabel,
+  StatNumber,
+  StatHelpText,
+  HStack,
+  VStack,
+  Badge,
+  Progress,
+  Alert,
+  AlertIcon,
+  Icon,
+  Input,
+  InputGroup,
+  InputLeftElement,
+  Select,
+  useColorModeValue,
+  Spinner,
+  IconButton,
+  Tabs,
+  TabList,
+  Tab,
+  TabPanels,
+  TabPanel,
+  Modal,
+  ModalOverlay,
+  ModalContent,
+  ModalHeader,
+  ModalBody,
+  ModalFooter,
+  ModalCloseButton,
+  useDisclosure,
+  Menu,
+  MenuButton,
+  MenuList,
+  MenuItem,
+  Tooltip
+} from '@chakra-ui/react';
+import { 
+  SearchIcon, 
+  AddIcon, 
+  ChevronRightIcon,
+  RepeatIcon,
+  ViewIcon,
+  TimeIcon,
+  WarningIcon,
+  CheckCircleIcon,
+  ChevronDownIcon,
+  EditIcon,
+  CopyIcon,
+  DeleteIcon
+} from '@chakra-ui/icons';
+import { FiPackage, FiBox, FiClock, FiCheckCircle, FiTarget, FiDollarSign, FiCalendar, FiUser, FiList, FiGrid } from 'react-icons/fi';
 
 const OrdenProduccionList = () => {
   const navigate = useNavigate();
-  const [ordenes, setOrdenes] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterEstado, setFilterEstado] = useState('all');
+  const queryClient = useQueryClient();
+  const cardBg = useColorModeValue('white', 'gray.800');
+  const borderColor = useColorModeValue('gray.200', 'gray.600');
+  
+  const [showQuickCreate, setShowQuickCreate] = useState(false);
+  const [busqueda, setBusqueda] = useState('');
+  const [filtroEstado, setFiltroEstado] = useState('');
+  const [vistaActiva, setVistaActiva] = useState('grid'); // 'grid' o 'timeline'
+  const [ordenToCancel, setOrdenToCancel] = useState(null);
+  const { isOpen: isCancelOpen, onOpen: onCancelOpen, onClose: onCancelClose } = useDisclosure();
 
-  useEffect(() => {
-    cargarOrdenes();
-  }, [filterEstado]);
-
-  const cargarOrdenes = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      
-      const params = {};
-      if (filterEstado !== 'all') {
-        params.estado = filterEstado;
-      }
-      if (searchTerm) {
-        params.search = searchTerm;
-      }
-
-      const response = await produccionService.getOrdenes(params);
-      setOrdenes(response.data);
-    } catch (err) {
-      console.error('Error al cargar órdenes:', err);
-      setError('Error al cargar las órdenes de producción');
-    } finally {
-      setLoading(false);
+  // Query para órdenes
+  const { data: ordenes = [], isLoading, error, refetch } = useQuery({
+    queryKey: ['ordenes-produccion'],
+    queryFn: async () => {
+      const response = await produccionService.getOrdenes();
+      const data = response.data;
+      return Array.isArray(data) ? data : data?.results || [];
     }
+  });
+
+  // Mutation para cancelar
+  const cancelMutation = useMutation({
+    mutationFn: (id) => produccionService.cancelarOrden(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['ordenes-produccion']);
+      onCancelClose();
+      setOrdenToCancel(null);
+    }
+  });
+
+  // Mutation para iniciar
+  const iniciarMutation = useMutation({
+    mutationFn: (id) => produccionService.iniciarOrden(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['ordenes-produccion']);
+    }
+  });
+
+  // Filtrar órdenes
+  const ordenesFiltradas = ordenes.filter(orden => {
+    if (busqueda) {
+      const search = busqueda.toLowerCase();
+      if (!orden.numero?.toLowerCase().includes(search) &&
+          !orden.producto_nombre?.toLowerCase().includes(search) &&
+          !orden.receta_nombre?.toLowerCase().includes(search)) {
+        return false;
+      }
+    }
+    if (filtroEstado && orden.estado !== filtroEstado) return false;
+    return true;
+  });
+
+  const getEstadoConfig = (estado) => {
+    const configs = {
+      'pendiente': { color: 'gray', icon: '⚪', label: 'Pendiente', colorScheme: 'gray' },
+      'planificada': { color: 'gray', icon: '⚪', label: 'Planificada', colorScheme: 'gray' },
+      'en_proceso': { color: 'yellow', icon: '🟡', label: 'En Proceso', colorScheme: 'yellow' },
+      'finalizada': { color: 'green', icon: '🟢', label: 'Finalizada', colorScheme: 'green' },
+      'completada': { color: 'green', icon: '🟢', label: 'Completada', colorScheme: 'green' },
+      'cancelada': { color: 'red', icon: '🔴', label: 'Cancelada', colorScheme: 'red' },
+      'pausada': { color: 'orange', icon: '🟠', label: 'Pausada', colorScheme: 'orange' }
+    };
+    return configs[estado] || configs['pendiente'];
   };
 
-  const handleSearch = (e) => {
-    e.preventDefault();
-    cargarOrdenes();
+  const formatCurrency = (amount) => {
+    return new Intl.NumberFormat('es-PE', {
+      style: 'currency',
+      currency: 'PEN'
+    }).format(amount || 0);
   };
 
-  const getEstadoBadge = (estado, retrasada) => {
-    const badges = {
-      pendiente: 'bg-yellow-100 text-yellow-800',
-      en_proceso: 'bg-blue-100 text-blue-800',
-      finalizada: 'bg-green-100 text-green-800',
-      cancelada: 'bg-gray-100 text-gray-800'
-    };
+  const formatDate = (dateString) => {
+    if (!dateString) return '-';
+    return new Date(dateString).toLocaleDateString('es-PE', {
+      day: '2-digit',
+      month: '2-digit',
+      year: '2-digit'
+    });
+  };
 
-    const textos = {
-      pendiente: 'Pendiente',
-      en_proceso: 'En Proceso',
-      finalizada: 'Finalizada',
-      cancelada: 'Cancelada'
-    };
+  const calcularProgreso = (orden) => {
+    if (!orden.cantidad_planificada) return 0;
+    return Math.round((orden.cantidad_producida || 0) / orden.cantidad_planificada * 100);
+  };
 
+  const handleCancelClick = (orden) => {
+    setOrdenToCancel(orden);
+    onCancelOpen();
+  };
+
+  // Stats
+  const stats = {
+    total: ordenes.length,
+    enProceso: ordenes.filter(o => o.estado === 'en_proceso').length,
+    completadas: ordenes.filter(o => o.estado === 'finalizada' || o.estado === 'completada').length,
+    pendientes: ordenes.filter(o => o.estado === 'pendiente' || o.estado === 'planificada').length
+  };
+
+  if (isLoading) {
     return (
-      <div className="flex items-center gap-2">
-        <span className={`px-2 py-1 text-xs font-semibold rounded-full ${badges[estado]}`}>
-          {textos[estado]}
-        </span>
-        {retrasada && estado !== 'finalizada' && estado !== 'cancelada' && (
-          <span className="px-2 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-800">
-            Retrasada
-          </span>
-        )}
-      </div>
+      <Box p={6}>
+        <Flex justify="center" align="center" h="300px" direction="column">
+          <Spinner size="xl" color="blue.500" thickness="4px" mb={4} />
+          <Text color="gray.600">Cargando órdenes...</Text>
+        </Flex>
+      </Box>
     );
-  };
+  }
 
-  if (loading) {
+  if (error) {
     return (
-      <div className="container mx-auto p-6">
-        <div className="flex justify-center items-center h-64">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-        </div>
-      </div>
+      <Box p={6}>
+        <Alert status="error" borderRadius="md">
+          <AlertIcon />
+          No se pudieron cargar las órdenes de producción
+        </Alert>
+      </Box>
     );
   }
 
   return (
-    <div className="container mx-auto p-6">
+    <Box p={6}>
       {/* Header */}
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-800">Órdenes de Producción</h1>
-          <p className="text-gray-600 mt-1">Gestione las órdenes de producción</p>
-        </div>
-        <Link
-          to="/produccion/ordenes/nueva"
-          className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg flex items-center gap-2"
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-          Nueva Orden
-        </Link>
-      </div>
-
-      {/* Filtros */}
-      <div className="bg-white rounded-lg shadow-sm p-4 mb-6">
-        <div className="flex flex-col md:flex-row gap-4">
-          <form onSubmit={handleSearch} className="flex-1">
-            <div className="relative">
-              <input
-                type="text"
-                placeholder="Buscar por número, producto..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-              />
-              <svg
-                className="absolute left-3 top-2.5 h-5 w-5 text-gray-400"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
-            </div>
-          </form>
-
-          <div className="flex gap-2 flex-wrap">
-            <button
-              onClick={() => setFilterEstado('all')}
-              className={`px-4 py-2 rounded-lg ${filterEstado === 'all' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
-            >
-              Todas
-            </button>
-            <button
-              onClick={() => setFilterEstado('pendiente')}
-              className={`px-4 py-2 rounded-lg ${filterEstado === 'pendiente' ? 'bg-yellow-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
-            >
-              Pendientes
-            </button>
-            <button
-              onClick={() => setFilterEstado('en_proceso')}
-              className={`px-4 py-2 rounded-lg ${filterEstado === 'en_proceso' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
-            >
-              En Proceso
-            </button>
-            <button
-              onClick={() => setFilterEstado('finalizada')}
-              className={`px-4 py-2 rounded-lg ${filterEstado === 'finalizada' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
-            >
-              Finalizadas
-            </button>
-            <button
-              onClick={() => setFilterEstado('cancelada')}
-              className={`px-4 py-2 rounded-lg ${filterEstado === 'cancelada' ? 'bg-gray-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
-            >
-              Canceladas
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6">
-          {error}
-        </div>
-      )}
-
-      {/* Lista */}
-      {ordenes.length === 0 ? (
-        <div className="bg-white rounded-lg shadow-sm p-12 text-center">
-          <svg className="mx-auto h-12 w-12 text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-          </svg>
-          <h3 className="text-lg font-medium text-gray-900 mb-2">No hay órdenes</h3>
-          <p className="text-gray-600 mb-4">Cree su primera orden de producción</p>
-          <Link
-            to="/produccion/ordenes/nueva"
-            className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+      <Flex justify="space-between" align="center" mb={6} flexWrap="wrap" gap={4}>
+        <Box>
+          <Heading size="lg" bgGradient="linear(to-r, blue.600, purple.600)" bgClip="text">
+            Órdenes de Producción
+          </Heading>
+          <Text color="gray.600" mt={1}>
+            Gestiona y monitorea el avance de producción
+          </Text>
+        </Box>
+        <HStack spacing={3}>
+          <Button
+            leftIcon={<RepeatIcon />}
+            variant="outline"
+            onClick={() => refetch()}
           >
-            Crear Orden
-          </Link>
-        </div>
+            Actualizar
+          </Button>
+          <Button
+            leftIcon={<AddIcon />}
+            colorScheme="blue"
+            onClick={() => setShowQuickCreate(true)}
+          >
+            Nueva Orden
+          </Button>
+        </HStack>
+      </Flex>
+
+      {/* Stats Cards */}
+      <SimpleGrid columns={{ base: 2, md: 4 }} spacing={4} mb={6}>
+        <Card bg={cardBg} borderWidth="1px" borderColor={borderColor} borderRadius="xl">
+          <CardBody>
+            <Stat>
+              <StatLabel color="gray.500">Total</StatLabel>
+              <StatNumber color="blue.600">{stats.total}</StatNumber>
+              <StatHelpText>órdenes</StatHelpText>
+            </Stat>
+          </CardBody>
+        </Card>
+        <Card bg={cardBg} borderWidth="1px" borderColor={borderColor} borderRadius="xl">
+          <CardBody>
+            <Stat>
+              <StatLabel color="gray.500">En Proceso</StatLabel>
+              <StatNumber color="yellow.500">{stats.enProceso}</StatNumber>
+              <StatHelpText>activas</StatHelpText>
+            </Stat>
+          </CardBody>
+        </Card>
+        <Card bg={cardBg} borderWidth="1px" borderColor={borderColor} borderRadius="xl">
+          <CardBody>
+            <Stat>
+              <StatLabel color="gray.500">Completadas</StatLabel>
+              <StatNumber color="green.500">{stats.completadas}</StatNumber>
+              <StatHelpText>finalizadas</StatHelpText>
+            </Stat>
+          </CardBody>
+        </Card>
+        <Card bg={cardBg} borderWidth="1px" borderColor={borderColor} borderRadius="xl">
+          <CardBody>
+            <Stat>
+              <StatLabel color="gray.500">Pendientes</StatLabel>
+              <StatNumber color="gray.500">{stats.pendientes}</StatNumber>
+              <StatHelpText>por iniciar</StatHelpText>
+            </Stat>
+          </CardBody>
+        </Card>
+      </SimpleGrid>
+
+      {/* Filtros y Vista */}
+      <Card bg={cardBg} borderWidth="1px" borderColor={borderColor} mb={6} borderRadius="xl">
+        <CardBody>
+          <Flex justify="space-between" align="center" flexWrap="wrap" gap={4}>
+            <HStack spacing={4} flex={1}>
+              <InputGroup maxW="400px">
+                <InputLeftElement pointerEvents="none">
+                  <SearchIcon color="gray.400" />
+                </InputLeftElement>
+                <Input
+                  placeholder="Buscar por número, producto..."
+                  value={busqueda}
+                  onChange={(e) => setBusqueda(e.target.value)}
+                />
+              </InputGroup>
+              <Select 
+                w="200px"
+                value={filtroEstado}
+                onChange={(e) => setFiltroEstado(e.target.value)}
+              >
+                <option value="">Todos los estados</option>
+                <option value="pendiente">⚪ Pendiente</option>
+                <option value="en_proceso">🟡 En Proceso</option>
+                <option value="finalizada">🟢 Finalizada</option>
+                <option value="cancelada">🔴 Cancelada</option>
+              </Select>
+            </HStack>
+            <HStack>
+              <Tooltip label="Vista en grilla">
+                <IconButton
+                  icon={<Icon as={FiGrid} />}
+                  variant={vistaActiva === 'grid' ? 'solid' : 'ghost'}
+                  colorScheme={vistaActiva === 'grid' ? 'blue' : 'gray'}
+                  onClick={() => setVistaActiva('grid')}
+                  aria-label="Vista grid"
+                />
+              </Tooltip>
+              <Tooltip label="Vista timeline">
+                <IconButton
+                  icon={<Icon as={FiList} />}
+                  variant={vistaActiva === 'timeline' ? 'solid' : 'ghost'}
+                  colorScheme={vistaActiva === 'timeline' ? 'blue' : 'gray'}
+                  onClick={() => setVistaActiva('timeline')}
+                  aria-label="Vista timeline"
+                />
+              </Tooltip>
+            </HStack>
+          </Flex>
+        </CardBody>
+      </Card>
+
+      {/* Lista de órdenes */}
+      {ordenesFiltradas.length === 0 ? (
+        <Card bg={cardBg} borderWidth="1px" borderColor={borderColor} borderRadius="xl">
+          <CardBody>
+            <VStack py={12} spacing={4}>
+              <Icon as={FiBox} boxSize={12} color="gray.400" />
+              <Text fontSize="lg" fontWeight="medium" color="gray.600">
+                {busqueda || filtroEstado ? "No se encontraron órdenes" : "No hay órdenes de producción"}
+              </Text>
+              <Text color="gray.500" textAlign="center">
+                {busqueda || filtroEstado 
+                  ? "Intenta con otros filtros"
+                  : "Crea tu primera orden de producción"
+                }
+              </Text>
+              {!busqueda && !filtroEstado && (
+                <Button leftIcon={<AddIcon />} colorScheme="blue" onClick={() => setShowQuickCreate(true)}>
+                  Nueva Orden
+                </Button>
+              )}
+            </VStack>
+          </CardBody>
+        </Card>
+      ) : vistaActiva === 'grid' ? (
+        <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} spacing={6}>
+          {ordenesFiltradas.map((orden) => {
+            const estadoConfig = getEstadoConfig(orden.estado);
+            const progreso = calcularProgreso(orden);
+            
+            return (
+              <Card 
+                key={orden.id}
+                bg={cardBg} 
+                borderWidth="2px" 
+                borderColor={orden.estado === 'en_proceso' ? 'yellow.300' : borderColor}
+                borderRadius="xl"
+                overflow="hidden"
+                transition="all 0.3s"
+                _hover={{ shadow: 'lg', transform: 'translateY(-4px)' }}
+              >
+                {/* Barra de color según estado */}
+                <Box 
+                  h="4px" 
+                  bgGradient={`linear(to-r, ${estadoConfig.color}.400, ${estadoConfig.color}.600)`} 
+                />
+                
+                <CardHeader pb={2}>
+                  <Flex justify="space-between" align="start">
+                    <Box flex={1} mr={2}>
+                      <HStack mb={1}>
+                        <Text fontWeight="bold" fontSize="sm" color="gray.500">
+                          #{orden.numero || orden.id}
+                        </Text>
+                      </HStack>
+                      <Text fontWeight="bold" fontSize="md" noOfLines={1}>
+                        {orden.producto_nombre || 'Producto'}
+                      </Text>
+                    </Box>
+                    <Badge colorScheme={estadoConfig.colorScheme} fontSize="xs">
+                      {estadoConfig.icon} {estadoConfig.label}
+                    </Badge>
+                  </Flex>
+                </CardHeader>
+
+                <CardBody pt={0}>
+                  {/* Progreso */}
+                  <Box mb={4}>
+                    <Flex justify="space-between" fontSize="sm" mb={1}>
+                      <Text color="gray.600">Progreso</Text>
+                      <Text fontWeight="medium">{orden.cantidad_producida || 0} / {orden.cantidad_planificada} und</Text>
+                    </Flex>
+                    <Progress 
+                      value={progreso} 
+                      colorScheme={progreso >= 100 ? 'green' : progreso > 0 ? 'yellow' : 'gray'} 
+                      borderRadius="full" 
+                      size="sm" 
+                    />
+                    <Text fontSize="xs" color="gray.500" textAlign="right" mt={1}>{progreso}%</Text>
+                  </Box>
+
+                  {/* Info */}
+                  <VStack spacing={2} align="stretch" fontSize="sm">
+                    <Flex justify="space-between" color="gray.600">
+                      <HStack><Icon as={FiCalendar} /><Text>Fecha:</Text></HStack>
+                      <Text fontWeight="medium">{formatDate(orden.fecha_programada || orden.fecha_inicio)}</Text>
+                    </Flex>
+                    {orden.responsable_nombre && (
+                      <Flex justify="space-between" color="gray.600">
+                        <HStack><Icon as={FiUser} /><Text>Responsable:</Text></HStack>
+                        <Text fontWeight="medium" noOfLines={1}>{orden.responsable_nombre}</Text>
+                      </Flex>
+                    )}
+                    {orden.costo_estimado > 0 && (
+                      <Flex justify="space-between" color="gray.600">
+                        <HStack><Icon as={FiDollarSign} /><Text>Costo:</Text></HStack>
+                        <Text fontWeight="medium" color="green.600">{formatCurrency(orden.costo_estimado)}</Text>
+                      </Flex>
+                    )}
+                  </VStack>
+
+                  {/* Acciones */}
+                  <Flex justify="space-between" align="center" mt={4} pt={4} borderTopWidth="1px">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      colorScheme="blue"
+                      rightIcon={<ChevronRightIcon />}
+                      onClick={() => navigate(`/app/produccion/ordenes/${orden.id}`)}
+                    >
+                      Ver detalle
+                    </Button>
+                    
+                    <Menu>
+                      <MenuButton
+                        as={IconButton}
+                        icon={<ChevronDownIcon />}
+                        variant="ghost"
+                        size="sm"
+                        aria-label="Acciones"
+                      />
+                      <MenuList>
+                        {(orden.estado === 'pendiente' || orden.estado === 'planificada') && (
+                          <MenuItem 
+                            icon={<Icon as={FiCheckCircle} color="green.500" />}
+                            onClick={() => iniciarMutation.mutate(orden.id)}
+                          >
+                            Iniciar producción
+                          </MenuItem>
+                        )}
+                        <MenuItem 
+                          icon={<ViewIcon />}
+                          onClick={() => navigate(`/app/produccion/ordenes/${orden.id}`)}
+                        >
+                          Ver detalle
+                        </MenuItem>
+                        <MenuItem 
+                          icon={<CopyIcon />}
+                          onClick={() => {/* duplicar */}}
+                        >
+                          Duplicar
+                        </MenuItem>
+                        {orden.estado !== 'finalizada' && orden.estado !== 'completada' && orden.estado !== 'cancelada' && (
+                          <MenuItem 
+                            icon={<DeleteIcon color="red.500" />}
+                            onClick={() => handleCancelClick(orden)}
+                            color="red.500"
+                          >
+                            Cancelar
+                          </MenuItem>
+                        )}
+                      </MenuList>
+                    </Menu>
+                  </Flex>
+                </CardBody>
+              </Card>
+            );
+          })}
+        </SimpleGrid>
       ) : (
-        <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Orden</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Producto</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Planificado</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Producido</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha Prog.</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Eficiencia</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Acciones</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {ordenes.map((orden) => (
-                <tr key={orden.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">OP-{orden.numero}</div>
-                    <div className="text-xs text-gray-500">{orden.receta_nombre}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900">{orden.producto_nombre}</div>
-                    <div className="text-xs text-gray-500">{orden.producto_sku}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {orden.cantidad_planificada}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {orden.cantidad_producida || '-'}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {new Date(orden.fecha_programada).toLocaleDateString('es-PE')}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    {getEstadoBadge(orden.estado, orden.esta_retrasada)}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {orden.estado === 'finalizada' ? (
-                      <span className={`font-medium ${orden.eficiencia_produccion >= 95 ? 'text-green-600' : orden.eficiencia_produccion >= 80 ? 'text-yellow-600' : 'text-red-600'}`}>
-                        {parseFloat(orden.eficiencia_produccion).toFixed(1)}%
-                      </span>
-                    ) : '-'}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <div className="flex justify-end gap-2">
-                      {orden.estado === 'pendiente' && (
-                        <button
-                          onClick={() => navigate(`/produccion/ordenes/${orden.id}/ejecutar`)}
-                          className="text-blue-600 hover:text-blue-900"
-                          title="Ejecutar"
-                        >
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                          </svg>
-                        </button>
-                      )}
-                      {orden.estado === 'en_proceso' && (
-                        <button
-                          onClick={() => navigate(`/produccion/ordenes/${orden.id}/ejecutar`)}
-                          className="text-green-600 hover:text-green-900"
-                          title="Continuar"
-                        >
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                          </svg>
-                        </button>
-                      )}
-                      <button
-                        onClick={() => navigate(`/produccion/ordenes/${orden.id}`)}
-                        className="text-blue-600 hover:text-blue-900"
-                        title="Ver detalles"
+        // Vista Timeline
+        <VStack spacing={4} align="stretch">
+          {ordenesFiltradas.map((orden) => {
+            const estadoConfig = getEstadoConfig(orden.estado);
+            const progreso = calcularProgreso(orden);
+            
+            return (
+              <Card 
+                key={orden.id}
+                bg={cardBg} 
+                borderWidth="1px" 
+                borderColor={borderColor}
+                borderRadius="xl"
+                overflow="hidden"
+                borderLeftWidth="4px"
+                borderLeftColor={`${estadoConfig.color}.500`}
+              >
+                <CardBody>
+                  <Flex justify="space-between" align="center" flexWrap="wrap" gap={4}>
+                    <HStack spacing={4}>
+                      <Box textAlign="center" minW="60px">
+                        <Text fontSize="xs" color="gray.500">{formatDate(orden.fecha_programada)}</Text>
+                        <Text fontWeight="bold" fontSize="sm" color={`${estadoConfig.color}.600`}>
+                          #{orden.numero || orden.id}
+                        </Text>
+                      </Box>
+                      <Box>
+                        <Text fontWeight="bold">{orden.producto_nombre}</Text>
+                        <Text fontSize="sm" color="gray.500">{orden.receta_nombre}</Text>
+                      </Box>
+                    </HStack>
+
+                    <HStack spacing={6}>
+                      <Box minW="120px">
+                        <Progress 
+                          value={progreso} 
+                          colorScheme={progreso >= 100 ? 'green' : progreso > 0 ? 'yellow' : 'gray'} 
+                          borderRadius="full" 
+                          size="sm" 
+                        />
+                        <Text fontSize="xs" color="gray.500" mt={1}>
+                          {orden.cantidad_producida || 0}/{orden.cantidad_planificada} und ({progreso}%)
+                        </Text>
+                      </Box>
+                      <Badge colorScheme={estadoConfig.colorScheme} fontSize="sm">
+                        {estadoConfig.icon} {estadoConfig.label}
+                      </Badge>
+                      <Button
+                        size="sm"
+                        colorScheme="blue"
+                        variant="outline"
+                        rightIcon={<ChevronRightIcon />}
+                        onClick={() => navigate(`/app/produccion/ordenes/${orden.id}`)}
                       >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                        </svg>
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                        Ver
+                      </Button>
+                    </HStack>
+                  </Flex>
+                </CardBody>
+              </Card>
+            );
+          })}
+        </VStack>
       )}
 
-      {ordenes.length > 0 && (
-        <div className="mt-4 text-sm text-gray-600">
-          Mostrando {ordenes.length} orden{ordenes.length !== 1 ? 'es' : ''}
-        </div>
-      )}
-    </div>
+      {/* Quick Create Modal */}
+      <QuickCreateOrden
+        isOpen={showQuickCreate}
+        onClose={() => setShowQuickCreate(false)}
+      />
+
+      {/* Modal de cancelación */}
+      <Modal isOpen={isCancelOpen} onClose={onCancelClose} isCentered>
+        <ModalOverlay />
+        <ModalContent borderRadius="xl">
+          <ModalHeader>Cancelar Orden</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody textAlign="center" py={6}>
+            <Icon as={WarningIcon} boxSize={12} color="orange.400" mb={4} />
+            <Text color="gray.600" mb={2}>
+              ¿Estás seguro de cancelar esta orden?
+            </Text>
+            <Text fontWeight="bold" fontSize="lg">
+              {ordenToCancel?.numero || `#${ordenToCancel?.id}`} - {ordenToCancel?.producto_nombre}
+            </Text>
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="ghost" mr={3} onClick={onCancelClose}>
+              No, mantener
+            </Button>
+            <Button
+              colorScheme="red"
+              onClick={() => cancelMutation.mutate(ordenToCancel?.id)}
+              isLoading={cancelMutation.isLoading}
+            >
+              Sí, cancelar
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+    </Box>
   );
 };
 

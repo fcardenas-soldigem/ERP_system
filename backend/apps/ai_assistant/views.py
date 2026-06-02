@@ -22,7 +22,6 @@ def get_openai_client():
         client = OpenAI(api_key=settings.OPENAI_API_KEY)
         return client
     except Exception as e:
-        print(f"Error al crear cliente OpenAI: {str(e)}")
         raise
 
 class ConversationViewSet(viewsets.ModelViewSet):
@@ -79,7 +78,6 @@ class MessageViewSet(viewsets.ModelViewSet):
             )
 
         except Exception as e:
-            print(f"Error en MessageViewSet: {str(e)}")  # Para debugging
             return Response(
                 {"error": str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -125,7 +123,6 @@ class MessageViewSet(viewsets.ModelViewSet):
             return Response({"message": "Archivo analizado exitosamente"})
 
         except Exception as e:
-            print(f"Error al analizar archivo: {str(e)}")  # Para debugging
             return Response(
                 {"error": str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -227,7 +224,6 @@ class ThreadView(APIView):
 
     def post(self, request):
         try:
-            print("Iniciando creación de conversación...")
             client = get_openai_client()
             
             # Crear un nuevo thread para cada conversación
@@ -248,7 +244,6 @@ class ThreadView(APIView):
                 sistema_context = assistant.get_sistema_context()
                 user_history = sistema_context.get('user_profile', {})
             except Exception as e:
-                print(f"Error obteniendo contexto del sistema: {e}")
                 # Fallback a información básica
                 sistema_context = {
                     'empresa': {'nombre': request.user.empresa.nombre},
@@ -309,7 +304,6 @@ class ThreadView(APIView):
             }, status=status.HTTP_201_CREATED)
             
         except Exception as e:
-            print(f"Error al crear conversación: {str(e)}")
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class MessageView(APIView):
@@ -337,7 +331,6 @@ class MessageView(APIView):
             return Response({'error': 'Conversación no encontrada'}, 
                           status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
-            print(f"Error al procesar mensaje: {str(e)}")
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     def get(self, request, thread_id):
@@ -357,7 +350,6 @@ class MessageView(APIView):
                 ]
             })
         except Exception as e:
-            print(f"Error al obtener mensajes: {str(e)}")  # Para debugging
             return Response(
                 {'error': str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -390,7 +382,6 @@ class FileUploadView(APIView):
             })
 
         except Exception as e:
-            print(f"Error al subir archivo: {str(e)}")  # Para debugging
             return Response(
                 {'error': str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -604,7 +595,6 @@ class MessageViewWithTools(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            print(f"🗣️ Usuario {request.user.username} envía: {content}")
             
             # Crear servicio con tools
             openai_service = OpenAIServiceWithTools()
@@ -619,7 +609,6 @@ class MessageViewWithTools(APIView):
             return Response({'message': response})
             
         except Exception as e:
-            print(f"❌ Error en MessageViewWithTools: {str(e)}")
             return Response(
                 {'error': f'Error processing message: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -663,7 +652,6 @@ class VentasAssistantView(APIView):
             })
             
         except Exception as e:
-            print(f"❌ Error en VentasAssistantView: {str(e)}")
             return Response(
                 {'error': str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -693,7 +681,6 @@ class VentasMessageView(APIView):
             return Response({'response': response})
             
         except Exception as e:
-            print(f"❌ Error en VentasMessageView: {str(e)}")
             return Response(
                 {'error': str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -772,7 +759,6 @@ class ComprasAssistantView(APIView):
             })
             
         except Exception as e:
-            print(f"❌ Error en ComprasAssistantView: {str(e)}")
             return Response(
                 {'error': str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -802,7 +788,6 @@ class ComprasMessageView(APIView):
             return Response({'response': response})
             
         except Exception as e:
-            print(f"❌ Error en ComprasMessageView: {str(e)}")
             return Response(
                 {'error': str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR

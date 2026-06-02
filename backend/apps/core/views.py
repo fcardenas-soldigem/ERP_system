@@ -19,19 +19,40 @@ import json
 from .services.documento_service import DocumentoService
 
 class EmpresaViewSet(viewsets.ModelViewSet):
-    queryset = Empresa.objects.all()
     serializer_class = EmpresaSerializer
     permission_classes = [IsAuthenticated]
 
+    def get_queryset(self):
+        user = self.request.user
+        if user.is_superuser:
+            return Empresa.objects.all()
+        if hasattr(user, 'empresa') and user.empresa:
+            return Empresa.objects.filter(pk=user.empresa.pk)
+        return Empresa.objects.none()
+
 class UsuarioViewSet(viewsets.ModelViewSet):
-    queryset = Usuario.objects.all()
     serializer_class = UsuarioSerializer
     permission_classes = [IsAuthenticated]
 
+    def get_queryset(self):
+        user = self.request.user
+        if user.is_superuser:
+            return Usuario.objects.all()
+        if hasattr(user, 'empresa') and user.empresa:
+            return Usuario.objects.filter(usuario__empresa=user.empresa)
+        return Usuario.objects.none()
+
 class PerfilViewSet(viewsets.ModelViewSet):
-    queryset = Perfil.objects.all()
     serializer_class = PerfilSerializer
     permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.is_superuser:
+            return Perfil.objects.all()
+        if hasattr(user, 'empresa') and user.empresa:
+            return Perfil.objects.filter(usuario__empresa=user.empresa)
+        return Perfil.objects.none()
 
 class UsuarioPermisosView(APIView):
     permission_classes = [IsAuthenticated, ModulePermission]
@@ -59,7 +80,6 @@ class UsuarioPermisosView(APIView):
             return Response(permisos)
             
         except Exception as e:
-            print(f"Error al obtener permisos: {str(e)}")
             return Response(
                 {'error': 'Error al obtener permisos'},
                 status=500

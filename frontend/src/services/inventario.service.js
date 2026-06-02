@@ -1,4 +1,4 @@
-import { api } from '../api';
+import { api } from '../lib/api';
 
 export const inventarioService = {
   // Productos
@@ -65,18 +65,27 @@ export const inventarioService = {
 
   crearProducto: async (productoData) => {
     try {
+      // Determinar si es materia prima
+      const esMateriaPrima = productoData.tipo_producto === 'RAW' || productoData.tipo_producto === 'SEMIFINISHED';
+      
       // Asegurarnos de que los datos numéricos se envíen correctamente
+      // NOTA: precio_venta debe ser 0 (no null) para materias primas porque el modelo no permite null
       const dataToSend = {
         ...productoData,
         stock: parseFloat(productoData.stock_total) || 0,
         stock_total: parseFloat(productoData.stock_total) || 0,
         stock_minimo: parseFloat(productoData.stock_minimo) || 0,
         stock_maximo: parseFloat(productoData.stock_maximo) || 0,
-        precio_venta: parseFloat(productoData.precio_venta) || 0,
-        precio_compra: parseFloat(productoData.precio_compra) || 0
+        // Para materias primas, precio_venta = 0 (el modelo no permite null)
+        precio_venta: esMateriaPrima ? 0 : (parseFloat(productoData.precio_venta) || 0),
+        precio_compra: parseFloat(productoData.precio_compra) || 0,
+        tipo_producto: productoData.tipo_producto || 'FINISHED',
+        // Margen = 0 para materias primas
+        margen_ganancia: esMateriaPrima ? 0 : (parseFloat(productoData.margen_ganancia) || 0)
       };
 
       console.log('Datos a enviar al crear producto:', dataToSend);
+      console.log('Es materia prima:', esMateriaPrima);
       const response = await api.post('/api/inventario/productos/', dataToSend);
       console.log('Respuesta al crear producto:', response.data);
       return response.data;
@@ -85,6 +94,20 @@ export const inventarioService = {
       if (error.response) {
         console.error('Datos de la respuesta de error:', error.response.data);
         console.error('Estado de la respuesta:', error.response.status);
+        // Mostrar errores específicos
+        const errorData = error.response.data;
+        if (errorData?.non_field_errors) {
+          console.error('NON_FIELD_ERRORS:', errorData.non_field_errors);
+        }
+        // Construir mensaje de error legible
+        let errorMsg = 'Error al crear el producto';
+        if (typeof errorData === 'object') {
+          const errores = Object.entries(errorData)
+            .map(([campo, msgs]) => `${campo}: ${Array.isArray(msgs) ? msgs.join(', ') : msgs}`)
+            .join('; ');
+          if (errores) errorMsg = errores;
+        }
+        throw new Error(errorMsg);
       }
       throw new Error('Error al crear el producto');
     }
@@ -184,10 +207,17 @@ export const inventarioService = {
     try {
       const response = await api.get('/api/inventario/almacenes/');
       console.log('Respuesta getAlmacenes:', response.data);
-      return response.data;
+      // Manejar respuesta paginada o array directo
+      const data = response.data;
+      if (Array.isArray(data)) {
+        return data;
+      } else if (data && Array.isArray(data.results)) {
+        return data.results;
+      }
+      return [];
     } catch (error) {
       console.error('Error en getAlmacenes:', error);
-      throw new Error('Error al obtener los almacenes');
+      return []; // Retornar array vacío en caso de error
     }
   },
 
@@ -455,6 +485,295 @@ export const inventarioService = {
   // Obtener bodegas (alias para almacenes)
   getBodegas: async () => {
     return await inventarioService.getAlmacenes();
+  },
+
+  // ========================================
+  // INVENTARIOS SEPARADOS - MATERIAS PRIMAS
+  // ========================================
+  
+  getMateriasPrimas: async () => {
+    try {
+      const response = await api.get('/api/inventario/materias-primas/');
+      const data = Array.isArray(response.data) ? response.data : 
+                   Array.isArray(response.data.results) ? response.data.results : [];
+      return data.map(item => ({
+        ...item,
+        cantidad_disponible: parseFloat(item.cantidad_disponible) || 0,
+        cantidad_reservada: parseFloat(item.cantidad_reservada) || 0,
+        costo_unitario_promedio: parseFloat(item.costo_unitario_promedio) || 0,
+        stock_minimo: parseFloat(item.stock_minimo) || 0,
+        stock_maximo: parseFloat(item.stock_maximo) || 0,
+      }));
+    } catch (error) {
+      console.error('Error al obtener materias primas:', error);
+      throw new Error('Error al obtener materias primas');
+    }
+  },
+
+  getMateriaPrima: async (id) => {
+    try {
+      const response = await api.get(`/api/inventario/materias-primas/${id}/`);
+      return response.data;
+    } catch (error) {
+      console.error('Error al obtener materia prima:', error);
+      throw new Error('Error al obtener materia prima');
+    }
+  },
+
+  crearMateriaPrima: async (data) => {
+    try {
+      const response = await api.post('/api/inventario/materias-primas/', data);
+      return response.data;
+    } catch (error) {
+      console.error('Error al crear materia prima:', error);
+      throw error;
+    }
+  },
+
+  actualizarMateriaPrima: async (id, data) => {
+    try {
+      const response = await api.put(`/api/inventario/materias-primas/${id}/`, data);
+      return response.data;
+    } catch (error) {
+      console.error('Error al actualizar materia prima:', error);
+      throw error;
+    }
+  },
+
+  eliminarMateriaPrima: async (id) => {
+    try {
+      await api.delete(`/api/inventario/materias-primas/${id}/`);
+    } catch (error) {
+      console.error('Error al eliminar materia prima:', error);
+      throw error;
+    }
+  },
+
+  getMateriasPrimasStockBajo: async () => {
+    try {
+      const response = await api.get('/api/inventario/materias-primas/stock_bajo/');
+      return response.data;
+    } catch (error) {
+      console.error('Error al obtener materias primas con stock bajo:', error);
+      throw error;
+    }
+  },
+
+  getMateriasPrimasPorVencer: async (dias = 30) => {
+    try {
+      const response = await api.get(`/api/inventario/materias-primas/por_vencer/?dias=${dias}`);
+      return response.data;
+    } catch (error) {
+      console.error('Error al obtener materias primas por vencer:', error);
+      throw error;
+    }
+  },
+
+  getMateriasPrimasAlertas: async () => {
+    try {
+      const response = await api.get('/api/inventario/materias-primas/alertas/');
+      return response.data;
+    } catch (error) {
+      console.error('Error al obtener alertas de materias primas:', error);
+      throw error;
+    }
+  },
+
+  registrarEntradaCompra: async (data) => {
+    try {
+      const response = await api.post('/api/inventario/materias-primas/entrada_compra/', data);
+      return response.data;
+    } catch (error) {
+      console.error('Error al registrar entrada compra:', error);
+      throw error;
+    }
+  },
+
+  reservarMateriaParaProduccion: async (data) => {
+    try {
+      const response = await api.post('/api/inventario/materias-primas/reservar/', data);
+      return response.data;
+    } catch (error) {
+      console.error('Error al reservar materia prima:', error);
+      throw error;
+    }
+  },
+
+  ajustarInventarioMateriaPrima: async (data) => {
+    try {
+      const response = await api.post('/api/inventario/materias-primas/ajustar/', data);
+      return response.data;
+    } catch (error) {
+      console.error('Error al ajustar inventario:', error);
+      throw error;
+    }
+  },
+
+  getValorTotalMateriasPrimas: async () => {
+    try {
+      const response = await api.get('/api/inventario/materias-primas/valor_total/');
+      return response.data;
+    } catch (error) {
+      console.error('Error al obtener valor total de materias primas:', error);
+      throw error;
+    }
+  },
+
+  // =============================================
+  // INVENTARIOS SEPARADOS - PRODUCTOS TERMINADOS
+  // =============================================
+  
+  getProductosTerminados: async () => {
+    try {
+      const response = await api.get('/api/inventario/productos-terminados/');
+      const data = Array.isArray(response.data) ? response.data : 
+                   Array.isArray(response.data.results) ? response.data.results : [];
+      return data.map(item => ({
+        ...item,
+        cantidad_disponible: parseFloat(item.cantidad_disponible) || 0,
+        cantidad_reservada: parseFloat(item.cantidad_reservada) || 0,
+        costo_produccion_unitario: parseFloat(item.costo_produccion_unitario) || 0,
+        precio_venta_sugerido: parseFloat(item.precio_venta_sugerido) || 0,
+        stock_minimo: parseFloat(item.stock_minimo) || 0,
+        stock_maximo: parseFloat(item.stock_maximo) || 0,
+      }));
+    } catch (error) {
+      console.error('Error al obtener productos terminados:', error);
+      throw new Error('Error al obtener productos terminados');
+    }
+  },
+
+  getProductoTerminado: async (id) => {
+    try {
+      const response = await api.get(`/api/inventario/productos-terminados/${id}/`);
+      return response.data;
+    } catch (error) {
+      console.error('Error al obtener producto terminado:', error);
+      throw new Error('Error al obtener producto terminado');
+    }
+  },
+
+  crearProductoTerminado: async (data) => {
+    try {
+      const response = await api.post('/api/inventario/productos-terminados/', data);
+      return response.data;
+    } catch (error) {
+      console.error('Error al crear producto terminado:', error);
+      throw error;
+    }
+  },
+
+  actualizarProductoTerminado: async (id, data) => {
+    try {
+      const response = await api.put(`/api/inventario/productos-terminados/${id}/`, data);
+      return response.data;
+    } catch (error) {
+      console.error('Error al actualizar producto terminado:', error);
+      throw error;
+    }
+  },
+
+  eliminarProductoTerminado: async (id) => {
+    try {
+      await api.delete(`/api/inventario/productos-terminados/${id}/`);
+    } catch (error) {
+      console.error('Error al eliminar producto terminado:', error);
+      throw error;
+    }
+  },
+
+  getProductosTerminadosStockBajo: async () => {
+    try {
+      const response = await api.get('/api/inventario/productos-terminados/stock_bajo/');
+      return response.data;
+    } catch (error) {
+      console.error('Error al obtener productos terminados con stock bajo:', error);
+      throw error;
+    }
+  },
+
+  getProductosTerminadosAlertas: async () => {
+    try {
+      const response = await api.get('/api/inventario/productos-terminados/alertas/');
+      return response.data;
+    } catch (error) {
+      console.error('Error al obtener alertas de productos terminados:', error);
+      throw error;
+    }
+  },
+
+  registrarEntradaProduccion: async (data) => {
+    try {
+      const response = await api.post('/api/inventario/productos-terminados/entrada_produccion/', data);
+      return response.data;
+    } catch (error) {
+      console.error('Error al registrar entrada producción:', error);
+      throw error;
+    }
+  },
+
+  registrarSalidaVenta: async (data) => {
+    try {
+      const response = await api.post('/api/inventario/productos-terminados/salida_venta/', data);
+      return response.data;
+    } catch (error) {
+      console.error('Error al registrar salida venta:', error);
+      throw error;
+    }
+  },
+
+  reservarProductoParaVenta: async (data) => {
+    try {
+      const response = await api.post('/api/inventario/productos-terminados/reservar/', data);
+      return response.data;
+    } catch (error) {
+      console.error('Error al reservar producto:', error);
+      throw error;
+    }
+  },
+
+  ajustarInventarioProductoTerminado: async (data) => {
+    try {
+      const response = await api.post('/api/inventario/productos-terminados/ajustar/', data);
+      return response.data;
+    } catch (error) {
+      console.error('Error al ajustar inventario:', error);
+      throw error;
+    }
+  },
+
+  getValorTotalProductosTerminados: async () => {
+    try {
+      const response = await api.get('/api/inventario/productos-terminados/valor_total/');
+      return response.data;
+    } catch (error) {
+      console.error('Error al obtener valor total de productos terminados:', error);
+      throw error;
+    }
+  },
+
+  // ================================
+  // RESUMEN INVENTARIOS SEPARADOS
+  // ================================
+  
+  getResumenInventariosSeparados: async () => {
+    try {
+      const response = await api.get('/api/inventario/resumen-separado/');
+      return response.data;
+    } catch (error) {
+      console.error('Error al obtener resumen de inventarios:', error);
+      throw error;
+    }
+  },
+
+  validarStockParaProduccion: async (materiales) => {
+    try {
+      const response = await api.post('/api/inventario/validar-stock-produccion/', { materiales });
+      return response.data;
+    } catch (error) {
+      console.error('Error al validar stock para producción:', error);
+      throw error;
+    }
   },
 };
 

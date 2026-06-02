@@ -1,3 +1,4 @@
+import logging
 from django.db import models, transaction
 from django.db.models import F, Sum
 from django.db.models.signals import post_save, post_delete
@@ -12,6 +13,8 @@ import os
 from django.utils import timezone
 from datetime import timedelta
 from django.core.validators import MinValueValidator, MaxValueValidator
+
+logger = logging.getLogger(__name__)
 
 def comprobante_upload_to(instance, filename):
     # Generar la ruta para el comprobante
@@ -87,7 +90,6 @@ class Compra(models.Model):
     )
     numero = models.CharField(
         max_length=20,
-        unique=True,
         blank=True,
         null=True
     )
@@ -165,6 +167,7 @@ class Compra(models.Model):
         ordering = ['-fecha_emision']
         verbose_name = 'Compra'
         verbose_name_plural = 'Compras'
+        unique_together = ['empresa', 'numero']
 
     def __str__(self):
         return f"Compra {self.numero} - {self.proveedor.razon_social}"
@@ -228,66 +231,34 @@ class Compra(models.Model):
 
     def save(self, *args, **kwargs):
         if not self.numero:
-            print(f"DEBUG COMPRA SAVE: Generando número para empresa: {self.empresa} (ID: {self.empresa.id})")
-            
-            # Generar número de forma thread-safe
-            from django.db import transaction
             with transaction.atomic():
-                # Obtener todas las compras existentes para esta empresa y extraer los números
-                compras_existentes = Compra.objects.filter(
-                    empresa_id=self.empresa.id
-                ).values_list('numero', flat=True)
-                
-                print(f"DEBUG COMPRA SAVE: Compras existentes encontradas: {list(compras_existentes)}")
-                
-                # Extraer números numéricos válidos de diferentes formatos
-                numeros_existentes = []
-                for numero in compras_existentes:
+                # SELECT FOR UPDATE bloquea la última fila de esta empresa
+                # evitando la race condition donde dos requests obtienen el mismo max_num
+                ultima = (
+                    Compra.objects.select_for_update()
+                    .filter(empresa_id=self.empresa.id, numero__startswith='C-')
+                    .order_by('-numero')
+                    .only('numero')
+                    .first()
+                )
+                if ultima:
                     try:
-                        if numero:
-                            # Manejar diferentes formatos de números
-                            if numero.startswith('C-'):
-                                # Formato nuevo: C-000001
-                                parte_numerica = numero.split('-')[1]
-                                if parte_numerica.isdigit():
-                                    numeros_existentes.append(int(parte_numerica))
-                                    print(f"DEBUG COMPRA SAVE: Número C- encontrado: {numero} -> {int(parte_numerica)}")
-                            elif numero.isdigit():
-                                # Formato legacy: 000001, 00000001, etc.
-                                numeros_existentes.append(int(numero))
-                                print(f"DEBUG COMPRA SAVE: Número legacy encontrado: {numero} -> {int(numero)}")
-                            else:
-                                print(f"DEBUG COMPRA SAVE: Formato no reconocido: {numero}")
+                        siguiente_num = int(ultima.numero.split('-')[1]) + 1
                     except (ValueError, IndexError):
-                        print(f"DEBUG COMPRA SAVE: Número inválido ignorado: {numero}")
-                        continue
-                
-                print(f"DEBUG COMPRA SAVE: Lista de números existentes: {numeros_existentes}")
-                
-                # Encontrar el siguiente número disponible
-                if numeros_existentes:
-                    max_num = max(numeros_existentes)
-                    siguiente_num = max_num + 1
-                    print(f"DEBUG COMPRA SAVE: Máximo número existente: {max_num}, siguiente será: {siguiente_num}")
+                        siguiente_num = (
+                            Compra.objects.filter(empresa_id=self.empresa.id).count() + 1
+                        )
                 else:
-                    siguiente_num = 1
-                    print(f"DEBUG COMPRA SAVE: No hay números existentes, empezando en: {siguiente_num}")
-                
-                # Generar el número con formato C-000XXX
+                    legacy = (
+                        Compra.objects.select_for_update()
+                        .filter(empresa_id=self.empresa.id, numero__regex=r'^\d+$')
+                        .order_by('-numero')
+                        .only('numero')
+                        .first()
+                    )
+                    siguiente_num = (int(legacy.numero) + 1) if legacy else 1
+
                 self.numero = f"C-{str(siguiente_num).zfill(6)}"
-                print(f"DEBUG COMPRA SAVE: Número generado: {self.numero}")
-                
-                # Safety check - asegurar que no existe
-                existe_check = Compra.objects.filter(empresa_id=self.empresa.id, numero=self.numero).exists()
-                print(f"DEBUG COMPRA SAVE: ¿Existe {self.numero}? {existe_check}")
-                
-                while Compra.objects.filter(empresa_id=self.empresa.id, numero=self.numero).exists():
-                    print(f"DEBUG COMPRA SAVE: {self.numero} ya existe, incrementando...")
-                    siguiente_num += 1
-                    self.numero = f"C-{str(siguiente_num).zfill(6)}"
-                    print(f"DEBUG COMPRA SAVE: Nuevo número generado: {self.numero}")
-                
-                print(f"DEBUG COMPRA SAVE: Número final para compra: {self.numero}")
 
         # Establecer fecha de vencimiento y lógica de estado/método de pago
         if self.tipo_compra in ['credito_30', 'credito_60']:
@@ -335,30 +306,66 @@ class Compra(models.Model):
         self.save()
 
     def actualizar_stock(self):
-        print(f"=== ACTUALIZANDO STOCK PARA COMPRA {self.numero} ===")
+        """
+        Actualiza el stock cuando una compra se confirma/paga.
+        Para materias primas e insumos, también actualiza el inventario separado.
+        """
+        from apps.inventario.models import MovimientoInventario
+        from apps.inventario.models.inventario_materias_primas import InventarioMateriasPrimas
         
+        logger.info("Actualizando stock compra %s", self.numero)
+
         for detalle in self.detalles.all():
-            print(f"Procesando producto: {detalle.producto.nombre}, cantidad: {detalle.cantidad}")
-            print(f"Almacén: {self.almacen.nombre}")
-            
-            stock, created = Stock.objects.get_or_create(
-                producto=detalle.producto,
+            producto = detalle.producto
+
+            stock, _ = Stock.objects.get_or_create(
+                producto=producto,
                 almacen=self.almacen,
                 empresa=self.empresa,
                 defaults={'cantidad': 0}
             )
-            
-            stock_anterior = stock.cantidad
-            print(f"Stock anterior: {stock_anterior}")
-            
+
             stock.cantidad += detalle.cantidad
             stock.save()
-            
-            print(f"Stock actualizado: {stock_anterior} + {detalle.cantidad} = {stock.cantidad}")
-            
-            detalle.producto.actualizar_stock_total()
-        
-        print(f"=== FIN ACTUALIZACIÓN STOCK COMPRA {self.numero} ===")
+            producto.actualizar_stock_total()
+
+            if producto.tipo_producto in ['RAW', 'SEMIFINISHED']:
+                try:
+                    inventario = InventarioMateriasPrimas.registrar_entrada_compra(
+                        empresa=self.empresa,
+                        producto=producto,
+                        almacen=self.almacen,
+                        cantidad=detalle.cantidad,
+                        costo_unitario=detalle.precio_unitario,
+                        lote='',
+                        fecha_vencimiento=None,
+                        ubicacion=''
+                    )
+
+                    MovimientoInventario.objects.create(
+                        empresa=self.empresa,
+                        producto=producto,
+                        almacen=self.almacen,
+                        fecha=timezone.now(),
+                        tipo_movimiento='entrada_compra',
+                        tipo_documento='compra',
+                        tipo_inventario='materia_prima',
+                        numero_documento=self.numero,
+                        cantidad_entrada=detalle.cantidad,
+                        costo_unitario=detalle.precio_unitario,
+                        costo_total_entrada=detalle.cantidad * detalle.precio_unitario,
+                        cantidad_saldo=inventario.cantidad_disponible + inventario.cantidad_reservada,
+                        costo_saldo=inventario.valor_inventario,
+                        costo_promedio=inventario.costo_unitario_promedio,
+                        inventario_anterior=float(inventario.cantidad_disponible + inventario.cantidad_reservada - detalle.cantidad),
+                        inventario_actual=float(inventario.cantidad_disponible + inventario.cantidad_reservada),
+                        compra_id=self.id,
+                        observaciones=f"Entrada por compra {self.numero} - Proveedor: {self.proveedor.razon_social}",
+                        created_by=''
+                    )
+
+                except Exception as e:
+                    logger.error("Error al actualizar inventario MP para compra %s: %s", self.numero, e, exc_info=True)
 
     def marcar_como_pagada(self):
         if self.estado == 'pagada':

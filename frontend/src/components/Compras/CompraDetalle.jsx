@@ -23,8 +23,9 @@ import {
   Divider,
   useToast
 } from '@chakra-ui/react';
-import { InfoIcon, ViewIcon } from '@chakra-ui/icons';
+import { InfoIcon, ViewIcon, DownloadIcon } from '@chakra-ui/icons';
 import { comprasService } from '../../services/compras.service';
+import { api } from '../../lib/api';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { ESTADOS_COMPRA, METODOS_PAGO, ESTADOS_DISPLAY, METODOS_PAGO_DISPLAY } from './constants';
@@ -38,6 +39,43 @@ const CompraDetalle = () => {
   const [pagos, setPagos] = useState([]);
   const [saldoPendiente, setSaldoPendiente] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
+  const [exportingPDF, setExportingPDF] = useState(false);
+
+  const handleExportarPDF = async () => {
+    try {
+      setExportingPDF(true);
+      const response = await api.get(`/api/compras/compras/${id}/exportar-pdf/`, {
+        responseType: 'blob'
+      });
+      
+      // Crear URL del blob y descargar
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `OC_${compra?.numero || id}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      
+      toast({
+        title: 'PDF exportado',
+        description: 'La orden de compra se ha descargado correctamente',
+        status: 'success',
+        duration: 3000,
+      });
+    } catch (error) {
+      console.error('Error al exportar PDF:', error);
+      toast({
+        title: 'Error al exportar PDF',
+        description: error.response?.data?.error || error.message,
+        status: 'error',
+        duration: 5000,
+      });
+    } finally {
+      setExportingPDF(false);
+    }
+  };
 
   useEffect(() => {
     const fetchData = async () => {
@@ -305,6 +343,16 @@ const CompraDetalle = () => {
         <HStack justify="flex-end" spacing={4}>
           <Button onClick={() => navigate('/app/compras')}>
             Volver a Compras
+          </Button>
+          <Button
+            leftIcon={<DownloadIcon />}
+            colorScheme="red"
+            variant="outline"
+            onClick={handleExportarPDF}
+            isLoading={exportingPDF}
+            loadingText="Exportando..."
+          >
+            Exportar PDF
           </Button>
           {compra.estado !== 'anulada' && (
             <Button

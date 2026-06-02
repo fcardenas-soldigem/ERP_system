@@ -1,350 +1,409 @@
-import React, { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import produccionService from '../../services/produccion.service';
+import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { produccionService } from '../../services/produccion.service';
+import RecetaWizard from './RecetaWizard';
+import {
+  Box,
+  Heading,
+  Text,
+  Flex,
+  SimpleGrid,
+  Card,
+  CardHeader,
+  CardBody,
+  Button,
+  Stat,
+  StatLabel,
+  StatNumber,
+  HStack,
+  VStack,
+  Badge,
+  Input,
+  InputGroup,
+  InputLeftElement,
+  Select,
+  useColorModeValue,
+  Spinner,
+  Icon,
+  IconButton,
+  Menu,
+  MenuButton,
+  MenuList,
+  MenuItem,
+  Modal,
+  ModalOverlay,
+  ModalContent,
+  ModalHeader,
+  ModalBody,
+  ModalFooter,
+  ModalCloseButton,
+  useDisclosure,
+  Alert,
+  AlertIcon
+} from '@chakra-ui/react';
+import { 
+  SearchIcon, 
+  AddIcon, 
+  ChevronRightIcon,
+  EditIcon,
+  CopyIcon,
+  DeleteIcon,
+  ChevronDownIcon
+} from '@chakra-ui/icons';
+import { FiClipboard, FiPackage, FiClock, FiDollarSign } from 'react-icons/fi';
 
 const RecetasList = () => {
   const navigate = useNavigate();
-  const [recetas, setRecetas] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterActive, setFilterActive] = useState('all'); // all, active, inactive
+  const queryClient = useQueryClient();
+  const cardBg = useColorModeValue('white', 'gray.800');
+  const borderColor = useColorModeValue('gray.200', 'gray.600');
+  
+  const [showWizard, setShowWizard] = useState(false);
+  const [recetaToEdit, setRecetaToEdit] = useState(null);
+  const [busqueda, setBusqueda] = useState('');
+  const [filtroEstado, setFiltroEstado] = useState('');
+  const [recetaToDelete, setRecetaToDelete] = useState(null);
+  const { isOpen: isDeleteOpen, onOpen: onDeleteOpen, onClose: onDeleteClose } = useDisclosure();
 
-  useEffect(() => {
-    cargarRecetas();
-  }, [filterActive]);
+  // Query para recetas
+  const { data: recetas = [], isLoading, error } = useQuery({
+    queryKey: ['recetas'],
+    queryFn: async () => {
+      const response = await produccionService.getRecetas();
+      // Axios devuelve { data: {...} }, y Django REST usa paginación { results: [...] }
+      const data = response.data;
+      return Array.isArray(data) ? data : data?.results || [];
+    }
+  });
 
-  const cargarRecetas = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      
-      const params = {};
-      if (filterActive === 'active') {
-        params.is_active = true;
-      } else if (filterActive === 'inactive') {
-        params.is_active = false;
+  // Mutation para eliminar
+  const deleteMutation = useMutation({
+    mutationFn: (id) => produccionService.deleteReceta(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['recetas']);
+      onDeleteClose();
+      setRecetaToDelete(null);
+    }
+  });
+
+  // Filtrar recetas
+  const recetasFiltradas = recetas.filter(receta => {
+    if (busqueda) {
+      const search = busqueda.toLowerCase();
+      if (!receta.nombre?.toLowerCase().includes(search) &&
+          !receta.producto_terminado_nombre?.toLowerCase().includes(search)) {
+        return false;
       }
-      if (searchTerm) {
-        params.search = searchTerm;
-      }
-
-      const response = await produccionService.getRecetas(params);
-      setRecetas(response.data);
-    } catch (err) {
-      console.error('Error al cargar recetas:', err);
-      setError('Error al cargar las recetas. Por favor, intente nuevamente.');
-    } finally {
-      setLoading(false);
     }
+    if (filtroEstado === 'activa' && !receta.is_active) return false;
+    if (filtroEstado === 'inactiva' && receta.is_active) return false;
+    return true;
+  });
+
+  const handleCreate = () => {
+    setRecetaToEdit(null);
+    setShowWizard(true);
   };
 
-  const handleSearch = (e) => {
-    e.preventDefault();
-    cargarRecetas();
+  const handleEdit = (receta) => {
+    setRecetaToEdit(receta);
+    setShowWizard(true);
   };
 
-  const handleDuplicar = async (id) => {
-    if (!window.confirm('¿Desea duplicar esta receta?')) return;
-
+  const handleDuplicate = async (receta) => {
+    const duplicatedData = {
+      ...receta,
+      nombre: `${receta.nombre} (copia)`,
+      is_active: false
+    };
+    delete duplicatedData.id;
+    
     try {
-      await produccionService.duplicarReceta(id);
-      alert('Receta duplicada exitosamente');
-      cargarRecetas();
-    } catch (err) {
-      console.error('Error al duplicar receta:', err);
-      alert('Error al duplicar la receta');
+      await produccionService.createReceta(duplicatedData);
+      queryClient.invalidateQueries(['recetas']);
+    } catch (error) {
+      console.error('Error al duplicar receta:', error);
     }
   };
 
-  const handleEliminar = async (id) => {
-    if (!window.confirm('¿Está seguro de eliminar esta receta? Esta acción no se puede deshacer.')) return;
-
-    try {
-      await produccionService.deleteReceta(id);
-      alert('Receta eliminada exitosamente');
-      cargarRecetas();
-    } catch (err) {
-      console.error('Error al eliminar receta:', err);
-      alert('Error al eliminar la receta. Puede que esté siendo usada en órdenes de producción.');
-    }
+  const handleDeleteClick = (receta) => {
+    setRecetaToDelete(receta);
+    onDeleteOpen();
   };
 
-  if (loading) {
+  const formatCurrency = (amount) => {
+    return new Intl.NumberFormat('es-PE', {
+      style: 'currency',
+      currency: 'PEN'
+    }).format(amount || 0);
+  };
+
+  if (isLoading) {
     return (
-      <div className="container mx-auto p-6">
-        <div className="flex justify-center items-center h-64">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-        </div>
-      </div>
+      <Box p={6}>
+        <Flex justify="center" align="center" h="300px" direction="column">
+          <Spinner size="xl" color="blue.500" thickness="4px" mb={4} />
+          <Text color="gray.600">Cargando recetas...</Text>
+        </Flex>
+      </Box>
+    );
+  }
+
+  if (error) {
+    return (
+      <Box p={6}>
+        <Alert status="error" borderRadius="md">
+          <AlertIcon />
+          No se pudieron cargar las recetas
+        </Alert>
+      </Box>
     );
   }
 
   return (
-    <div className="container mx-auto p-6">
+    <Box p={6}>
       {/* Header */}
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-800">Recetas de Producción</h1>
-          <p className="text-gray-600 mt-1">Gestione las recetas (BOM) de sus productos</p>
-        </div>
-        <Link
-          to="/produccion/recetas/nueva"
-          className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg flex items-center gap-2 transition-colors"
+      <Flex justify="space-between" align="center" mb={6} flexWrap="wrap" gap={4}>
+        <Box>
+          <Heading size="lg" bgGradient="linear(to-r, green.600, teal.600)" bgClip="text">
+            Recetas de Producción (BOM)
+          </Heading>
+          <Text color="gray.600" mt={1}>
+            Define las fórmulas y materiales para tus productos
+          </Text>
+        </Box>
+        <Button
+          leftIcon={<AddIcon />}
+          colorScheme="green"
+          onClick={handleCreate}
         >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
           Nueva Receta
-        </Link>
-      </div>
+        </Button>
+      </Flex>
 
-      {/* Filtros y búsqueda */}
-      <div className="bg-white rounded-lg shadow-sm p-4 mb-6">
-        <div className="flex flex-col md:flex-row gap-4">
-          {/* Búsqueda */}
-          <form onSubmit={handleSearch} className="flex-1">
-            <div className="relative">
-              <input
-                type="text"
-                placeholder="Buscar por nombre, producto o SKU..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+      {/* Filtros */}
+      <Card bg={cardBg} borderWidth="1px" borderColor={borderColor} mb={6} borderRadius="xl">
+        <CardBody>
+          <HStack spacing={4}>
+            <InputGroup flex={1}>
+              <InputLeftElement pointerEvents="none">
+                <SearchIcon color="gray.400" />
+              </InputLeftElement>
+              <Input
+                placeholder="Buscar por nombre o producto..."
+                value={busqueda}
+                onChange={(e) => setBusqueda(e.target.value)}
               />
-              <svg
-                className="absolute left-3 top-2.5 h-5 w-5 text-gray-400"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                />
-              </svg>
-            </div>
-          </form>
-
-          {/* Filtro por estado */}
-          <div className="flex gap-2">
-            <button
-              onClick={() => setFilterActive('all')}
-              className={`px-4 py-2 rounded-lg transition-colors ${
-                filterActive === 'all'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
+            </InputGroup>
+            <Select 
+              w="200px"
+              value={filtroEstado}
+              onChange={(e) => setFiltroEstado(e.target.value)}
             >
-              Todas
-            </button>
-            <button
-              onClick={() => setFilterActive('active')}
-              className={`px-4 py-2 rounded-lg transition-colors ${
-                filterActive === 'active'
-                  ? 'bg-green-600 text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-            >
-              Activas
-            </button>
-            <button
-              onClick={() => setFilterActive('inactive')}
-              className={`px-4 py-2 rounded-lg transition-colors ${
-                filterActive === 'inactive'
-                  ? 'bg-gray-600 text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-            >
-              Inactivas
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Mensajes de error */}
-      {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6">
-          {error}
-        </div>
-      )}
+              <option value="">Todos los estados</option>
+              <option value="activa">🟢 Activas</option>
+              <option value="inactiva">⚪ Inactivas</option>
+            </Select>
+          </HStack>
+        </CardBody>
+      </Card>
 
       {/* Lista de recetas */}
-      {recetas.length === 0 ? (
-        <div className="bg-white rounded-lg shadow-sm p-12 text-center">
-          <svg
-            className="mx-auto h-12 w-12 text-gray-400 mb-4"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-            />
-          </svg>
-          <h3 className="text-lg font-medium text-gray-900 mb-2">No hay recetas</h3>
-          <p className="text-gray-600 mb-4">Comience creando su primera receta de producción</p>
-          <Link
-            to="/produccion/recetas/nueva"
-            className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-          >
-            Crear Receta
-          </Link>
-        </div>
+      {recetasFiltradas.length === 0 ? (
+        <Card bg={cardBg} borderWidth="1px" borderColor={borderColor} borderRadius="xl">
+          <CardBody>
+            <VStack py={12} spacing={4}>
+              <Icon as={FiClipboard} boxSize={12} color="gray.400" />
+              <Text fontSize="lg" fontWeight="medium" color="gray.600">
+                {busqueda || filtroEstado ? "No se encontraron recetas" : "No hay recetas creadas"}
+              </Text>
+              <Text color="gray.500" textAlign="center">
+                {busqueda || filtroEstado 
+                  ? "Intenta con otros filtros"
+                  : "Crea tu primera receta para comenzar"
+                }
+              </Text>
+              {!busqueda && !filtroEstado && (
+                <Button leftIcon={<AddIcon />} colorScheme="green" onClick={handleCreate}>
+                  Nueva Receta
+                </Button>
+              )}
+            </VStack>
+          </CardBody>
+        </Card>
       ) : (
-        <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Receta
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Producto Terminado
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Cantidad
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Insumos
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Tiempo Est.
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Costo Unit.
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Estado
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Acciones
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {recetas.map((receta) => (
-                <tr key={receta.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center">
-                      <div>
-                        <div className="text-sm font-medium text-gray-900">{receta.nombre}</div>
-                        <div className="text-sm text-gray-500">v{receta.version}</div>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900">{receta.producto_terminado_nombre}</div>
-                    <div className="text-sm text-gray-500">{receta.producto_terminado_sku}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {receta.cantidad_producida}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {receta.total_insumos} insumos
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {receta.tiempo_estimado} min
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    S/ {parseFloat(receta.costo_teorico || 0).toFixed(2)}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span
-                      className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                        receta.is_active
-                          ? 'bg-green-100 text-green-800'
-                          : 'bg-gray-100 text-gray-800'
-                      }`}
-                    >
-                      {receta.is_active ? 'Activa' : 'Inactiva'}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <div className="flex justify-end gap-2">
-                      <button
-                        onClick={() => navigate(`/produccion/recetas/${receta.id}`)}
-                        className="text-blue-600 hover:text-blue-900"
-                        title="Ver detalles"
-                      >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-                          />
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
-                          />
-                        </svg>
-                      </button>
-                      <button
-                        onClick={() => navigate(`/produccion/recetas/${receta.id}/editar`)}
-                        className="text-yellow-600 hover:text-yellow-900"
-                        title="Editar"
-                      >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
-                          />
-                        </svg>
-                      </button>
-                      <button
-                        onClick={() => handleDuplicar(receta.id)}
-                        className="text-green-600 hover:text-green-900"
-                        title="Duplicar"
-                      >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
-                          />
-                        </svg>
-                      </button>
-                      <button
-                        onClick={() => handleEliminar(receta.id)}
-                        className="text-red-600 hover:text-red-900"
-                        title="Eliminar"
-                      >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                          />
-                        </svg>
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} spacing={6}>
+          {recetasFiltradas.map((receta) => (
+            <Card 
+              key={receta.id}
+              bg={cardBg} 
+              borderWidth="2px" 
+              borderColor={receta.is_active ? 'green.200' : borderColor}
+              borderRadius="xl"
+              overflow="hidden"
+              transition="all 0.3s"
+              _hover={{ shadow: 'lg', transform: 'translateY(-4px)' }}
+            >
+              {/* Barra de color */}
+              <Box h="4px" bgGradient={receta.is_active ? "linear(to-r, green.400, teal.400)" : "linear(to-r, gray.300, gray.400)"} />
+              
+              <CardHeader pb={2}>
+                <Flex justify="space-between" align="start">
+                  <Box flex={1} mr={2}>
+                    <Text fontWeight="bold" fontSize="md" noOfLines={1}>
+                      {receta.nombre}
+                    </Text>
+                    <Text fontSize="sm" color="gray.600" noOfLines={1}>
+                      {receta.producto_terminado_nombre}
+                    </Text>
+                  </Box>
+                  <Badge colorScheme={receta.is_active ? 'green' : 'gray'} fontSize="xs">
+                    {receta.is_active ? '✓ Activa' : 'Inactiva'}
+                  </Badge>
+                </Flex>
+              </CardHeader>
+
+              <CardBody pt={0}>
+                {/* Métricas */}
+                <SimpleGrid columns={2} spacing={3} mb={4}>
+                  <Stat size="sm" textAlign="center" p={2} bg="blue.50" borderRadius="lg">
+                    <StatNumber fontSize="xl" color="blue.600">
+                      {receta.cantidad_producida || 1}
+                    </StatNumber>
+                    <StatLabel fontSize="xs">und. produce</StatLabel>
+                  </Stat>
+                  <Stat size="sm" textAlign="center" p={2} bg="purple.50" borderRadius="lg">
+                    <StatNumber fontSize="xl" color="purple.600">
+                      {receta.detalles?.length || receta.total_materiales || 0}
+                    </StatNumber>
+                    <StatLabel fontSize="xs">materiales</StatLabel>
+                  </Stat>
+                </SimpleGrid>
+
+                {/* Info adicional */}
+                <VStack spacing={2} align="stretch" fontSize="sm">
+                  {receta.tiempo_estimado > 0 && (
+                    <Flex justify="space-between" color="gray.600">
+                      <HStack><Icon as={FiClock} /><Text>Tiempo:</Text></HStack>
+                      <Text fontWeight="medium">{(receta.tiempo_estimado / 60).toFixed(1)} hrs</Text>
+                    </Flex>
+                  )}
+                  {(receta.costo_total || receta.costo_materiales) > 0 && (
+                    <Flex justify="space-between" color="gray.600">
+                      <HStack><Icon as={FiDollarSign} /><Text>Costo:</Text></HStack>
+                      <Text fontWeight="medium" color="green.600">
+                        {formatCurrency(receta.costo_total || receta.costo_materiales)}
+                      </Text>
+                    </Flex>
+                  )}
+                </VStack>
+
+                {/* Acciones */}
+                <Flex justify="space-between" align="center" mt={4} pt={4} borderTopWidth="1px">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    colorScheme="blue"
+                    rightIcon={<ChevronRightIcon />}
+                    onClick={() => navigate(`/app/produccion/recetas/${receta.id}`)}
+                  >
+                    Ver detalle
+                  </Button>
+                  
+                  <HStack spacing={1}>
+                    <IconButton
+                      size="sm"
+                      variant="ghost"
+                      icon={<EditIcon />}
+                      onClick={() => handleEdit(receta)}
+                      aria-label="Editar"
+                      _hover={{ bg: 'blue.50', color: 'blue.600' }}
+                    />
+                    <IconButton
+                      size="sm"
+                      variant="ghost"
+                      icon={<CopyIcon />}
+                      onClick={() => handleDuplicate(receta)}
+                      aria-label="Duplicar"
+                      _hover={{ bg: 'purple.50', color: 'purple.600' }}
+                    />
+                    <IconButton
+                      size="sm"
+                      variant="ghost"
+                      icon={<DeleteIcon />}
+                      onClick={() => handleDeleteClick(receta)}
+                      aria-label="Eliminar"
+                      _hover={{ bg: 'red.50', color: 'red.600' }}
+                    />
+                  </HStack>
+                </Flex>
+              </CardBody>
+            </Card>
+          ))}
+        </SimpleGrid>
       )}
 
-      {/* Resumen */}
-      {recetas.length > 0 && (
-        <div className="mt-4 text-sm text-gray-600">
-          Mostrando {recetas.length} receta{recetas.length !== 1 ? 's' : ''}
-        </div>
-      )}
-    </div>
+      {/* Estadísticas */}
+      <SimpleGrid columns={{ base: 2, md: 4 }} spacing={4} mt={8}>
+        <Stat textAlign="center" p={4} bg={cardBg} borderRadius="xl" borderWidth="1px" borderColor={borderColor}>
+          <StatNumber color="blue.600">{recetas.length}</StatNumber>
+          <StatLabel>Total recetas</StatLabel>
+        </Stat>
+        <Stat textAlign="center" p={4} bg={cardBg} borderRadius="xl" borderWidth="1px" borderColor={borderColor}>
+          <StatNumber color="green.600">{recetas.filter(r => r.is_active).length}</StatNumber>
+          <StatLabel>Activas</StatLabel>
+        </Stat>
+        <Stat textAlign="center" p={4} bg={cardBg} borderRadius="xl" borderWidth="1px" borderColor={borderColor}>
+          <StatNumber color="purple.600">{new Set(recetas.map(r => r.producto_terminado)).size}</StatNumber>
+          <StatLabel>Productos únicos</StatLabel>
+        </Stat>
+        <Stat textAlign="center" p={4} bg={cardBg} borderRadius="xl" borderWidth="1px" borderColor={borderColor}>
+          <StatNumber color="orange.600">{recetas.reduce((sum, r) => sum + (r.detalles?.length || 0), 0)}</StatNumber>
+          <StatLabel>Total materiales</StatLabel>
+        </Stat>
+      </SimpleGrid>
+
+      {/* Wizard */}
+      <RecetaWizard
+        isOpen={showWizard}
+        onClose={() => {
+          setShowWizard(false);
+          setRecetaToEdit(null);
+        }}
+        recetaToEdit={recetaToEdit}
+      />
+
+      {/* Modal de eliminación */}
+      <Modal isOpen={isDeleteOpen} onClose={onDeleteClose} isCentered>
+        <ModalOverlay />
+        <ModalContent borderRadius="xl">
+          <ModalHeader>Eliminar Receta</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody textAlign="center" py={6}>
+            <Icon as={DeleteIcon} boxSize={12} color="red.400" mb={4} />
+            <Text color="gray.600" mb={2}>
+              ¿Estás seguro de eliminar esta receta?
+            </Text>
+            <Text fontWeight="bold" fontSize="lg">
+              "{recetaToDelete?.nombre}"
+            </Text>
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="ghost" mr={3} onClick={onDeleteClose}>
+              Cancelar
+            </Button>
+            <Button
+              colorScheme="red"
+              onClick={() => deleteMutation.mutate(recetaToDelete?.id)}
+              isLoading={deleteMutation.isLoading}
+            >
+              Eliminar
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+    </Box>
   );
 };
 

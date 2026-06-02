@@ -22,8 +22,11 @@ import {
   VStack,
   useToast,
 } from '@chakra-ui/react';
-import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
+import { Pie } from 'react-chartjs-2';
+import { Chart as ChartJS, ArcElement, Tooltip as ChartTooltip, Legend as ChartLegend } from 'chart.js';
 import mlService from '../../services/mlService';
+
+ChartJS.register(ArcElement, ChartTooltip, ChartLegend);
 
 const COLORS = {
   'Champions': '#4caf50',
@@ -117,31 +120,35 @@ const CustomerSegmentation = ({ status }) => {
         </Text>
       </Box>
 
-      {/* Gráfico de Pastel */}
       {chartData.length > 0 && (
         <Card>
           <CardBody>
             <Heading size="sm" mb={4}>Distribución de Segmentos</Heading>
-            <ResponsiveContainer width="100%" height={300}>
-              <PieChart>
-                <Pie
-                  data={chartData}
-                  cx="50%"
-                  cy="50%"
-                  labelLine={false}
-                  label={({ name, percentage }) => `${name}: ${percentage}%`}
-                  outerRadius={100}
-                  fill="#8884d8"
-                  dataKey="value"
-                >
-                  {chartData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[entry.name] || '#999'} />
-                  ))}
-                </Pie>
-                <Tooltip />
-                <Legend />
-              </PieChart>
-            </ResponsiveContainer>
+            <Box maxW="400px" mx="auto">
+              <Pie
+                data={{
+                  labels: chartData.map(d => d.name),
+                  datasets: [{
+                    data: chartData.map(d => d.value),
+                    backgroundColor: chartData.map(d => COLORS[d.name] || '#999'),
+                  }],
+                }}
+                options={{
+                  responsive: true,
+                  plugins: {
+                    legend: { position: 'bottom' },
+                    tooltip: {
+                      callbacks: {
+                        label: (ctx) => {
+                          const item = chartData[ctx.dataIndex];
+                          return `${item.name}: ${item.value} (${item.percentage}%)`;
+                        },
+                      },
+                    },
+                  },
+                }}
+              />
+            </Box>
           </CardBody>
         </Card>
       )}
