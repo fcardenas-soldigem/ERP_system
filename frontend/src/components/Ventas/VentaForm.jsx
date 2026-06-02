@@ -48,6 +48,7 @@ import { clientesService } from '../../services/clientes.service';
 import { TIPOS_VENTA, METODOS_PAGO, TIPOS_VENTA_DISPLAY, METODOS_PAGO_DISPLAY } from './constants';
 import { addDays } from 'date-fns';
 import useConsultaDocumentos from '../../hooks/useConsultaDocumentos';
+import { getSimboloMoneda } from '../../utils/currency';
 
 const VentaForm = ({ isOpen, onClose, onSuccess }) => {
   const [formData, setFormData] = useState({
@@ -83,15 +84,6 @@ const VentaForm = ({ isOpen, onClose, onSuccess }) => {
   const clienteInputRef = React.useRef();
   const toast = useToast();
   const queryClient = useQueryClient();
-
-  // Función para obtener el símbolo de moneda
-  const getSimboloMoneda = (moneda) => {
-    const simbolos = {
-      'PEN': 'S/',
-      'USD': '$'
-    };
-    return simbolos[moneda] || 'S/';
-  };
 
   const { 
     consultarDocumento, 

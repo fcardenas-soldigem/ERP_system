@@ -1,8 +1,12 @@
+import logging
 from django.db import models
 from django.conf import settings
 from apps.empresas.models import Empresa
 from apps.inventario.models.producto import Producto
 from apps.inventario.models.stock import Stock
+from apps.inventario.models.inventario_productos_terminados import InventarioProductosTerminados
+from apps.inventario.models.inventario_materias_primas import InventarioMateriasPrimas
+from apps.inventario.models.movimiento_inventario import MovimientoInventario
 from decimal import Decimal
 from django.db import transaction
 from django.core.exceptions import ValidationError
@@ -11,6 +15,8 @@ import os
 from django.core.validators import MinValueValidator
 from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
+
+logger = logging.getLogger(__name__)
 
 class Cliente(models.Model):
     empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE, related_name='clientes')
@@ -94,6 +100,12 @@ class Venta(models.Model):
         ('PEN', 'Sol Peruano (S/)'),
         ('USD', 'Dólar Americano ($)'),
     ]
+    
+    # Modo de venta: stock (descuenta PT) o pedido (descuenta MP directamente)
+    MODO_VENTA_CHOICES = [
+        ('stock', 'Desde Stock (Producto Terminado)'),
+        ('pedido', 'A Pedido (Descontar Materias Primas)'),
+    ]
 
     id = models.BigAutoField(primary_key=True)
     numero = models.CharField(max_length=20, unique=True)
@@ -118,6 +130,14 @@ class Venta(models.Model):
     notas = models.TextField(blank=True)
     referencia = models.CharField(max_length=100, blank=True)
     comprobante = models.FileField(upload_to='comprobantes/', null=True, blank=True)
+    # Modo de venta para ventas a pedido
+    modo_venta = models.CharField(
+        max_length=20, 
+        choices=MODO_VENTA_CHOICES, 
+        default='stock',
+        verbose_name='Modo de Venta',
+        help_text='Stock: descuenta productos terminados. Pedido: descuenta materias primas directamente.'
+    )
     fecha_creacion = models.DateTimeField(auto_now_add=True)
     fecha_modificacion = models.DateTimeField(auto_now=True)
 
@@ -152,72 +172,40 @@ class Venta(models.Model):
         super().clean()
 
     def save(self, *args, **kwargs):
-        print(f"DEBUG SAVE: Método save llamado, numero actual: {self.numero}")
         if not self.numero:
             if not self.empresa:
                 raise ValidationError('La venta debe tener una empresa asignada antes de generar el número')
-            
-            # Generar número de forma thread-safe
-            from django.db import transaction
+
             with transaction.atomic():
-                print(f"DEBUG SAVE: Generando número para empresa: {self.empresa} (ID: {self.empresa.id})")
-                
-                # Obtener todas las ventas existentes para esta empresa y extraer los números
-                # Usar empresa_id para evitar problemas de comparación de objetos
-                ventas_existentes = Venta.objects.filter(
-                    empresa_id=self.empresa.id
-                ).values_list('numero', flat=True)
-                
-                print(f"DEBUG SAVE: Ventas existentes encontradas: {list(ventas_existentes)}")
-                
-                # Extraer números numéricos válidos de diferentes formatos
-                numeros_existentes = []
-                for numero in ventas_existentes:
+                # SELECT FOR UPDATE bloquea la última fila de esta empresa
+                # evitando la race condition donde dos requests obtienen el mismo max_num
+                ultima = (
+                    Venta.objects.select_for_update()
+                    .filter(empresa_id=self.empresa.id, numero__startswith='V-')
+                    .order_by('-numero')
+                    .only('numero')
+                    .first()
+                )
+                if ultima:
                     try:
-                        if numero:
-                            # Manejar diferentes formatos de números
-                            if numero.startswith('V-'):
-                                # Formato nuevo: V-000001
-                                parte_numerica = numero.split('-')[1]
-                                if parte_numerica.isdigit():
-                                    numeros_existentes.append(int(parte_numerica))
-                                    print(f"DEBUG SAVE: Número V- encontrado: {numero} -> {int(parte_numerica)}")
-                            elif numero.isdigit():
-                                # Formato legacy: 000001, 00000001, etc.
-                                numeros_existentes.append(int(numero))
-                                print(f"DEBUG SAVE: Número legacy encontrado: {numero} -> {int(numero)}")
-                            else:
-                                print(f"DEBUG SAVE: Formato no reconocido: {numero}")
+                        siguiente_num = int(ultima.numero.split('-')[1]) + 1
                     except (ValueError, IndexError):
-                        print(f"DEBUG SAVE: Número inválido ignorado: {numero}")
-                        continue
-                
-                print(f"DEBUG SAVE: Lista de números existentes: {numeros_existentes}")
-                
-                # Encontrar el siguiente número disponible
-                if numeros_existentes:
-                    max_num = max(numeros_existentes)
-                    siguiente_num = max_num + 1
-                    print(f"DEBUG SAVE: Máximo número existente: {max_num}, siguiente será: {siguiente_num}")
+                        # Fallback si el número existente tiene formato inesperado
+                        siguiente_num = (
+                            Venta.objects.filter(empresa_id=self.empresa.id).count() + 1
+                        )
                 else:
-                    siguiente_num = 1
-                    print(f"DEBUG SAVE: No hay números existentes, empezando en: {siguiente_num}")
-                
-                # Generar el número
+                    # Compatibilidad con registros legacy (formato numérico puro)
+                    legacy = (
+                        Venta.objects.select_for_update()
+                        .filter(empresa_id=self.empresa.id, numero__regex=r'^\d+$')
+                        .order_by('-numero')
+                        .only('numero')
+                        .first()
+                    )
+                    siguiente_num = (int(legacy.numero) + 1) if legacy else 1
+
                 self.numero = f"V-{str(siguiente_num).zfill(6)}"
-                print(f"DEBUG SAVE: Número generado: {self.numero}")
-                
-                # Safety check - asegurar que no existe
-                existe_check = Venta.objects.filter(empresa_id=self.empresa.id, numero=self.numero).exists()
-                print(f"DEBUG SAVE: ¿Existe {self.numero}? {existe_check}")
-                
-                while Venta.objects.filter(empresa_id=self.empresa.id, numero=self.numero).exists():
-                    print(f"DEBUG SAVE: {self.numero} ya existe, incrementando...")
-                    siguiente_num += 1
-                    self.numero = f"V-{str(siguiente_num).zfill(6)}"
-                    print(f"DEBUG SAVE: Nuevo número generado: {self.numero}")
-                
-                print(f"DEBUG SAVE: Número final para venta: {self.numero}")
 
         if self.tipo_venta.startswith('credito_'):
             dias = int(self.tipo_venta.split('_')[1])
@@ -242,48 +230,219 @@ class Venta(models.Model):
         self.save()
 
     def actualizar_stock(self):
-        print(f"=== ACTUALIZANDO STOCK PARA VENTA {self.numero} ===")
+        """
+        Actualiza el stock cuando se confirma una venta.
         
+        Modos de venta:
+        - 'stock': Descuenta productos terminados del inventario (modo normal)
+        - 'pedido': Descuenta materias primas directamente según la receta del producto
+                   (útil cuando no hay stock de PT y se produce bajo demanda)
+        
+        Registra movimientos de inventario con trazabilidad completa.
+        """
+        logger.info("Actualizando stock venta %s (modo: %s)", self.numero, self.modo_venta)
+
         for detalle in self.detalles.all():
-            print(f"Procesando producto: {detalle.producto.nombre}, cantidad: {detalle.cantidad}")
-            
-            # Buscar stock en el almacén del producto o el primer almacén disponible
-            almacen = detalle.producto.almacen
+            producto = detalle.producto
+            cantidad = detalle.cantidad
+
+            almacen = producto.almacen
             if not almacen:
                 almacen = self.empresa.almacenes.first()
-                print(f"Usando almacén por defecto: {almacen.nombre if almacen else 'NINGUNO'}")
-            else:
-                print(f"Usando almacén del producto: {almacen.nombre}")
+
+            if not almacen:
+                logger.error("No se encontró almacén para el producto %s", producto.nombre)
+                continue
             
-            if almacen:
-                stock, created = Stock.objects.get_or_create(
-                    producto=detalle.producto,
-                    almacen=almacen,
-                    empresa=self.empresa,
-                    defaults={'cantidad': 0}
-                )
-                
-                stock_anterior = stock.cantidad
-                print(f"Stock anterior: {stock_anterior}")
-                
-                # Reducir la cantidad del stock
-                if stock.cantidad >= detalle.cantidad:
-                    stock.cantidad -= detalle.cantidad
-                    stock.save()
-                    print(f"Stock actualizado: {stock_anterior} - {detalle.cantidad} = {stock.cantidad}")
-                    
-                    # Actualizar stock total del producto
-                    detalle.producto.actualizar_stock_total()
-                else:
-                    # Si no hay suficiente stock, reducir a 0
-                    print(f"STOCK INSUFICIENTE: disponible {stock.cantidad}, solicitado {detalle.cantidad}")
-                    stock.cantidad = 0
-                    stock.save()
-                    detalle.producto.actualizar_stock_total()
+            # Variables para el costo
+            costo_unitario = producto.precio_compra or Decimal('0')
+            
+            # Determinar qué modo de actualización usar
+            if self.modo_venta == 'pedido' and producto.tipo_producto == 'FINISHED':
+                # MODO PEDIDO: Descontar materias primas directamente
+                self._descontar_materias_primas_por_receta(detalle, producto, cantidad, almacen)
             else:
-                print(f"ERROR: No se encontró almacén para el producto {detalle.producto.nombre}")
+                # MODO STOCK (normal): Descontar productos terminados
+                self._descontar_producto_terminado(detalle, producto, cantidad, almacen, costo_unitario)
         
-        print(f"=== FIN ACTUALIZACIÓN STOCK VENTA {self.numero} ===")
+    def _descontar_producto_terminado(self, detalle, producto, cantidad, almacen, costo_unitario):
+        """
+        Modo normal: Descuenta del inventario de productos terminados.
+        """
+        # 1. Actualizar Stock legacy
+        stock, created = Stock.objects.get_or_create(
+            producto=producto,
+            almacen=almacen,
+            empresa=self.empresa,
+            defaults={'cantidad': 0}
+        )
+        
+        stock_anterior = stock.cantidad
+
+        if stock.cantidad >= cantidad:
+            stock.cantidad -= cantidad
+            stock.save()
+        else:
+            logger.warning("Stock insuficiente para %s: disponible %s, solicitado %s", producto.nombre, stock.cantidad, cantidad)
+            stock.cantidad = 0
+            stock.save()
+
+        if producto.tipo_producto == 'FINISHED':
+            try:
+                resultado = InventarioProductosTerminados.procesar_venta(
+                    empresa=self.empresa,
+                    producto=producto,
+                    almacen=almacen,
+                    cantidad=cantidad,
+                    desde_reserva=False
+                )
+                costo_unitario = resultado['costo_unitario']
+            except (InventarioProductosTerminados.DoesNotExist, ValidationError) as e:
+                logger.warning("No se pudo descontar de InventarioPT: %s", e)
+
+        try:
+            MovimientoInventario.objects.create(
+                empresa=self.empresa,
+                producto=producto,
+                almacen=almacen,
+                fecha=timezone.now(),
+                tipo_movimiento='salida_venta',
+                tipo_documento='venta',
+                tipo_inventario='producto_terminado' if producto.tipo_producto == 'FINISHED' else 'general',
+                numero_documento=self.numero,
+                cantidad_salida=cantidad,
+                costo_unitario=costo_unitario,
+                costo_total_salida=cantidad * costo_unitario,
+                cantidad_saldo=stock.cantidad,
+                inventario_anterior=float(stock_anterior),
+                inventario_actual=float(stock.cantidad),
+                venta_id=self.id,
+                observaciones=f'Venta {self.numero} - Cliente: {self.cliente.nombre}',
+                created_by=''
+            )
+        except Exception as e:
+            logger.error("Error al registrar movimiento de inventario venta %s: %s", self.numero, e, exc_info=True)
+        
+        # Actualizar stock total del producto
+        producto.actualizar_stock_total()
+    
+    def _descontar_materias_primas_por_receta(self, detalle, producto, cantidad, almacen):
+        """
+        Modo pedido: Descuenta materias primas directamente según la receta del producto.
+        Útil para ventas a pedido donde no hay stock de productos terminados.
+        """
+        from apps.produccion.models import RecetaProducto, RecetaDetalle
+        
+        logger.info("Venta a pedido: descontando MP para %s x %s", producto.nombre, cantidad)
+
+        try:
+            receta = RecetaProducto.objects.filter(
+                empresa=self.empresa,
+                producto_terminado=producto,
+                activa=True
+            ).first()
+
+            if not receta:
+                logger.warning("No se encontró receta activa para %s, usando modo stock", producto.nombre)
+                self._descontar_producto_terminado(detalle, producto, cantidad, almacen, producto.precio_compra or Decimal('0'))
+                return
+
+            rendimiento = Decimal(str(receta.cantidad_producida)) if receta.cantidad_producida else Decimal('1')
+            factor = Decimal(str(cantidad)) / rendimiento
+            costo_total_mp = Decimal('0')
+
+            for ingrediente in receta.ingredientes.all():
+                insumo = ingrediente.insumo
+                cantidad_necesaria = Decimal(str(ingrediente.cantidad)) * factor
+                almacen_insumos = almacen
+
+                costo_unitario_mp = Decimal('0')
+                try:
+                    inv_mp = InventarioMateriasPrimas.objects.filter(
+                        empresa=self.empresa,
+                        producto=insumo,
+                        almacen=almacen_insumos,
+                        cantidad_disponible__gt=0
+                    ).first()
+                    if inv_mp:
+                        costo_unitario_mp = inv_mp.costo_unitario_promedio
+                except Exception:
+                    costo_unitario_mp = insumo.precio_compra or Decimal('0')
+
+                try:
+                    resultado = InventarioMateriasPrimas.consumir_en_produccion(
+                        empresa=self.empresa,
+                        producto=insumo,
+                        almacen=almacen_insumos,
+                        cantidad=cantidad_necesaria,
+                        desde_reserva=False
+                    )
+                    costo_unitario_mp = resultado['costo_unitario']
+                except ValidationError as e:
+                    logger.warning("Error al descontar MP %s: %s — usando Stock legacy", insumo.nombre, e)
+                    try:
+                        stock_mp, _ = Stock.objects.get_or_create(
+                            producto=insumo,
+                            almacen=almacen_insumos,
+                            empresa=self.empresa,
+                            defaults={'cantidad': 0}
+                        )
+                        if stock_mp.cantidad >= cantidad_necesaria:
+                            stock_mp.cantidad -= cantidad_necesaria
+                        else:
+                            stock_mp.cantidad = 0
+                        stock_mp.save()
+                    except Exception as ex:
+                        logger.error("Error en Stock legacy para %s: %s", insumo.nombre, ex, exc_info=True)
+
+                try:
+                    MovimientoInventario.objects.create(
+                        empresa=self.empresa,
+                        producto=insumo,
+                        almacen=almacen_insumos,
+                        fecha=timezone.now(),
+                        tipo_movimiento='salida_venta',
+                        tipo_documento='venta',
+                        tipo_inventario='materia_prima',
+                        numero_documento=self.numero,
+                        cantidad_salida=cantidad_necesaria,
+                        costo_unitario=costo_unitario_mp,
+                        costo_total_salida=cantidad_necesaria * costo_unitario_mp,
+                        venta_id=self.id,
+                        observaciones=f'Venta a pedido {self.numero} - Para: {producto.nombre} x {cantidad}',
+                        created_by=''
+                    )
+                except Exception as e:
+                    logger.error("Error al registrar movimiento MP: %s", e, exc_info=True)
+
+                insumo.actualizar_stock_total()
+                costo_total_mp += cantidad_necesaria * costo_unitario_mp
+
+            costo_unitario_pt = costo_total_mp / Decimal(str(cantidad)) if cantidad > 0 else Decimal('0')
+
+            try:
+                MovimientoInventario.objects.create(
+                    empresa=self.empresa,
+                    producto=producto,
+                    almacen=almacen,
+                    fecha=timezone.now(),
+                    tipo_movimiento='salida_venta',
+                    tipo_documento='venta',
+                    tipo_inventario='producto_terminado',
+                    numero_documento=self.numero,
+                    cantidad_salida=cantidad,
+                    costo_unitario=costo_unitario_pt,
+                    costo_total_salida=costo_total_mp,
+                    venta_id=self.id,
+                    observaciones=f'Venta a pedido {self.numero} - Cliente: {self.cliente.nombre} (MP descontadas directamente)',
+                    created_by=''
+                )
+            except Exception as e:
+                logger.error("Error al registrar movimiento PT virtual: %s", e, exc_info=True)
+
+        except Exception as e:
+            logger.error("Error en venta a pedido %s: %s", self.numero, e, exc_info=True)
+            self._descontar_producto_terminado(detalle, producto, cantidad, almacen, producto.precio_compra or Decimal('0'))
 
     def marcar_como_pagada(self):
         if self.estado == 'pagado':

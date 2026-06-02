@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import api from '../services/api.jsx';
+import api from '../lib/api';
 
 const useTipoCambio = () => {
   const [loading, setLoading] = useState(false);

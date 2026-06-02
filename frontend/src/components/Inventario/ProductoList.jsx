@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { TableSkeleton } from '../common/SkeletonLoaders';
 import {
   Box,
   Button,
@@ -18,7 +19,7 @@ import {
 } from '@chakra-ui/react';
 import { AddIcon, EditIcon, DeleteIcon, WarningIcon } from '@chakra-ui/icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { inventarioAPI } from '../../api';
+import { inventarioAPI } from '../../lib/api';
 import ProductoForm from './ProductoForm';
 
 const ProductoList = ({ categorias, estadisticas }) => {
@@ -82,7 +83,7 @@ const ProductoList = ({ categorias, estadisticas }) => {
     }
   };
 
-  if (isLoading) return <Spinner />;
+  if (isLoading) return <TableSkeleton rows={6} columns={5} />;
   if (error) return <Text>Error al cargar los productos</Text>;
 
   // Asegurarse de que productos sea un array antes de usar map

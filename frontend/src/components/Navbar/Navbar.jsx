@@ -1,160 +1,100 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
-  Box,
-  Flex,
-  Text,
-  IconButton,
-  Button,
-  Stack,
-  Collapse,
-  useColorModeValue,
-  useBreakpointValue,
-  useDisclosure,
-  Container,
-  useColorMode,
-  Drawer,
-  DrawerBody,
-  DrawerHeader,
-  DrawerOverlay,
-  DrawerContent,
-  DrawerCloseButton,
-  VStack
+  Box, Flex, Text, IconButton, Button,
+  Stack, useColorModeValue, useColorMode,
+  HStack,
 } from '@chakra-ui/react';
-import { HamburgerIcon, CloseIcon, MoonIcon, SunIcon } from '@chakra-ui/icons';
+import { MoonIcon, SunIcon } from '@chakra-ui/icons';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate, Link as RouterLink } from 'react-router-dom';
 
+// Matches the same set shown in AnimatedSidebar's CORE + AVANZADO sections
+// so mobile top-bar has a fast-access strip for the most important routes.
+// (Full nav lives in the hamburger drawer in AnimatedSidebar.)
+const TOP_LINKS = [
+  { text: 'Dashboard',   path: '/app/dashboard' },
+  { text: 'Ventas',      path: '/app/ventas' },
+  { text: 'Compras',     path: '/app/compras' },
+  { text: 'Inventario',  path: '/app/inventario' },
+  { text: 'Cotizaciones',path: '/app/cotizaciones' },
+];
+
 const Navbar = () => {
-  const { isOpen, onToggle, onClose } = useDisclosure();
   const { colorMode, toggleColorMode } = useColorMode();
   const { logout, user } = useAuth();
   const navigate = useNavigate();
 
-  const handleLogout = () => {
-    logout();
-    navigate('/login');
-  };
+  const bg          = useColorModeValue('white', 'gray.800');
+  const borderColor = useColorModeValue('neutral.200', 'gray.700');
+  const linkColor   = useColorModeValue('neutral.600', 'neutral.300');
+  const linkHover   = useColorModeValue('neutral.900', 'white');
 
-  const menuItems = [
-    { text: 'Dashboard', path: '/dashboard' },
-    { text: 'Ventas', path: '/ventas' },
-    { text: 'Compras', path: '/compras' },
-    { text: 'Inventario', path: '/inventario' },
-    { text: 'Machine Learning', path: '/ml-dashboard' }
-  ];
-
-  const NavDrawer = () => (
-    <Drawer isOpen={isOpen} placement="left" onClose={onClose}>
-      <DrawerOverlay />
-      <DrawerContent>
-        <DrawerCloseButton />
-        <DrawerHeader>ERP System</DrawerHeader>
-        <DrawerBody>
-          <VStack spacing={4} align="stretch">
-            {menuItems.map((item) => (
-              <Button
-                key={item.text}
-                as={RouterLink}
-                to={item.path}
-                variant="ghost"
-                w="full"
-                onClick={onClose}
-              >
-                {item.text}
-              </Button>
-            ))}
-          </VStack>
-        </DrawerBody>
-      </DrawerContent>
-    </Drawer>
-  );
+  const handleLogout = () => { logout(); navigate('/login'); };
 
   return (
-    <Box>
-      <Flex
-        bg={useColorModeValue('white', 'gray.800')}
-        color={useColorModeValue('gray.600', 'white')}
-        minH={'60px'}
-        py={{ base: 2 }}
-        px={{ base: 4 }}
-        borderBottom={1}
-        borderStyle={'solid'}
-        borderColor={useColorModeValue('gray.200', 'gray.900')}
-        align={'center'}
-      >
-        <Container maxW="container.xl">
-          <Flex align="center" justify="space-between">
-            <Flex>
-              <IconButton
-                display={{ base: 'flex', md: 'none' }}
-                onClick={onToggle}
-                icon={isOpen ? <CloseIcon w={3} h={3} /> : <HamburgerIcon w={5} h={5} />}
-                variant={'ghost'}
-                aria-label={'Toggle Navigation'}
-                mr={2}
-              />
+    <Box
+      bg={bg}
+      borderBottom="1px"
+      borderColor={borderColor}
+      px={4}
+      py={0}
+      position="sticky"
+      top={0}
+      zIndex={100}
+      boxShadow="xs"
+    >
+      <Flex align="center" h="48px" gap={4}>
 
-              <Text
-                textAlign={useBreakpointValue({ base: 'center', md: 'left' })}
-                fontFamily={'heading'}
-                color={useColorModeValue('gray.800', 'white')}
-                fontWeight="bold"
-              >
-                ERP System
-              </Text>
-            </Flex>
-
-            <Stack
-              direction={'row'}
-              spacing={6}
-              display={{ base: 'none', md: 'flex' }}
-              alignItems={'center'}
+        {/* Quick links — hidden on mobile (sidebar drawer covers it) */}
+        <HStack
+          spacing={1}
+          display={{ base: 'none', md: 'flex' }}
+          flex="1"
+        >
+          {TOP_LINKS.map((link) => (
+            <Button
+              key={link.text}
+              as={RouterLink}
+              to={link.path}
+              variant="ghost"
+              size="sm"
+              color={linkColor}
+              fontWeight="medium"
+              fontSize="sm"
+              px={3}
+              _hover={{ color: linkHover, bg: 'neutral.100' }}
+              _activeLink={{ color: 'primary.600', bg: 'primary.50' }}
             >
-              {menuItems.map((item) => (
-                <Button
-                  key={item.text}
-                  as={RouterLink}
-                  to={item.path}
-                  variant="ghost"
-                  color={useColorModeValue('gray.600', 'white')}
-                  _hover={{
-                    bg: useColorModeValue('gray.100', 'gray.700')
-                  }}
-                >
-                  {item.text}
-                </Button>
-              ))}
-            </Stack>
+              {link.text}
+            </Button>
+          ))}
+        </HStack>
 
-            <Stack
-              flex={{ base: 1, md: 0 }}
-              justify={'flex-end'}
-              direction={'row'}
-              spacing={6}
+        {/* Right side */}
+        <HStack ml="auto" spacing={2}>
+          <IconButton
+            aria-label="Cambiar tema"
+            icon={colorMode === 'light' ? <MoonIcon /> : <SunIcon />}
+            onClick={toggleColorMode}
+            variant="ghost"
+            size="sm"
+            color={linkColor}
+          />
+          {user && (
+            <Button
+              variant="ghost"
+              size="sm"
+              color={linkColor}
+              fontWeight="medium"
+              onClick={handleLogout}
             >
-              <IconButton
-                aria-label="Toggle color mode"
-                icon={colorMode === 'light' ? <MoonIcon /> : <SunIcon />}
-                onClick={toggleColorMode}
-                variant="ghost"
-              />
-              
-              {user && (
-                <Button
-                  variant="ghost"
-                  onClick={handleLogout}
-                >
-                  Cerrar Sesión
-                </Button>
-              )}
-            </Stack>
-          </Flex>
-        </Container>
+              Cerrar sesión
+            </Button>
+          )}
+        </HStack>
       </Flex>
-
-      <NavDrawer />
     </Box>
   );
 };
 
-export default Navbar; 
+export default Navbar;

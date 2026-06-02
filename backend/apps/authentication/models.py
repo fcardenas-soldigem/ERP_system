@@ -18,7 +18,23 @@ class CustomUser(AbstractUser):
         blank=True,
         related_name='usuarios'
     )
-    
+
+    ROL_CHOICES = [
+        ('admin', 'Administrador'),
+        ('comercial', 'Staff Comercial'),
+        ('produccion', 'Staff Producción'),
+        ('almacen', 'Almacén'),
+        ('contador', 'Contador'),
+        ('readonly', 'Solo Lectura'),
+        ('personalizado', 'Personalizado'),
+    ]
+    rol = models.CharField(
+        max_length=20,
+        choices=ROL_CHOICES,
+        default='readonly',
+        help_text='Rol principal del usuario. Usa "personalizado" para permisos granulares.',
+    )
+
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = ['nombre', 'apellido']
 

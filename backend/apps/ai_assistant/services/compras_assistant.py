@@ -44,13 +44,11 @@ class ComprasAssistant:
             return thread.id, conversation.id
             
         except Exception as e:
-            print(f"❌ Error creando thread de compras: {str(e)}")
             raise
 
     def send_message(self, thread_id, user_message, user):
         """Enviar mensaje y procesar respuesta con tools"""
         try:
-            print(f"📦 Usuario {user.username} envía (compras): {user_message}")
             
             # Buscar conversación
             conversation = Conversation.objects.get(thread_id=thread_id, usuario=user)
@@ -76,7 +74,6 @@ class ComprasAssistant:
                 tools=COMPRAS_TOOLS
             )
             
-            print(f"🔄 Run de compras creado: {run.id}")
             
             # Procesar run
             final_response = self._wait_for_completion(run, thread_id, user)
@@ -91,7 +88,6 @@ class ComprasAssistant:
             return final_response
             
         except Exception as e:
-            print(f"❌ Error en ComprasAssistant: {str(e)}")
             return f"❌ Error: {str(e)}"
 
     def _wait_for_completion(self, run, thread_id, user):
@@ -104,7 +100,6 @@ class ComprasAssistant:
                 run_id=run.id
             )
             
-            print(f"🔄 Run compras status: {run_status.status}")
             
             if run_status.status == 'completed':
                 # Obtener mensajes
@@ -112,7 +107,6 @@ class ComprasAssistant:
                 return messages.data[0].content[0].text.value
                 
             elif run_status.status == 'requires_action':
-                print("🛠️ El asistente de compras requiere ejecutar funciones...")
                 self._handle_tool_calls(run_status, thread_id, run.id, user)
                 
             elif run_status.status == 'failed':
@@ -125,7 +119,6 @@ class ComprasAssistant:
         tool_calls = run_status.required_action.submit_tool_outputs.tool_calls
         tool_outputs = []
         
-        print(f"🔧 Procesando {len(tool_calls)} function calls de compras...")
         
         executor = ComprasExecutor(user)
         
@@ -133,8 +126,6 @@ class ComprasAssistant:
             function_name = tool_call.function.name
             arguments = json.loads(tool_call.function.arguments)
             
-            print(f"📞 Llamando función de compras: {function_name}")
-            print(f"📋 Argumentos: {json.dumps(arguments, indent=2, ensure_ascii=False)}")
             
             try:
                 if function_name == 'crear_compra':
@@ -148,7 +139,6 @@ class ComprasAssistant:
                 else:
                     result = {'success': False, 'error': f'Función {function_name} no reconocida para compras'}
                 
-                print(f"✅ Resultado compras: {result}")
                 
                 tool_outputs.append({
                     "tool_call_id": tool_call.id,
@@ -156,7 +146,6 @@ class ComprasAssistant:
                 })
                 
             except Exception as e:
-                print(f"❌ Error ejecutando {function_name} en compras: {str(e)}")
                 tool_outputs.append({
                     "tool_call_id": tool_call.id,
                     "output": json.dumps({'success': False, 'error': str(e)}, ensure_ascii=False)
@@ -186,5 +175,4 @@ class ComprasAssistant:
                 return self.create_thread(user)
                 
         except Exception as e:
-            print(f"❌ Error obteniendo conversación de compras: {str(e)}")
             return self.create_thread(user) 

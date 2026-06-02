@@ -1,4 +1,4 @@
-import { authAPI } from '../api';
+import { authAPI } from '../lib/api';
 
 export const authService = {
   login: authAPI.login,

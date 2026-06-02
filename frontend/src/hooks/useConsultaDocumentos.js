@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import api from '../services/api.jsx';
+import api from '../lib/api';
 
 const useConsultaDocumentos = () => {
   const [loading, setLoading] = useState(false);

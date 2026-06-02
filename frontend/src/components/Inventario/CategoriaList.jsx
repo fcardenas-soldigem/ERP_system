@@ -16,7 +16,7 @@ import {
 } from '@chakra-ui/react';
 import { AddIcon, EditIcon } from '@chakra-ui/icons';
 import { useQuery } from '@tanstack/react-query';
-import { inventarioAPI } from '../../api';
+import { inventarioAPI } from '../../lib/api';
 import CategoriaForm from './CategoriaForm';
 
 const CategoriaList = () => {

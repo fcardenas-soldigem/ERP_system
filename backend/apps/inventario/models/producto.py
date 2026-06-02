@@ -95,6 +95,12 @@ class Producto(models.Model):
         default='unidad',
         verbose_name='Unidad de Medida'
     )
+    marca = models.CharField(
+        max_length=100,
+        blank=True,
+        default='',
+        verbose_name='Marca',
+    )
 
     class Meta:
         verbose_name = 'Producto'

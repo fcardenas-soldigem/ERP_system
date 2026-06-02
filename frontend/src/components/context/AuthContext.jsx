@@ -2,6 +2,7 @@ import React, { createContext, useState, useContext, useEffect } from 'react';
 import { authService } from '../../services/auth.service';
 import { useToast } from '@chakra-ui/react';
 import { useNavigate } from 'react-router-dom';
+import AppLoading from '../common/AppLoading';
 
 export const AuthContext = createContext(null);
 
@@ -14,20 +15,20 @@ export const AuthProvider = ({ children }) => {
 
     const checkAuth = async () => {
         try {
-            const token = localStorage.getItem('access_token');
-            if (token) {
+            // Attempt a silent token refresh using the httpOnly cookie.
+            // If the cookie is present and valid, we get a fresh access token in memory.
+            const accessToken = await authService.refreshToken();
+            if (accessToken) {
                 const userData = await authService.getProfile();
                 setUser(userData);
                 setIsAuthenticated(true);
-                
-                // Asegurarse de que el empresa_id esté guardado en localStorage
+
                 if (userData.empresa_info?.id && !localStorage.getItem('empresa_id')) {
                     localStorage.setItem('empresa_id', userData.empresa_info.id.toString());
                 }
             }
-        } catch (error) {
-            console.error('Error al verificar autenticación:', error);
-            handleLogout();
+        } catch {
+            // No valid cookie — user is not authenticated, stay on current page
         } finally {
             setLoading(false);
         }
@@ -84,7 +85,7 @@ export const AuthProvider = ({ children }) => {
     };
 
     if (loading) {
-        return <div>Cargando...</div>;
+        return <AppLoading />;
     }
 
     return (

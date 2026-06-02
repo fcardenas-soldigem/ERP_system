@@ -26,7 +26,6 @@ class FunctionExecutor:
     def crear_venta(self, params_dict):
         """Ejecutar creación de venta usando VentaSerializer"""
         try:
-            print(f"🛒 Iniciando creación de venta para empresa {self.empresa.nombre}")
             
             # Crear objeto Pydantic para validación
             params = CrearVentaParams(**params_dict)
@@ -34,7 +33,6 @@ class FunctionExecutor:
             # Validar que el cliente existe y pertenece a la empresa
             try:
                 cliente = Cliente.objects.get(id=params.cliente_id, empresa=self.empresa)
-                print(f"✅ Cliente encontrado: {cliente.nombre}")
             except Cliente.DoesNotExist:
                 return {
                     'success': False,
@@ -71,7 +69,6 @@ class FunctionExecutor:
                     subtotal_producto = Decimal(str(producto_data.cantidad)) * Decimal(str(producto_data.precio_unitario))
                     total_estimado += subtotal_producto
                     
-                    print(f"✅ Producto validado: {producto.nombre} (SKU: {producto.sku}) - Cantidad: {producto_data.cantidad} - Stock disponible: {stock_actual}")
                     
                 except Producto.DoesNotExist:
                     return {
@@ -99,7 +96,6 @@ class FunctionExecutor:
                 # NO incluir 'detalles' aquí - los pasaremos por separado
             }
             
-            print(f"📝 Datos preparados para venta: {json.dumps(venta_data, default=str, indent=2)}")
             
             # Crear mock request para el serializer
             class MockRequest:
@@ -123,7 +119,6 @@ class FunctionExecutor:
                 # - Actualización de stock (resta productos vendidos)
                 # - Generación de número de venta
                 
-                print(f"✅ Venta creada exitosamente: {venta.numero}")
                 
                 return {
                     'success': True,
@@ -139,14 +134,12 @@ class FunctionExecutor:
                     'mensaje': f'✅ Venta {venta.numero} creada exitosamente para {cliente.nombre} por S/ {venta.total}. Stock actualizado automáticamente.'
                 }
             else:
-                print(f"❌ Errores de validación: {serializer.errors}")
                 return {
                     'success': False,
                     'error': f'Error de validación: {serializer.errors}'
                 }
                 
         except Exception as e:
-            print(f"❌ Error al crear venta: {str(e)}")
             return {
                 'success': False,
                 'error': f'Error inesperado al crear venta: {str(e)}'
@@ -156,7 +149,6 @@ class FunctionExecutor:
     def crear_compra(self, params_dict):
         """Ejecutar creación de compra usando CompraSerializer"""
         try:
-            print(f"🛍️ Iniciando creación de compra para empresa {self.empresa.nombre}")
             
             # Crear objeto Pydantic para validación
             params = CrearCompraParams(**params_dict)
@@ -164,7 +156,6 @@ class FunctionExecutor:
             # Validar que el proveedor existe y pertenece a la empresa
             try:
                 proveedor = Proveedor.objects.get(id=params.proveedor_id, empresa=self.empresa)
-                print(f"✅ Proveedor encontrado: {proveedor.razon_social}")
             except Proveedor.DoesNotExist:
                 return {
                     'success': False,
@@ -174,7 +165,6 @@ class FunctionExecutor:
             # Validar que el almacén existe y pertenece a la empresa
             try:
                 almacen = Almacen.objects.get(id=params.almacen_id, empresa=self.empresa)
-                print(f"✅ Almacén encontrado: {almacen.nombre}")
             except Almacen.DoesNotExist:
                 return {
                     'success': False,
@@ -203,7 +193,6 @@ class FunctionExecutor:
                     subtotal_producto = Decimal(str(producto_data.cantidad)) * Decimal(str(producto_data.precio_unitario))
                     total_estimado += subtotal_producto
                     
-                    print(f"✅ Producto validado: {producto.nombre} (SKU: {producto.sku}) - Cantidad: {producto_data.cantidad}")
                     
                 except Producto.DoesNotExist:
                     return {
@@ -231,7 +220,6 @@ class FunctionExecutor:
                 'detalles': detalles_data  # CompraSerializer maneja esto correctamente con pop()
             }
             
-            print(f"📝 Datos preparados para compra: {json.dumps(compra_data, default=str, indent=2)}")
             
             # Crear mock request para el serializer
             class MockRequest:
@@ -250,7 +238,6 @@ class FunctionExecutor:
                 # - Actualización de stock (suma productos comprados) si estado = 'pagada' o 'pendiente'
                 # - Generación de número de compra
                 
-                print(f"✅ Compra creada exitosamente: {compra.numero}")
                 
                 return {
                     'success': True,
@@ -267,14 +254,12 @@ class FunctionExecutor:
                     'mensaje': f'✅ Compra {compra.numero} creada exitosamente a {proveedor.razon_social} por S/ {compra.total}. Stock actualizado automáticamente.'
                 }
             else:
-                print(f"❌ Errores de validación: {serializer.errors}")
                 return {
                     'success': False,
                     'error': f'Error de validación: {serializer.errors}'
                 }
                 
         except Exception as e:
-            print(f"❌ Error al crear compra: {str(e)}")
             return {
                 'success': False,
                 'error': f'Error inesperado al crear compra: {str(e)}'
@@ -286,7 +271,6 @@ class FunctionExecutor:
             params = BuscarProductosParams(**params_dict)
             termino = params.termino_busqueda.strip()
             
-            print(f"🔍 Buscando productos con término: '{termino}'")
             
             # Buscar productos por nombre, descripción o SKU
             productos = Producto.objects.filter(
@@ -316,7 +300,6 @@ class FunctionExecutor:
                     'unidad_medida': getattr(producto, 'unidad_medida', 'unidad')
                 })
             
-            print(f"✅ Encontrados {len(productos_info)} productos")
             
             return {
                 'success': True,
@@ -326,7 +309,6 @@ class FunctionExecutor:
             }
             
         except Exception as e:
-            print(f"❌ Error buscando productos: {str(e)}")
             return {
                 'success': False,
                 'error': f'Error al buscar productos: {str(e)}'
@@ -334,8 +316,6 @@ class FunctionExecutor:
 
     def execute_function(self, function_name, arguments):
         """Ejecutar función según el nombre"""
-        print(f"🎯 Ejecutando función: {function_name}")
-        print(f"📋 Argumentos: {arguments}")
         
         if function_name == "crear_venta":
             return self.crear_venta(arguments)

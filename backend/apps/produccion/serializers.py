@@ -1,6 +1,6 @@
 from rest_framework import serializers
-from .models import RecetaProducto, RecetaDetalle, OrdenProduccion, ConsumoReal
-from apps.inventario.models import Producto, Almacen
+from .models import RecetaProducto, RecetaDetalle, OrdenProduccion, ConsumoReal, HistorialOrdenProduccion
+from apps.inventario.models import Producto, Almacen, InventarioMateriasPrimas
 from apps.empresas.models import Empresa
 from django.contrib.auth import get_user_model
 
@@ -12,26 +12,58 @@ class RecetaDetalleSerializer(serializers.ModelSerializer):
     insumo_nombre = serializers.CharField(source='insumo.nombre', read_only=True)
     insumo_sku = serializers.CharField(source='insumo.sku', read_only=True)
     insumo_unidad_medida = serializers.CharField(source='insumo.unidad_medida', read_only=True)
+    insumo_stock = serializers.SerializerMethodField()
     costo_total = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
     
     class Meta:
         model = RecetaDetalle
         fields = [
             'id', 'insumo', 'insumo_nombre', 'insumo_sku', 'insumo_unidad_medida',
-            'cantidad', 'unidad_medida', 'costo_unitario', 'costo_total', 'notas'
+            'insumo_stock', 'cantidad', 'unidad_medida', 'costo_unitario', 'costo_total', 'notas'
         ]
+        extra_kwargs = {
+            'unidad_medida': {'required': False, 'allow_blank': True},
+            'costo_unitario': {'required': False},
+            'notas': {'required': False, 'allow_blank': True},
+        }
+    
+    def get_insumo_stock(self, obj):
+        """Obtiene el stock disponible del insumo desde InventarioMateriasPrimas"""
+        if obj.insumo:
+            # Intentar obtener del inventario de materias primas primero
+            try:
+                inv_mp = InventarioMateriasPrimas.objects.filter(
+                    producto=obj.insumo,
+                    empresa=obj.receta.empresa
+                ).first()
+                if inv_mp:
+                    return float(inv_mp.cantidad_disponible or 0)
+            except Exception:
+                pass
+            # Fallback al stock_total del producto
+            return float(obj.insumo.stock_total or 0)
+        return 0
     
     def validate(self, data):
         """Validaciones personalizadas"""
         if data.get('cantidad', 0) <= 0:
             raise serializers.ValidationError({'cantidad': 'La cantidad debe ser mayor a 0'})
+        
+        # Si no viene unidad_medida, asignarla del insumo
+        if not data.get('unidad_medida') and data.get('insumo'):
+            data['unidad_medida'] = data['insumo'].unidad_medida
+        
+        # Si no viene costo_unitario, asignarlo del insumo
+        if not data.get('costo_unitario') and data.get('insumo'):
+            data['costo_unitario'] = data['insumo'].precio_compra
+        
         return data
 
 
 class RecetaProductoListSerializer(serializers.ModelSerializer):
     """Serializer simplificado para listado de recetas"""
-    producto_terminado_nombre = serializers.CharField(source='receta.producto_terminado.nombre', read_only=True)
-    producto_terminado_sku = serializers.CharField(source='receta.producto_terminado.sku', read_only=True)
+    producto_terminado_nombre = serializers.CharField(source='producto_terminado.nombre', read_only=True)
+    producto_terminado_sku = serializers.CharField(source='producto_terminado.sku', read_only=True)
     total_insumos = serializers.SerializerMethodField()
     costo_teorico = serializers.SerializerMethodField()
     
@@ -95,7 +127,7 @@ class RecetaProductoCreateSerializer(serializers.ModelSerializer):
     
     def create(self, validated_data):
         detalles_data = validated_data.pop('detalles', [])
-        empresa = self.context['request'].user.perfil.empresa
+        empresa = self.context['request'].user.empresa
         receta = RecetaProducto.objects.create(empresa=empresa, **validated_data)
         
         for detalle_data in detalles_data:
@@ -168,10 +200,31 @@ class OrdenProduccionListSerializer(serializers.ModelSerializer):
         return None
 
 
+class HistorialOrdenProduccionSerializer(serializers.ModelSerializer):
+    """Serializer para el historial de actividades de una orden"""
+    tipo_evento_display = serializers.CharField(source='get_tipo_evento_display', read_only=True)
+    usuario_nombre = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = HistorialOrdenProduccion
+        fields = ['id', 'tipo_evento', 'tipo_evento_display', 'descripcion', 
+                  'datos_adicionales', 'usuario', 'usuario_nombre', 'fecha']
+    
+    def get_usuario_nombre(self, obj):
+        if obj.usuario:
+            return f"{obj.usuario.first_name} {obj.usuario.last_name}".strip() or obj.usuario.username
+        return None
+
+
 class OrdenProduccionSerializer(serializers.ModelSerializer):
     """Serializer completo para órdenes de producción"""
     receta_info = RecetaProductoSerializer(source='receta', read_only=True)
+    receta_nombre = serializers.CharField(source='receta.nombre', read_only=True)
+    producto_nombre = serializers.CharField(source='receta.producto_terminado.nombre', read_only=True)
+    producto_sku = serializers.CharField(source='receta.producto_terminado.sku', read_only=True)
     consumos = ConsumoRealSerializer(many=True, read_only=True)
+    detalles = serializers.SerializerMethodField()
+    historial = HistorialOrdenProduccionSerializer(many=True, read_only=True)
     almacen_insumos_nombre = serializers.CharField(source='almacen_insumos.nombre', read_only=True)
     almacen_destino_nombre = serializers.CharField(source='almacen_destino.nombre', read_only=True)
     responsable_nombre = serializers.SerializerMethodField()
@@ -181,18 +234,22 @@ class OrdenProduccionSerializer(serializers.ModelSerializer):
     eficiencia_produccion = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
     eficiencia_tiempo = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
     costos_reales = serializers.SerializerMethodField()
+    tiempo_estimado = serializers.SerializerMethodField()
+    costo_estimado = serializers.SerializerMethodField()
     
     class Meta:
         model = OrdenProduccion
         fields = [
-            'id', 'numero', 'empresa', 'receta', 'receta_info',
+            'id', 'numero', 'empresa', 'receta', 'receta_info', 'receta_nombre',
+            'producto_nombre', 'producto_sku',
             'estado', 'estado_display', 'cantidad_planificada', 'cantidad_producida',
             'fecha_programada', 'fecha_inicio', 'fecha_fin',
             'almacen_insumos', 'almacen_insumos_nombre',
             'almacen_destino', 'almacen_destino_nombre',
             'costo_mano_obra_real', 'costo_indirecto_real', 'tiempo_real',
+            'tiempo_estimado', 'costo_estimado',
             'observaciones', 'responsable', 'responsable_nombre',
-            'created_by', 'created_by_nombre', 'consumos',
+            'created_by', 'created_by_nombre', 'consumos', 'detalles', 'historial',
             'esta_retrasada', 'eficiencia_produccion', 'eficiencia_tiempo',
             'costos_reales', 'created_at', 'updated_at'
         ]
@@ -215,6 +272,60 @@ class OrdenProduccionSerializer(serializers.ModelSerializer):
         if obj.estado == 'finalizada':
             return obj.calcular_costo_real()
         return None
+    
+    def get_tiempo_estimado(self, obj):
+        """Calcula el tiempo estimado basado en la receta y cantidad"""
+        if obj.receta and obj.receta.tiempo_estimado:
+            return float(obj.receta.tiempo_estimado * obj.cantidad_planificada)
+        return None
+    
+    def get_costo_estimado(self, obj):
+        """Calcula el costo estimado basado en la receta y cantidad"""
+        if obj.receta:
+            costos = obj.receta.calcular_costo_teorico()
+            return float(costos['costo_total'] * obj.cantidad_planificada)
+        return None
+    
+    def get_detalles(self, obj):
+        """Obtiene los detalles de materiales de la receta con cantidades calculadas"""
+        if not obj.receta:
+            return []
+        
+        detalles = []
+        for detalle in obj.receta.detalles.all():
+            cantidad_requerida = float(detalle.cantidad * obj.cantidad_planificada)
+            # Buscar consumo real si existe
+            consumo = obj.consumos.filter(insumo=detalle.insumo).first()
+            cantidad_usada = float(consumo.cantidad_real) if consumo else 0
+            
+            # Obtener stock desde InventarioMateriasPrimas primero
+            stock_disponible = 0
+            try:
+                inv_mp = InventarioMateriasPrimas.objects.filter(
+                    producto=detalle.insumo,
+                    empresa=obj.empresa
+                ).first()
+                if inv_mp:
+                    stock_disponible = float(inv_mp.cantidad_disponible or 0)
+                else:
+                    # Fallback al stock_total del producto
+                    stock_disponible = float(detalle.insumo.stock_total or 0)
+            except Exception:
+                stock_disponible = float(detalle.insumo.stock_total or 0)
+            
+            detalles.append({
+                'id': detalle.id,
+                'insumo_id': detalle.insumo.id,
+                'materia_prima_nombre': detalle.insumo.nombre,
+                'materia_prima_sku': detalle.insumo.sku,
+                'cantidad_requerida': cantidad_requerida,
+                'cantidad_usada': cantidad_usada,
+                'unidad': detalle.unidad_medida or detalle.insumo.unidad_medida,
+                'costo_unitario': float(detalle.costo_unitario or 0),
+                'stock_disponible': stock_disponible
+            })
+        
+        return detalles
 
 
 class OrdenProduccionCreateSerializer(serializers.Serializer):
@@ -235,7 +346,7 @@ class OrdenProduccionCreateSerializer(serializers.Serializer):
     def create(self, validated_data):
         from .services.produccion_service import ProduccionService
         
-        empresa = self.context['request'].user.perfil.empresa
+        empresa = self.context['request'].user.empresa
         created_by = self.context['request'].user
         
         responsable = None

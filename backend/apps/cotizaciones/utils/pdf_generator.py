@@ -1,15 +1,16 @@
 """
-Generador de PDF profesional y elegante para cotizaciones
+Generador de PDF corporativo para cotizaciones — estilo OC (azul, barras, firmas).
+Utiliza ReportLab para generar un PDF con layout tipo orden de compra bancaria.
 """
 from io import BytesIO
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import letter, A4
+from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import inch, cm
-from reportlab.lib.enums import TA_LEFT, TA_RIGHT, TA_CENTER, TA_JUSTIFY
+from reportlab.lib.units import inch, cm, mm
+from reportlab.lib.enums import TA_LEFT, TA_RIGHT, TA_CENTER
 from reportlab.platypus import (
     SimpleDocTemplate, Table, TableStyle, Paragraph,
-    Spacer, Image, PageBreak, Frame, PageTemplate
+    Spacer, Image, KeepTogether,
 )
 from reportlab.pdfgen import canvas
 from django.conf import settings
@@ -17,550 +18,391 @@ import os
 from datetime import datetime
 
 
+PRIMARY = colors.HexColor('#2B6CB0')
+PRIMARY_LIGHT = colors.HexColor('#EBF8FF')
+DARK = colors.HexColor('#1a1a1a')
+GRAY = colors.HexColor('#666666')
+BORDER = colors.HexColor('#cccccc')
+WHITE = colors.white
+
+PAGE_W, PAGE_H = A4
+MARGIN = 36
+
+
 class CotizacionPDFGenerator:
-    """
-    Generador de PDF profesional para cotizaciones
-    """
-    
-    # Colores corporativos elegantes
-    COLOR_PRIMARY = colors.HexColor('#2C3E50')      # Azul oscuro elegante
-    COLOR_SECONDARY = colors.HexColor('#3498DB')    # Azul corporativo
-    COLOR_ACCENT = colors.HexColor('#E74C3C')       # Rojo para destacar
-    COLOR_SUCCESS = colors.HexColor('#27AE60')      # Verde para totales
-    COLOR_LIGHT_GRAY = colors.HexColor('#ECF0F1')  # Gris claro para fondos
-    COLOR_DARK_GRAY = colors.HexColor('#7F8C8D')   # Gris oscuro para texto secundario
-    COLOR_WHITE = colors.white
     
     def __init__(self, cotizacion):
         self.cotizacion = cotizacion
+        self.empresa = cotizacion.empresa
+        self.cliente = cotizacion.cliente
         self.buffer = BytesIO()
-        self.width, self.height = A4
         self.styles = getSampleStyleSheet()
-        self._setup_custom_styles()
-    
-    def _setup_custom_styles(self):
-        """
-        Configurar estilos personalizados para el PDF
-        """
-        # Estilo para título principal
-        self.styles.add(ParagraphStyle(
-            name='CustomTitle',
-            parent=self.styles['Heading1'],
-            fontSize=24,
-            textColor=self.COLOR_PRIMARY,
-            spaceAfter=12,
-            alignment=TA_CENTER,
-            fontName='Helvetica-Bold'
-        ))
-        
-        # Estilo para subtítulos
-        self.styles.add(ParagraphStyle(
-            name='CustomHeading',
-            parent=self.styles['Heading2'],
-            fontSize=14,
-            textColor=self.COLOR_PRIMARY,
-            spaceAfter=8,
-            spaceBefore=12,
-            fontName='Helvetica-Bold'
-        ))
-        
-        # Estilo para texto normal
-        self.styles.add(ParagraphStyle(
-            name='CustomBody',
-            parent=self.styles['Normal'],
-            fontSize=10,
-            textColor=self.COLOR_PRIMARY,
-            alignment=TA_JUSTIFY,
-            spaceAfter=6
-        ))
-        
-        # Estilo para información destacada
-        self.styles.add(ParagraphStyle(
-            name='Highlight',
-            parent=self.styles['Normal'],
-            fontSize=11,
-            textColor=self.COLOR_SECONDARY,
-            fontName='Helvetica-Bold',
-            spaceAfter=4
-        ))
-        
-        # Estilo para notas y observaciones
-        self.styles.add(ParagraphStyle(
-            name='Notes',
-            parent=self.styles['Normal'],
-            fontSize=9,
-            textColor=self.COLOR_DARK_GRAY,
-            alignment=TA_JUSTIFY,
-            leftIndent=10,
-            rightIndent=10
-        ))
-    
-    def _draw_header(self, canvas, doc):
-        """
-        Dibujar encabezado profesional en cada página
-        """
-        canvas.saveState()
-        
-        # Línea superior decorativa
-        canvas.setStrokeColor(self.COLOR_SECONDARY)
-        canvas.setLineWidth(3)
-        canvas.line(30, self.height - 30, self.width - 30, self.height - 30)
-        
-        # Logo de la empresa (si existe)
-        empresa = self.cotizacion.empresa
-        if empresa.logo:
-            try:
-                logo_path = os.path.join(settings.MEDIA_ROOT, str(empresa.logo))
-                if os.path.exists(logo_path):
-                    img = Image(logo_path, width=2*inch, height=1*inch, kind='proportional')
-                    img.drawOn(canvas, 40, self.height - 120)
-            except Exception as e:
-                print(f"Error cargando logo: {e}")
-        
-        # Información de la empresa (lado derecho)
-        canvas.setFont('Helvetica-Bold', 12)
-        canvas.setFillColor(self.COLOR_PRIMARY)
-        canvas.drawRightString(self.width - 40, self.height - 50, empresa.nombre)
-        
-        canvas.setFont('Helvetica', 9)
-        canvas.setFillColor(self.COLOR_DARK_GRAY)
-        y_pos = self.height - 65
-        
-        if empresa.ruc:
-            canvas.drawRightString(self.width - 40, y_pos, f"RUC: {empresa.ruc}")
-            y_pos -= 12
-        
-        if empresa.direccion:
-            canvas.drawRightString(self.width - 40, y_pos, empresa.direccion)
-            y_pos -= 12
-        
-        if empresa.telefono:
-            canvas.drawRightString(self.width - 40, y_pos, f"Tel: {empresa.telefono}")
-            y_pos -= 12
-        
-        if empresa.email:
-            canvas.drawRightString(self.width - 40, y_pos, empresa.email)
-        
-        canvas.restoreState()
-    
-    def _draw_footer(self, canvas, doc):
-        """
-        Dibujar pie de página elegante
-        """
-        canvas.saveState()
-        
-        # Línea inferior decorativa
-        canvas.setStrokeColor(self.COLOR_LIGHT_GRAY)
-        canvas.setLineWidth(1)
-        canvas.line(30, 50, self.width - 30, 50)
-        
-        # Texto del pie de página
-        canvas.setFont('Helvetica', 8)
-        canvas.setFillColor(self.COLOR_DARK_GRAY)
-        
-        footer_text = f"Cotización {self.cotizacion.numero} | Página {doc.page}"
-        canvas.drawCentredString(self.width / 2, 35, footer_text)
-        
-        # Fecha de generación
-        fecha_generacion = datetime.now().strftime("%d/%m/%Y %H:%M")
-        canvas.drawRightString(self.width - 40, 35, f"Generado: {fecha_generacion}")
-        
-        canvas.restoreState()
-    
+
+    # ───────── public ─────────
     def generar_pdf(self):
-        """
-        Generar el PDF completo de la cotización
-        """
-        # Crear documento
         doc = SimpleDocTemplate(
-            self.buffer,
-            pagesize=A4,
-            rightMargin=40,
-            leftMargin=40,
-            topMargin=140,
-            bottomMargin=70
+            self.buffer, pagesize=A4,
+            leftMargin=MARGIN, rightMargin=MARGIN,
+            topMargin=MARGIN, bottomMargin=MARGIN + 10,
         )
-        
-        # Contenido del documento
-        story = []
-        
-        # Título de la cotización
-        story.append(Spacer(1, 0.3*inch))
-        titulo = Paragraph(
-            f"<b>COTIZACIÓN</b><br/>{self.cotizacion.numero}",
-            self.styles['CustomTitle']
-        )
-        story.append(titulo)
-        story.append(Spacer(1, 0.2*inch))
-        
-        # Información del cliente y fechas
-        story.extend(self._crear_seccion_cliente())
-        story.append(Spacer(1, 0.2*inch))
-        
-        # Asunto
-        if self.cotizacion.asunto:
-            asunto = Paragraph(
-                f"<b>Asunto:</b> {self.cotizacion.asunto}",
-                self.styles['Highlight']
-            )
-            story.append(asunto)
-            story.append(Spacer(1, 0.1*inch))
-        
-        # Descripción
-        if self.cotizacion.descripcion:
-            descripcion = Paragraph(
-                self.cotizacion.descripcion,
-                self.styles['CustomBody']
-            )
-            story.append(descripcion)
-            story.append(Spacer(1, 0.2*inch))
-        
-        # Tabla de productos/servicios
-        story.extend(self._crear_tabla_productos())
-        story.append(Spacer(1, 0.2*inch))
-        
-        # Tabla de totales
-        story.extend(self._crear_tabla_totales())
-        story.append(Spacer(1, 0.3*inch))
-        
-        # Condiciones comerciales
-        story.extend(self._crear_condiciones_comerciales())
-        
-        # Notas y términos
-        if self.cotizacion.notas or self.cotizacion.terminos_condiciones:
-            story.append(Spacer(1, 0.2*inch))
-            story.extend(self._crear_notas_terminos())
-        
-        # Firma
-        story.append(Spacer(1, 0.5*inch))
-        story.extend(self._crear_seccion_firma())
-        
-        # Construir PDF
-        doc.build(
-            story,
-            onFirstPage=self._draw_header,
-            onLaterPages=self._draw_header,
-            canvasmaker=lambda *args, **kwargs: self._custom_canvas(*args, **kwargs)
-        )
-        
+        story = self._build_story()
+        doc.build(story, onFirstPage=self._page_decor, onLaterPages=self._page_decor)
         self.buffer.seek(0)
         return self.buffer
     
-    def _custom_canvas(self, *args, **kwargs):
-        """
-        Canvas personalizado con pie de página
-        """
-        c = canvas.Canvas(*args, **kwargs)
-        original_showPage = c.showPage
-        
-        def custom_showPage():
-            self._draw_footer(c, args[0] if args else None)
-            original_showPage()
-        
-        c.showPage = custom_showPage
-        return c
-    
-    def _crear_seccion_cliente(self):
-        """
-        Crear sección con información del cliente y fechas
-        """
-        elements = []
-        cliente = self.cotizacion.cliente
-        
-        # Datos en dos columnas
-        data = [
-            ['CLIENTE', 'FECHAS'],
-            [
-                Paragraph(f"<b>{cliente.nombre}</b>", self.styles['CustomBody']),
-                Paragraph(
-                    f"<b>Emisión:</b> {self.cotizacion.fecha_emision.strftime('%d/%m/%Y')}",
-                    self.styles['CustomBody']
-                )
-            ],
-            [
-                Paragraph(
-                    f"<b>{cliente.get_tipo_documento_display()}:</b> {cliente.documento}",
-                    self.styles['CustomBody']
-                ),
-                Paragraph(
-                    f"<b>Vencimiento:</b> {self.cotizacion.fecha_vencimiento.strftime('%d/%m/%Y')}",
-                    self.styles['CustomBody']
-                )
-            ],
-        ]
-        
-        if cliente.direccion:
-            data.append([
-                Paragraph(f"<b>Dirección:</b> {cliente.direccion}", self.styles['CustomBody']),
-                Paragraph(f"<b>Validez:</b> {self.cotizacion.validez_oferta}", self.styles['CustomBody'])
-            ])
-        
-        if cliente.telefono or cliente.email:
-            contacto = []
-            if cliente.telefono:
-                contacto.append(f"Tel: {cliente.telefono}")
-            if cliente.email:
-                contacto.append(f"Email: {cliente.email}")
-            data.append([
-                Paragraph(" | ".join(contacto), self.styles['CustomBody']),
-                ''
-            ])
-        
-        table = Table(data, colWidths=[3.5*inch, 2.5*inch])
-        table.setStyle(TableStyle([
-            # Encabezados
-            ('BACKGROUND', (0, 0), (-1, 0), self.COLOR_PRIMARY),
-            ('TEXTCOLOR', (0, 0), (-1, 0), self.COLOR_WHITE),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 11),
-            ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
-            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-            
-            # Contenido
-            ('BACKGROUND', (0, 1), (-1, -1), self.COLOR_WHITE),
-            ('TEXTCOLOR', (0, 1), (-1, -1), self.COLOR_PRIMARY),
-            ('FONTSIZE', (0, 1), (-1, -1), 9),
-            ('LEFTPADDING', (0, 0), (-1, -1), 10),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 10),
-            ('TOPPADDING', (0, 0), (-1, -1), 8),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
-            
-            # Bordes
-            ('BOX', (0, 0), (-1, -1), 1, self.COLOR_LIGHT_GRAY),
-            ('LINEBELOW', (0, 0), (-1, 0), 2, self.COLOR_SECONDARY),
-            ('GRID', (0, 1), (-1, -1), 0.5, self.COLOR_LIGHT_GRAY),
-        ]))
-        
-        elements.append(table)
-        return elements
-    
-    def _crear_tabla_productos(self):
-        """
-        Crear tabla elegante de productos/servicios
-        """
-        elements = []
-        
-        # Encabezado
-        heading = Paragraph("<b>DETALLE DE PRODUCTOS/SERVICIOS</b>", self.styles['CustomHeading'])
-        elements.append(heading)
-        elements.append(Spacer(1, 0.1*inch))
-        
-        # Datos de la tabla
-        data = [
-            ['#', 'Código', 'Descripción', 'Cant.', 'P. Unit.', 'Subtotal']
-        ]
-        
-        simbolo_moneda = 'S/' if self.cotizacion.moneda == 'PEN' else '$'
-        
-        for idx, detalle in enumerate(self.cotizacion.detalles.all(), 1):
-            data.append([
-                str(idx),
-                detalle.codigo or '-',
-                Paragraph(detalle.descripcion, self.styles['CustomBody']),
-                f"{detalle.cantidad:.2f}",
-                f"{simbolo_moneda} {detalle.precio_unitario:.2f}",
-                f"{simbolo_moneda} {detalle.subtotal:.2f}"
-            ])
-        
-        # Crear tabla
-        table = Table(
-            data,
-            colWidths=[0.4*inch, 1*inch, 3*inch, 0.7*inch, 1*inch, 1.1*inch]
-        )
-        
-        table.setStyle(TableStyle([
-            # Encabezado
-            ('BACKGROUND', (0, 0), (-1, 0), self.COLOR_PRIMARY),
-            ('TEXTCOLOR', (0, 0), (-1, 0), self.COLOR_WHITE),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 10),
-            ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
-            
-            # Contenido
-            ('BACKGROUND', (0, 1), (-1, -1), self.COLOR_WHITE),
-            ('TEXTCOLOR', (0, 1), (-1, -1), self.COLOR_PRIMARY),
-            ('FONTSIZE', (0, 1), (-1, -1), 9),
-            ('ALIGN', (0, 1), (0, -1), 'CENTER'),  # Número
-            ('ALIGN', (1, 1), (1, -1), 'LEFT'),    # Código
-            ('ALIGN', (2, 1), (2, -1), 'LEFT'),    # Descripción
-            ('ALIGN', (3, 1), (3, -1), 'CENTER'),  # Cantidad
-            ('ALIGN', (4, 1), (-1, -1), 'RIGHT'),  # Precios
-            
-            # Padding
-            ('LEFTPADDING', (0, 0), (-1, -1), 8),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 8),
-            ('TOPPADDING', (0, 0), (-1, -1), 8),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
-            
-            # Bordes
-            ('BOX', (0, 0), (-1, -1), 1.5, self.COLOR_PRIMARY),
-            ('LINEBELOW', (0, 0), (-1, 0), 2, self.COLOR_SECONDARY),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [self.COLOR_WHITE, self.COLOR_LIGHT_GRAY]),
-            ('GRID', (0, 0), (-1, -1), 0.5, self.COLOR_LIGHT_GRAY),
-        ]))
-        
-        elements.append(table)
-        return elements
-    
-    def _crear_tabla_totales(self):
-        """
-        Crear tabla de totales elegante
-        """
-        elements = []
-        simbolo_moneda = 'S/' if self.cotizacion.moneda == 'PEN' else '$'
-        
-        data = []
-        
-        # Subtotal
-        data.append([
-            Paragraph('<b>Subtotal:</b>', self.styles['CustomBody']),
-            Paragraph(f'<b>{simbolo_moneda} {self.cotizacion.subtotal:.2f}</b>', self.styles['CustomBody'])
-        ])
-        
-        # Descuento (si aplica)
-        if self.cotizacion.descuento > 0:
-            data.append([
-                Paragraph('<b>Descuento:</b>', self.styles['CustomBody']),
-                Paragraph(
-                    f'<b>- {simbolo_moneda} {self.cotizacion.descuento:.2f}</b>',
-                    self.styles['CustomBody']
-                )
-            ])
-        
-        # IGV (si aplica)
-        if self.cotizacion.incluye_igv:
-            data.append([
-                Paragraph(f'<b>IGV ({self.cotizacion.porcentaje_igv}%):</b>', self.styles['CustomBody']),
-                Paragraph(f'<b>{simbolo_moneda} {self.cotizacion.igv:.2f}</b>', self.styles['CustomBody'])
-            ])
-        
-        # Total
-        data.append([
-            Paragraph('<b>TOTAL:</b>', self.styles['Highlight']),
-            Paragraph(
-                f'<b>{simbolo_moneda} {self.cotizacion.total:.2f}</b>',
-                self.styles['Highlight']
-            )
-        ])
-        
-        table = Table(data, colWidths=[4.5*inch, 1.7*inch])
-        table.setStyle(TableStyle([
-            ('ALIGN', (0, 0), (0, -1), 'RIGHT'),
-            ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
-            ('FONTSIZE', (0, 0), (-1, -1), 11),
-            ('LEFTPADDING', (0, 0), (-1, -1), 10),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 10),
-            ('TOPPADDING', (0, 0), (-1, -1), 6),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
-            
-            # Destacar total
-            ('BACKGROUND', (0, -1), (-1, -1), self.COLOR_SUCCESS),
-            ('TEXTCOLOR', (0, -1), (-1, -1), self.COLOR_WHITE),
-            ('FONTSIZE', (0, -1), (-1, -1), 13),
-            
-            # Bordes
-            ('BOX', (0, 0), (-1, -1), 1, self.COLOR_LIGHT_GRAY),
-            ('LINEABOVE', (0, -1), (-1, -1), 2, self.COLOR_SUCCESS),
-        ]))
-        
-        elements.append(table)
-        return elements
-    
-    def _crear_condiciones_comerciales(self):
-        """
-        Crear sección de condiciones comerciales (Condiciones de Compra)
-        """
-        elements = []
-        
-        heading = Paragraph("<b>CONDICIONES DE COMPRA</b>", self.styles['CustomHeading'])
-        elements.append(heading)
-        elements.append(Spacer(1, 0.1*inch))
-        
-        data = []
-        
-        if self.cotizacion.forma_pago:
-            data.append([
-                Paragraph('<b>Forma de Pago:</b>', self.styles['CustomBody']),
-                Paragraph(self.cotizacion.forma_pago, self.styles['CustomBody'])
-            ])
-        
-        if self.cotizacion.pago_facturas:
-            data.append([
-                Paragraph('<b>Pago de Facturas:</b>', self.styles['CustomBody']),
-                Paragraph(self.cotizacion.pago_facturas, self.styles['CustomBody'])
-            ])
-        
-        if self.cotizacion.fecha_vencimiento:
-            fecha_entrega = self.cotizacion.fecha_vencimiento.strftime('%d/%m/%Y')
-            data.append([
-                Paragraph('<b>Fecha de Entrega:</b>', self.styles['CustomBody']),
-                Paragraph(fecha_entrega, self.styles['CustomBody'])
-            ])
-        
-        if self.cotizacion.lugar_entrega:
-            data.append([
-                Paragraph('<b>Lugar de Entrega:</b>', self.styles['CustomBody']),
-                Paragraph(self.cotizacion.lugar_entrega, self.styles['CustomBody'])
-            ])
-        
-        if data:
-            table = Table(data, colWidths=[2*inch, 4.2*inch])
-            table.setStyle(TableStyle([
-                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-                ('LEFTPADDING', (0, 0), (-1, -1), 10),
-                ('RIGHTPADDING', (0, 0), (-1, -1), 10),
-                ('TOPPADDING', (0, 0), (-1, -1), 6),
-                ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
-                ('GRID', (0, 0), (-1, -1), 0.5, self.COLOR_LIGHT_GRAY),
-            ]))
-            elements.append(table)
-        
-        return elements
-    
-    def _crear_notas_terminos(self):
-        """
-        Crear sección de notas y términos
-        """
-        elements = []
-        
-        if self.cotizacion.notas:
-            heading = Paragraph("<b>NOTAS:</b>", self.styles['CustomHeading'])
-            elements.append(heading)
-            notas = Paragraph(self.cotizacion.notas, self.styles['Notes'])
-            elements.append(notas)
-            elements.append(Spacer(1, 0.1*inch))
-        
-        if self.cotizacion.terminos_condiciones:
-            heading = Paragraph("<b>TÉRMINOS Y CONDICIONES:</b>", self.styles['CustomHeading'])
-            elements.append(heading)
-            terminos = Paragraph(self.cotizacion.terminos_condiciones, self.styles['Notes'])
-            elements.append(terminos)
-        
-        return elements
-    
-    def _crear_seccion_firma(self):
-        """
-        Crear sección de firma
-        """
-        elements = []
-        
-        # Línea para firma
-        data = [
-            ['', ''],
-            ['_' * 40, '_' * 40],
-            [
-                Paragraph('<b>Firma y Sello</b>', self.styles['CustomBody']),
-                Paragraph('<b>Fecha</b>', self.styles['CustomBody'])
-            ]
-        ]
-        
-        table = Table(data, colWidths=[3*inch, 3*inch])
-        table.setStyle(TableStyle([
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('VALIGN', (0, 0), (-1, -1), 'BOTTOM'),
-            ('TOPPADDING', (0, 0), (-1, -1), 20),
-        ]))
-        
-        elements.append(table)
-        return elements
+    # ───────── page decoration ─────────
+    def _page_decor(self, canvas_obj, doc):
+        canvas_obj.saveState()
+        canvas_obj.setFont('Helvetica', 7)
+        canvas_obj.setFillColor(GRAY)
+        canvas_obj.drawString(MARGIN, 20, f'{self.cotizacion.numero}')
+        canvas_obj.drawRightString(PAGE_W - MARGIN, 20,
+                                   datetime.now().strftime('%d/%m/%Y %H:%M'))
+        canvas_obj.drawCentredString(PAGE_W / 2, 20,
+                                     f'Página {canvas_obj.getPageNumber()}')
+        canvas_obj.restoreState()
 
+    # ───────── story builder ─────────
+    def _build_story(self):
+        sym = 'S/' if self.cotizacion.moneda == 'PEN' else '$'
+        story = []
+
+        story.append(self._header_section())
+        story.append(Spacer(1, 6))
+        story.append(self._section_bar('DATOS DEL CLIENTE'))
+        story.append(self._client_section())
+        story.append(Spacer(1, 2))
+        story.append(self._section_bar('DATOS DE LA COMPAÑÍA'))
+        story.append(self._company_section())
+        story.append(Spacer(1, 2))
+        story.append(self._section_bar('CONDICIONES COMERCIALES'))
+        story.append(self._conditions_section())
+        story.append(Spacer(1, 2))
+        story.append(self._section_bar('DETALLE DE PRODUCTOS / SERVICIOS'))
+        story.append(self._items_table(sym))
+        story.append(self._totals_section(sym))
+        story.append(Spacer(1, 4))
+
+        if self.cotizacion.tiempo_entrega or self.cotizacion.lugar_entrega:
+            story.append(self._section_bar('ENTREGA'))
+            story.append(self._delivery_section())
+            story.append(Spacer(1, 2))
+
+        if self.cotizacion.notas:
+            story.append(self._section_bar('NOTAS / OBSERVACIONES'))
+            story.append(self._notes_section())
+            story.append(Spacer(1, 2))
+
+        if self.cotizacion.terminos_condiciones:
+            story.append(self._section_bar('TÉRMINOS Y CONDICIONES'))
+            story.append(self._terms_section())
+            story.append(Spacer(1, 2))
+
+        story.append(Spacer(1, 20))
+        story.append(self._closing_section())
+
+        return story
+
+    # ───────── reusable bar ─────────
+    def _section_bar(self, text):
+        data = [[Paragraph(f'<b>{text}</b>',
+                           ParagraphStyle('bar', fontName='Helvetica-Bold',
+                                          fontSize=9, textColor=WHITE,
+                                          leading=12))]]
+        t = Table(data, colWidths=[PAGE_W - 2 * MARGIN])
+        t.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), PRIMARY),
+            ('TOPPADDING', (0, 0), (-1, -1), 5),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+            ('LEFTPADDING', (0, 0), (-1, -1), 8),
+        ]))
+        return t
+
+    # ───────── header (logo + nro) ─────────
+    def _header_section(self):
+        W = PAGE_W - 2 * MARGIN
+        logo_cell = ''
+        if self.empresa.logo:
+            try:
+                logo_path = self.empresa.logo.path
+                if os.path.exists(logo_path):
+                    logo_cell = Image(logo_path, width=130, height=60, kind='proportional')
+            except Exception:
+                pass
+
+        right_data = [
+            [Paragraph(f'Fecha: {self.cotizacion.fecha_emision.strftime("%d/%m/%Y")}',
+                        ParagraphStyle('hdr', fontSize=8, textColor=GRAY,
+                                       alignment=TA_RIGHT))],
+            [Paragraph('Nro Cotización:',
+                        ParagraphStyle('hdr2', fontSize=10, fontName='Helvetica-Bold',
+                                       textColor=DARK, alignment=TA_RIGHT,
+                                       spaceBefore=4))],
+            [Paragraph(f'<b>{self.cotizacion.numero}</b>',
+                        ParagraphStyle('hdr3', fontSize=16, fontName='Helvetica-Bold',
+                                       textColor=PRIMARY, alignment=TA_RIGHT))],
+        ]
+        right_table = Table(right_data, colWidths=[W * 0.45])
+
+        data = [[logo_cell, right_table]]
+        t = Table(data, colWidths=[W * 0.55, W * 0.45])
+        t.setStyle(TableStyle([
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ]))
+        return t
+
+    # ───────── client info ─────────
+    def _client_section(self):
+        W = PAGE_W - 2 * MARGIN
+        half = W / 2
+        c = self.cliente
+
+        rows = [
+            [self._lv('Razón Social', c.nombre), self._lv('RUC / Doc.', c.documento)],
+            [self._lv('Dirección', c.direccion or '—'), self._lv('Contacto', c.telefono or '—')],
+            [self._lv('Email', c.email or '—'), ''],
+        ]
+        t = Table(rows, colWidths=[half, half])
+        t.setStyle(self._box_style())
+        return t
+
+    # ───────── company info ─────────
+    def _company_section(self):
+        W = PAGE_W - 2 * MARGIN
+        half = W / 2
+        e = self.empresa
+
+        rows = [
+            [self._lv('Empresa', e.nombre), self._lv('RUC', e.ruc or '—')],
+            [self._lv('Dirección', e.direccion or '—'), ''],
+        ]
+        t = Table(rows, colWidths=[half, half])
+        t.setStyle(self._box_style())
+        return t
+
+    # ───────── conditions ─────────
+    def _conditions_section(self):
+        W = PAGE_W - 2 * MARGIN
+        cot = self.cotizacion
+        moneda_text = 'Dólar Estadounidense' if cot.moneda == 'USD' else 'Sol Peruano'
+
+        rows = [
+            [self._lv('Moneda', moneda_text),
+             self._lv('Forma de Pago', cot.forma_pago or '—'),
+             self._lv('Validez', cot.validez_oferta or '—')],
+        ]
+        if cot.pago_facturas:
+            rows.append([self._lv('Pago Facturas', cot.pago_facturas),
+                         self._lv('Válido Hasta', cot.fecha_vencimiento.strftime('%d/%m/%Y') if cot.fecha_vencimiento else '—'),
+                         ''])
+        t = Table(rows, colWidths=[W / 3] * 3)
+        t.setStyle(self._box_style())
+        return t
+
+    # ───────── items table ─────────
+    def _items_table(self, sym):
+        W = PAGE_W - 2 * MARGIN
+
+        col_widths = [28, W - 28 - 55 - 65 - 75, 55, 65, 75]
+        header = ['N°', 'Descripción', 'Cant.', 'P. Unit.', 'Importe']
+
+        hdr_style = ParagraphStyle('thdr', fontSize=7, fontName='Helvetica-Bold',
+                                   textColor=WHITE, alignment=TA_CENTER)
+        header_row = [Paragraph(h, hdr_style) for h in header]
+
+        data = [header_row]
+        for idx, d in enumerate(self.cotizacion.detalles.all().order_by('orden'), 1):
+            desc = d.descripcion
+            if d.codigo:
+                desc = f'[{d.codigo}] {desc}'
+
+            qty = f'{d.cantidad:.0f}' if d.cantidad == int(d.cantidad) else f'{d.cantidad:.2f}'
+
+            cell_style = ParagraphStyle('cell', fontSize=7.5, fontName='Helvetica',
+                                        textColor=DARK)
+            cell_right = ParagraphStyle('cellr', fontSize=7.5, fontName='Helvetica',
+                                        textColor=DARK, alignment=TA_RIGHT)
+
+            data.append([
+                Paragraph(str(idx), ParagraphStyle('cc', fontSize=7.5, alignment=TA_CENTER,
+                                                    textColor=DARK)),
+                Paragraph(desc, cell_style),
+                Paragraph(qty, ParagraphStyle('ccc', fontSize=7.5, alignment=TA_CENTER,
+                                               textColor=DARK)),
+                Paragraph(f'{sym} {d.precio_unitario:,.2f}', cell_right),
+                Paragraph(f'{sym} {d.subtotal:,.2f}', cell_right),
+            ])
+
+        t = Table(data, colWidths=col_widths, repeatRows=1)
+        style_cmds = [
+            ('BACKGROUND', (0, 0), (-1, 0), PRIMARY),
+            ('TEXTCOLOR', (0, 0), (-1, 0), WHITE),
+            ('TOPPADDING', (0, 0), (-1, 0), 5),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 5),
+            ('TOPPADDING', (0, 1), (-1, -1), 4),
+            ('BOTTOMPADDING', (0, 1), (-1, -1), 4),
+            ('LEFTPADDING', (0, 0), (-1, -1), 4),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 4),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('GRID', (0, 0), (-1, -1), 0.5, BORDER),
+        ]
+        for i in range(1, len(data)):
+            bg = WHITE if i % 2 == 1 else PRIMARY_LIGHT
+            style_cmds.append(('BACKGROUND', (0, i), (-1, i), bg))
+
+        t.setStyle(TableStyle(style_cmds))
+        return t
+
+    # ───────── totals ─────────
+    def _totals_section(self, sym):
+        W = PAGE_W - 2 * MARGIN
+        obs_w = W - 180
+        tot_w = 180
+
+        obs_cell = ''
+
+        s_lbl = ParagraphStyle('tlbl', fontSize=8, fontName='Helvetica', textColor=DARK)
+        s_val = ParagraphStyle('tval', fontSize=8, fontName='Helvetica', textColor=DARK,
+                                alignment=TA_RIGHT)
+        s_lbl_b = ParagraphStyle('tlblb', fontSize=9, fontName='Helvetica-Bold',
+                                  textColor=DARK)
+        s_val_b = ParagraphStyle('tvalb', fontSize=9, fontName='Helvetica-Bold',
+                                  textColor=DARK, alignment=TA_RIGHT)
+
+        cot = self.cotizacion
+        precios_con_igv = getattr(cot, 'precios_incluyen_igv', False)
+
+        lbl_subtotal = 'Sub Total (c/IGV):' if precios_con_igv else 'Sub Total:'
+        tot_rows = [
+            [Paragraph(lbl_subtotal, s_lbl), Paragraph(f'{sym} {cot.subtotal:,.2f}', s_val)],
+        ]
+
+        s_lbl_g = ParagraphStyle('tlblg', fontSize=8, fontName='Helvetica',
+                                  textColor=colors.HexColor('#555555'))
+        s_val_g = ParagraphStyle('tvalg', fontSize=8, fontName='Helvetica',
+                                  textColor=colors.HexColor('#555555'), alignment=TA_RIGHT)
+
+        if cot.descuento and cot.descuento > 0:
+            tot_rows.append([
+                Paragraph('Descuento:', s_lbl),
+                Paragraph(f'- {sym} {cot.descuento:,.2f}', s_val)
+            ])
+            subtotal_neto = float(cot.subtotal) - float(cot.descuento)
+            tot_rows.append([
+                Paragraph('Subtotal neto:', s_lbl_g),
+                Paragraph(f'{sym} {subtotal_neto:,.2f}', s_val_g)
+            ])
+
+        if precios_con_igv:
+            # Precios ya incluyen IGV → mostrar base imponible + IGV incluido
+            base_imp = float(cot.total) - float(cot.igv) if cot.total else float(cot.subtotal) - float(cot.igv)
+            tot_rows.append([
+                Paragraph('Base imponible:', s_lbl_g),
+                Paragraph(f'{sym} {base_imp:,.2f}', s_val_g)
+            ])
+            tot_rows.append([
+                Paragraph(f'IGV {cot.porcentaje_igv:.0f}% (incluido):', s_lbl),
+                Paragraph(f'{sym} {cot.igv:,.2f}', s_val)
+            ])
+        else:
+            tot_rows.append([
+                Paragraph(f'IGV ({cot.porcentaje_igv:.0f}%):', s_lbl),
+                Paragraph(f'{sym} {cot.igv:,.2f}', s_val)
+            ])
+
+        tot_rows.append([
+            Paragraph('Total:', s_lbl_b),
+            Paragraph(f'{sym} {cot.total:,.2f}', s_val_b)
+        ])
+
+        tot_table = Table(tot_rows, colWidths=[90, tot_w - 90])
+        tot_style = [
+            ('TOPPADDING', (0, 0), (-1, -1), 3),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+            ('LEFTPADDING', (0, 0), (-1, -1), 4),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 4),
+            ('GRID', (0, 0), (-1, -1), 0.5, BORDER),
+            ('BACKGROUND', (0, -1), (-1, -1), PRIMARY_LIGHT),
+        ]
+        tot_table.setStyle(TableStyle(tot_style))
+
+        main = Table([[obs_cell, tot_table]], colWidths=[obs_w, tot_w])
+        main.setStyle(TableStyle([
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ]))
+        return main
+
+    # ───────── delivery ─────────
+    def _delivery_section(self):
+        W = PAGE_W - 2 * MARGIN
+        cot = self.cotizacion
+        rows = []
+        if cot.tiempo_entrega:
+            rows.append([self._lv('Tiempo de Entrega', cot.tiempo_entrega)])
+        if cot.lugar_entrega:
+            rows.append([self._lv('Lugar de Entrega', cot.lugar_entrega)])
+        t = Table(rows, colWidths=[W])
+        t.setStyle(self._box_style())
+        return t
+
+    # ───────── notes ─────────
+    def _notes_section(self):
+        W = PAGE_W - 2 * MARGIN
+        style = ParagraphStyle('note', fontSize=7.5, textColor=DARK, leading=10)
+        rows = [[Paragraph(self.cotizacion.notas, style)]]
+        t = Table(rows, colWidths=[W])
+        t.setStyle(self._box_style())
+        return t
+
+    # ───────── terms ─────────
+    def _terms_section(self):
+        W = PAGE_W - 2 * MARGIN
+        style = ParagraphStyle('term', fontSize=7.5, textColor=DARK, leading=10)
+        rows = [[Paragraph(self.cotizacion.terminos_condiciones, style)]]
+        t = Table(rows, colWidths=[W])
+        t.setStyle(self._box_style())
+        return t
+
+    # ───────── closing note ─────────
+    def _closing_section(self):
+        W = PAGE_W - 2 * MARGIN
+        validez = self.cotizacion.validez_oferta or '30 días'
+        vencimiento = ''
+        if self.cotizacion.fecha_vencimiento:
+            vencimiento = f' (válida hasta el {self.cotizacion.fecha_vencimiento.strftime("%d/%m/%Y")})'
+
+        note_style = ParagraphStyle('closing', fontSize=8, textColor=GRAY,
+                                     alignment=TA_CENTER, leading=12)
+        name_style = ParagraphStyle('closingname', fontSize=9, fontName='Helvetica-Bold',
+                                     textColor=DARK, alignment=TA_CENTER)
+
+        data = [
+            [Paragraph(
+                f'Esta cotización tiene una validez de <b>{validez}</b>{vencimiento}.',
+                note_style
+            )],
+            [Paragraph(self.empresa.nombre, name_style)],
+        ]
+        t = Table(data, colWidths=[W])
+        t.setStyle(TableStyle([
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('TOPPADDING', (0, 0), (-1, -1), 5),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+        ]))
+        return t
+
+    # ───────── helpers ─────────
+    def _lv(self, label, value):
+        style = ParagraphStyle('lv', fontSize=7.5, textColor=DARK, leading=10)
+        return Paragraph(f'<b>{label}:</b> {value or "—"}', style)
+
+    def _box_style(self):
+        return TableStyle([
+            ('BOX', (0, 0), (-1, -1), 0.5, BORDER),
+            ('INNERGRID', (0, 0), (-1, -1), 0.5, BORDER),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            ('LEFTPADDING', (0, 0), (-1, -1), 6),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ])

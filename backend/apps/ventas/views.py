@@ -1,5 +1,8 @@
+import logging
 from rest_framework import generics
 from .models import Venta, Cliente, Factura, OrdenVenta, DetalleVenta, PagoVenta
+
+logger = logging.getLogger(__name__)
 from .serializers import (
     VentaSerializer, ClienteSerializer, FacturaSerializer,
     OrdenVentaSerializer, DetalleVentaSerializer, PagoVentaSerializer
@@ -411,8 +414,13 @@ class ClienteViewSet(viewsets.ModelViewSet):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class FacturaViewSet(viewsets.ModelViewSet):
-    queryset = Factura.objects.all()
     serializer_class = FacturaSerializer
+    permission_classes = [IsAuthenticated, HasEmpresaPermission]
+
+    def get_queryset(self):
+        return Factura.objects.filter(
+            venta__empresa=self.request.user.empresa
+        ).select_related('cliente', 'venta')
 
 class OrdenVentaViewSet(viewsets.ModelViewSet):
     serializer_class = OrdenVentaSerializer
@@ -434,15 +442,16 @@ class VentaViewSet(viewsets.ModelViewSet):
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def get_queryset(self):
-        queryset = self.queryset.filter(empresa=self.request.user.empresa)
-        
-        # Filtros
-        estado = self.request.query_params.get('estado', None)
-        tipo_venta = self.request.query_params.get('tipo_venta', None)
-        metodo_pago = self.request.query_params.get('metodo_pago', None)
-        cliente = self.request.query_params.get('cliente', None)
-        fecha_inicio = self.request.query_params.get('fecha_inicio', None)
-        fecha_fin = self.request.query_params.get('fecha_fin', None)
+        queryset = Venta.objects.filter(
+            empresa=self.request.user.empresa
+        ).select_related('cliente').prefetch_related('detalles__producto')
+
+        estado = self.request.query_params.get('estado')
+        tipo_venta = self.request.query_params.get('tipo_venta')
+        metodo_pago = self.request.query_params.get('metodo_pago')
+        cliente = self.request.query_params.get('cliente')
+        fecha_inicio = self.request.query_params.get('fecha_inicio')
+        fecha_fin = self.request.query_params.get('fecha_fin')
 
         if estado:
             queryset = queryset.filter(estado=estado)
@@ -460,25 +469,15 @@ class VentaViewSet(viewsets.ModelViewSet):
         return queryset.order_by('-fecha_emision')
 
     def perform_create(self, serializer):
-        print(f"DEBUG VIEWSET: Iniciando perform_create")
-        print(f"DEBUG VIEWSET: Usuario: {self.request.user}")
-        print(f"DEBUG VIEWSET: Empresa del usuario: {self.request.user.empresa}")
-        
         try:
-            # Simplificamos - el serializer ya maneja la asignación de empresa
             venta = serializer.save()
-            print(f"DEBUG VIEWSET: Venta creada: {venta.numero}")
-            
-            # Si es una venta a crédito, establecer estado inicial como 'pendiente'
+
             if venta.tipo_venta in ['credito_30', 'credito_60']:
-                print(f"DEBUG VIEWSET: Procesando venta a crédito")
                 venta.estado = 'pendiente'
-                # Calcular fecha de vencimiento basada en el tipo de crédito
                 dias_credito = 30 if venta.tipo_venta == 'credito_30' else 60
                 venta.fecha_vencimiento = venta.fecha_emision + timezone.timedelta(days=dias_credito)
                 venta.save()
 
-                # Crear registro de pago inicial en estado pendiente
                 PagoVenta.objects.create(
                     venta=venta,
                     fecha=venta.fecha_emision,
@@ -486,21 +485,11 @@ class VentaViewSet(viewsets.ModelViewSet):
                     metodo_pago='pendiente',
                     notas=f'Pago pendiente para venta a crédito de {dias_credito} días'
                 )
-                print(f"DEBUG VIEWSET: Registro de pago pendiente creado")
-            
-            # Si la venta está pagada, actualizar el stock inmediatamente
+
             if venta.estado == 'pagado':
-                print(f"=== LLAMANDO ACTUALIZAR_STOCK DESDE PERFORM_CREATE ===")
-                print(f"Venta: {venta.numero}, Estado: {venta.estado}")
                 venta.actualizar_stock()
-                print(f'Stock actualizado para venta {venta.numero}')
-                print(f"=== FIN ACTUALIZAR_STOCK DESDE PERFORM_CREATE ===")
-                
-            print(f"DEBUG VIEWSET: perform_create completado exitosamente")
-        except Exception as e:
-            print(f"DEBUG VIEWSET ERROR: {str(e)}")
-            import traceback
-            print(f"DEBUG VIEWSET TRACEBACK: {traceback.format_exc()}")
+
+        except Exception:
             raise
 
     def list(self, request, *args, **kwargs):
@@ -656,7 +645,7 @@ class VentaViewSet(viewsets.ModelViewSet):
             response['Access-Control-Expose-Headers'] = 'Content-Disposition'
             return response
         except Exception as e:
-            print(f"Error en exportar_excel: {str(e)}")
+            logger.error("Error en exportar_excel: %s", e, exc_info=True)
             return Response(
                 {'error': str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -818,7 +807,7 @@ class VentaViewSet(viewsets.ModelViewSet):
                 'ventas_ultimos_30_dias': ventas
             })
         except Exception as e:
-            print(f"Error al obtener estadísticas: {str(e)}")
+            logger.error("Error al obtener estadísticas: %s", e, exc_info=True)
             return Response(
                 {'error': f'Error al obtener estadísticas: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -842,7 +831,7 @@ class VentaViewSet(viewsets.ModelViewSet):
                 'total_ventas_ultimos_30_dias': float(total)
             })
         except Exception as e:
-            print(f"Error al calcular total: {str(e)}")
+            logger.error("Error al calcular total ventas: %s", e, exc_info=True)
             return Response(
                 {'error': f'Error al calcular total: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -868,7 +857,7 @@ class VentaViewSet(viewsets.ModelViewSet):
                 'igv_recaudado': float(igv_total)
             })
         except Exception as e:
-            print(f"Error al calcular IGV: {str(e)}")
+            logger.error("Error al calcular IGV: %s", e, exc_info=True)
             return Response(
                 {'error': f'Error al calcular IGV: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -918,7 +907,7 @@ class VentaViewSet(viewsets.ModelViewSet):
             venta = self.get_object()
             
             # Verificar si la venta puede ser eliminada
-            if venta.estado == 'pagada':
+            if venta.estado == 'pagado':
                 return Response(
                     {'error': 'No se puede eliminar una venta pagada'},
                     status=status.HTTP_400_BAD_REQUEST
@@ -939,7 +928,7 @@ class VentaViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_204_NO_CONTENT
             )
         except Exception as e:
-            print(f"Error al eliminar venta: {str(e)}")
+            logger.error("Error al eliminar venta: %s", e, exc_info=True)
             return Response(
                 {'error': str(e)},
                 status=status.HTTP_400_BAD_REQUEST
@@ -1016,8 +1005,6 @@ class VentaViewSet(viewsets.ModelViewSet):
         """
         try:
             venta = self.get_object()
-            print(f"Procesando pago para venta {venta.id}")
-            print(f"Datos recibidos: {request.data}")
             
             if request.method == 'GET':
                 pagos = PagoVenta.objects.filter(venta=venta)
@@ -1044,13 +1031,10 @@ class VentaViewSet(viewsets.ModelViewSet):
                 total_pagado = pagos.aggregate(total=Sum('monto'))['total'] or 0
                 saldo_pendiente = venta.total - total_pagado
                 
-                print(f"Total pagado: {total_pagado}")
-                print(f"Saldo pendiente: {saldo_pendiente}")
                 
                 # Validar que el monto del nuevo pago no exceda el saldo pendiente
                 try:
                     monto_nuevo_pago = Decimal(str(request.data.get('monto', '0')))
-                    print(f"Monto nuevo pago: {monto_nuevo_pago}")
                 except (TypeError, ValueError, InvalidOperation) as e:
                     return Response(
                         {'error': f'Monto inválido: {request.data.get("monto")}'},
@@ -1075,7 +1059,6 @@ class VentaViewSet(viewsets.ModelViewSet):
                 serializer = PagoVentaSerializer(data=data)
                 
                 if serializer.is_valid():
-                    print(f"Datos validados: {serializer.validated_data}")
                     pago = serializer.save()
                     
                     # Verificar si la venta está completamente pagada
@@ -1090,11 +1073,11 @@ class VentaViewSet(viewsets.ModelViewSet):
                         'saldo_restante': float(venta.total - nuevo_total_pagado)
                     }, status=status.HTTP_201_CREATED)
                 
-                print(f"Errores de validación: {serializer.errors}")
+                logger.debug("Errores de validación pago: %s", serializer.errors)
                 return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
                 
         except Exception as e:
-            print(f"Error al procesar pago: {str(e)}")
+            logger.error("Error al procesar pago: %s", e, exc_info=True)
             return Response(
                 {'error': str(e)},
                 status=status.HTTP_400_BAD_REQUEST

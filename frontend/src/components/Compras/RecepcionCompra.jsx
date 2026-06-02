@@ -36,25 +36,24 @@ import { comprasService } from '../../services/compras.service';
 const RecepcionCompra = () => {
   const toast = useToast();
   const queryClient = useQueryClient();
-  const token = localStorage.getItem('access_token');
   const { isOpen, onOpen, onClose } = useDisclosure();
 
   // Query para obtener recepciones
   const { data: recepciones, isLoading } = useQuery({
     queryKey: ['recepciones'],
-    queryFn: () => comprasService.getRecepciones(token)
+    queryFn: () => comprasService.getRecepciones()
   });
 
   // Query para obtener órdenes de compra pendientes
   const { data: ordenesCompra } = useQuery({
     queryKey: ['ordenesCompra'],
-    queryFn: () => comprasService.getOrdenesCompra(token)
+    queryFn: () => comprasService.getOrdenesCompra()
   });
 
   // Mutación para crear nueva recepción
   const createRecepcionMutation = useMutation({
-    mutationFn: (nuevaRecepcion) => 
-      comprasService.createRecepcion(nuevaRecepcion, token),
+    mutationFn: (nuevaRecepcion) =>
+      comprasService.createRecepcion(nuevaRecepcion),
     onSuccess: () => {
       queryClient.invalidateQueries(['recepciones']);
       toast({
@@ -76,8 +75,8 @@ const RecepcionCompra = () => {
 
   // Mutación para confirmar recepción
   const confirmarRecepcionMutation = useMutation({
-    mutationFn: (recepcionId) => 
-      comprasService.confirmarRecepcion(recepcionId, token),
+    mutationFn: (recepcionId) =>
+      comprasService.confirmarRecepcion(recepcionId),
     onSuccess: () => {
       queryClient.invalidateQueries(['recepciones']);
       toast({

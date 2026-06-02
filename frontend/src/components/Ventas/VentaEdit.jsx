@@ -16,12 +16,13 @@ import {
   Badge
 } from '@chakra-ui/react';
 import { ventasService } from '../../services/ventas.service';
+import { getSimboloMoneda } from '../../utils/currency';
 
 const estados = [
   { value: 'borrador', label: 'Borrador' },
   { value: 'pendiente', label: 'Pendiente' },
-  { value: 'pagada', label: 'Pagada' },
-  { value: 'anulada', label: 'Anulada' },
+  { value: 'pagado', label: 'Pagado' },
+  { value: 'anulado', label: 'Anulado' },
 ];
 
 const VentaEdit = () => {
@@ -32,15 +33,6 @@ const VentaEdit = () => {
   const [estado, setEstado] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-
-  // Función para obtener el símbolo de moneda
-  const getSimboloMoneda = (moneda) => {
-    const simbolos = {
-      'PEN': 'S/',
-      'USD': '$'
-    };
-    return simbolos[moneda] || 'S/';
-  };
 
   useEffect(() => {
     const fetchVenta = async () => {

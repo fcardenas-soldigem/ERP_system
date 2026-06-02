@@ -1,17 +1,53 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import produccionService from '../../services/produccion.service';
-import productosService from '../../services/productos.service';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { produccionService } from '../../services/produccion.service';
+import { inventarioService } from '../../services/inventario.service';
+import {
+  Box,
+  Heading,
+  Text,
+  Flex,
+  SimpleGrid,
+  Card,
+  CardHeader,
+  CardBody,
+  Button,
+  VStack,
+  HStack,
+  FormControl,
+  FormLabel,
+  Input,
+  Select,
+  Textarea,
+  Switch,
+  Badge,
+  Progress,
+  Alert,
+  AlertIcon,
+  Icon,
+  IconButton,
+  Spinner,
+  Divider,
+  useColorModeValue,
+  useToast
+} from '@chakra-ui/react';
+import { 
+  ChevronLeftIcon,
+  AddIcon,
+  DeleteIcon
+} from '@chakra-ui/icons';
+import { FiPackage, FiBox, FiClock, FiDollarSign, FiClipboard } from 'react-icons/fi';
 
 const RecetaForm = () => {
   const navigate = useNavigate();
   const { id } = useParams();
+  const queryClient = useQueryClient();
+  const toast = useToast();
   const isEditing = Boolean(id);
 
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [productos, setProductos] = useState([]);
-  const [insumos, setInsumos] = useState([]);
+  const cardBg = useColorModeValue('white', 'gray.800');
+  const borderColor = useColorModeValue('gray.200', 'gray.600');
 
   const [formData, setFormData] = useState({
     producto_terminado: '',
@@ -26,49 +62,88 @@ const RecetaForm = () => {
     detalles: []
   });
 
+  // Query para productos terminados (para seleccionar qué producir)
+  // inventarioService ya devuelve los datos procesados directamente
+  const { data: productos = [], isLoading: loadingProductos } = useQuery({
+    queryKey: ['productos-terminados'],
+    queryFn: () => inventarioService.getProductosTerminados()
+  });
+
+  // Query para insumos (materias primas)
+  const { data: insumos = [], isLoading: loadingInsumos } = useQuery({
+    queryKey: ['materias-primas'],
+    queryFn: () => inventarioService.getMateriasPrimas()
+  });
+
+  // Query para receta (si estamos editando)
+  const { data: recetaOriginal, isLoading: loadingReceta } = useQuery({
+    queryKey: ['receta', id],
+    queryFn: () => produccionService.getReceta(id),
+    enabled: isEditing,
+    select: (response) => response?.data || response
+  });
+
+  // Cargar datos de receta cuando estamos editando
   useEffect(() => {
-    cargarProductos();
-    if (isEditing) {
-      cargarReceta();
-    }
-  }, [id]);
-
-  const cargarProductos = async () => {
-    try {
-      const response = await productosService.getProductos();
-      setProductos(response.data);
-      setInsumos(response.data); // Los insumos son productos también
-    } catch (err) {
-      console.error('Error al cargar productos:', err);
-      setError('Error al cargar productos');
-    }
-  };
-
-  const cargarReceta = async () => {
-    try {
-      setLoading(true);
-      const response = await produccionService.getReceta(id);
-      const receta = response.data;
-      
+    if (recetaOriginal) {
       setFormData({
-        producto_terminado: receta.producto_terminado,
-        nombre: receta.nombre,
-        cantidad_producida: receta.cantidad_producida,
-        tiempo_estimado: receta.tiempo_estimado,
-        costo_mano_obra: receta.costo_mano_obra,
-        costo_indirecto: receta.costo_indirecto,
-        is_active: receta.is_active,
-        version: receta.version,
-        notas: receta.notas || '',
-        detalles: receta.detalles || []
+        producto_terminado: recetaOriginal.producto_terminado,
+        nombre: recetaOriginal.nombre,
+        cantidad_producida: recetaOriginal.cantidad_producida,
+        tiempo_estimado: recetaOriginal.tiempo_estimado,
+        costo_mano_obra: recetaOriginal.costo_mano_obra,
+        costo_indirecto: recetaOriginal.costo_indirecto,
+        is_active: recetaOriginal.is_active,
+        version: recetaOriginal.version,
+        notas: recetaOriginal.notas || '',
+        detalles: recetaOriginal.detalles || []
       });
-    } catch (err) {
-      console.error('Error al cargar receta:', err);
-      setError('Error al cargar la receta');
-    } finally {
-      setLoading(false);
     }
-  };
+  }, [recetaOriginal]);
+
+  // Mutation para guardar
+  const saveMutation = useMutation({
+    mutationFn: async (data) => {
+      if (isEditing) {
+        return await produccionService.updateReceta(id, data);
+      }
+      return await produccionService.createReceta(data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries(['recetas']);
+      toast({
+        title: isEditing ? 'Receta actualizada' : 'Receta creada',
+        status: 'success',
+        duration: 3000
+      });
+      navigate('/app/produccion/recetas');
+    },
+    onError: (error) => {
+      toast({
+        title: 'Error al guardar',
+        description: error.response?.data?.error || error.message,
+        status: 'error',
+        duration: 5000
+      });
+    }
+  });
+
+  // Calcular costos
+  const costos = useMemo(() => {
+    const costoInsumos = formData.detalles.reduce((sum, detalle) => {
+      return sum + (parseFloat(detalle.cantidad || 0) * parseFloat(detalle.costo_unitario || 0));
+    }, 0);
+    
+    const costoTotal = costoInsumos + 
+                      parseFloat(formData.costo_mano_obra || 0) + 
+                      parseFloat(formData.costo_indirecto || 0);
+    
+    const costoUnitario = formData.cantidad_producida > 0 
+                         ? costoTotal / parseFloat(formData.cantidad_producida) 
+                         : 0;
+
+    return { costoInsumos, costoTotal, costoUnitario };
+  }, [formData.detalles, formData.costo_mano_obra, formData.costo_indirecto, formData.cantidad_producida]);
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -111,87 +186,49 @@ const RecetaForm = () => {
 
       // Si cambia el insumo, actualizar unidad_medida y costo_unitario
       if (field === 'insumo') {
-        const insumoSeleccionado = insumos.find(p => p.id === parseInt(value));
+        const insumoSeleccionado = insumos.find(p => (p.producto || p.id) === parseInt(value));
         if (insumoSeleccionado) {
           nuevosDetalles[index].unidad_medida = insumoSeleccionado.unidad_medida;
-          nuevosDetalles[index].costo_unitario = insumoSeleccionado.precio_compra;
+          nuevosDetalles[index].costo_unitario = insumoSeleccionado.costo_unitario_promedio || insumoSeleccionado.precio_compra || 0;
         }
       }
 
-      return {
-        ...prev,
-        detalles: nuevosDetalles
-      };
+      return { ...prev, detalles: nuevosDetalles };
     });
   };
 
-  const calcularCostoTotal = () => {
-    const costoInsumos = formData.detalles.reduce((sum, detalle) => {
-      return sum + (parseFloat(detalle.cantidad || 0) * parseFloat(detalle.costo_unitario || 0));
-    }, 0);
-    
-    const costoTotal = costoInsumos + 
-                      parseFloat(formData.costo_mano_obra || 0) + 
-                      parseFloat(formData.costo_indirecto || 0);
-    
-    const costoUnitario = formData.cantidad_producida > 0 
-                         ? costoTotal / parseFloat(formData.cantidad_producida) 
-                         : 0;
-
-    return {
-      costoInsumos,
-      costoTotal,
-      costoUnitario
-    };
-  };
-
-  const handleSubmit = async (e) => {
+  const handleSubmit = (e) => {
     e.preventDefault();
     
     // Validaciones
     if (!formData.producto_terminado) {
-      alert('Debe seleccionar un producto terminado');
+      toast({ title: 'Debe seleccionar un producto terminado', status: 'warning', duration: 3000 });
       return;
     }
 
     if (!formData.nombre.trim()) {
-      alert('Debe ingresar un nombre para la receta');
+      toast({ title: 'Debe ingresar un nombre para la receta', status: 'warning', duration: 3000 });
       return;
     }
 
     if (formData.cantidad_producida <= 0) {
-      alert('La cantidad producida debe ser mayor a 0');
+      toast({ title: 'La cantidad producida debe ser mayor a 0', status: 'warning', duration: 3000 });
       return;
     }
 
     if (formData.detalles.length === 0) {
-      alert('Debe agregar al menos un insumo a la receta');
+      toast({ title: 'Debe agregar al menos un insumo', status: 'warning', duration: 3000 });
       return;
     }
 
-    // Validar que todos los insumos estén completos
     const insumosIncompletos = formData.detalles.some(
       detalle => !detalle.insumo || detalle.cantidad <= 0
     );
 
     if (insumosIncompletos) {
-      alert('Todos los insumos deben tener producto y cantidad mayor a 0');
+      toast({ title: 'Todos los insumos deben tener producto y cantidad mayor a 0', status: 'warning', duration: 3000 });
       return;
     }
-
-    // Validar que el producto terminado no esté en los insumos
-    const productoEnInsumos = formData.detalles.some(
-      detalle => parseInt(detalle.insumo) === parseInt(formData.producto_terminado)
-    );
-
-    if (productoEnInsumos) {
-      alert('El producto terminado no puede ser usado como insumo en su propia receta');
-      return;
-    }
-
-    try {
-      setLoading(true);
-      setError(null);
 
       const dataToSend = {
         ...formData,
@@ -204,376 +241,464 @@ const RecetaForm = () => {
         }))
       };
 
-      if (isEditing) {
-        await produccionService.updateReceta(id, dataToSend);
-        alert('Receta actualizada exitosamente');
-      } else {
-        await produccionService.createReceta(dataToSend);
-        alert('Receta creada exitosamente');
-      }
-
-      navigate('/produccion/recetas');
-    } catch (err) {
-      console.error('Error al guardar receta:', err);
-      setError(err.response?.data?.error || 'Error al guardar la receta');
-    } finally {
-      setLoading(false);
-    }
+    saveMutation.mutate(dataToSend);
   };
 
-  const costos = calcularCostoTotal();
+  const formatCurrency = (amount) => {
+    return new Intl.NumberFormat('es-PE', {
+      style: 'currency',
+      currency: 'PEN'
+    }).format(amount || 0);
+  };
 
-  if (loading && isEditing) {
+  const isLoading = loadingProductos || loadingInsumos || (isEditing && loadingReceta);
+
+  if (isLoading) {
     return (
-      <div className="container mx-auto p-6">
-        <div className="flex justify-center items-center h-64">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-        </div>
-      </div>
+      <Box p={6}>
+        <Flex justify="center" align="center" h="300px" direction="column">
+          <Spinner size="xl" color="blue.500" thickness="4px" mb={4} />
+          <Text color="gray.600">Cargando {isEditing ? 'receta' : 'datos'}...</Text>
+        </Flex>
+      </Box>
     );
   }
 
   return (
-    <div className="container mx-auto p-6">
-      {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-800">
-          {isEditing ? 'Editar Receta' : 'Nueva Receta de Producción'}
-        </h1>
-        <p className="text-gray-600 mt-1">
-          {isEditing ? 'Modifique los datos de la receta' : 'Complete los datos para crear una nueva receta (BOM)'}
-        </p>
-      </div>
-
-      {/* Error */}
-      {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6">
-          {error}
-        </div>
-      )}
+    <Box p={6}>
+        {/* Header */}
+      <Flex align="center" mb={6}>
+        <Button
+          leftIcon={<ChevronLeftIcon />}
+          variant="ghost"
+          onClick={() => navigate('/app/produccion/recetas')}
+          mr={4}
+        >
+          Volver
+        </Button>
+        <Box>
+          <HStack spacing={3}>
+            <Flex w="48px" h="48px" bg="blue.500" borderRadius="xl" align="center" justify="center">
+              <Icon as={FiPackage} boxSize={6} color="white" />
+            </Flex>
+            <Box>
+              <Heading size="lg">
+                  {isEditing ? 'Editar Receta' : 'Nueva Receta de Producción'}
+              </Heading>
+              <Text color="gray.600" fontSize="sm">
+                  {isEditing ? 'Modifique los datos de la receta' : 'Complete los datos para crear una nueva receta (BOM)'}
+              </Text>
+            </Box>
+          </HStack>
+        </Box>
+      </Flex>
 
       <form onSubmit={handleSubmit}>
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <SimpleGrid columns={{ base: 1, lg: 3 }} spacing={6}>
           {/* Columna Principal */}
-          <div className="lg:col-span-2 space-y-6">
+          <Box gridColumn={{ lg: 'span 2' }}>
+            <VStack spacing={6} align="stretch">
             {/* Información Básica */}
-            <div className="bg-white rounded-lg shadow-sm p-6">
-              <h2 className="text-lg font-semibold text-gray-800 mb-4">Información Básica</h2>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Producto Terminado *
-                  </label>
-                  <select
+              <Card bg={cardBg} borderWidth="1px" borderColor={borderColor} borderRadius="xl">
+                <CardHeader pb={2}>
+                  <HStack>
+                    <Flex w="36px" h="36px" bg="blue.500" borderRadius="lg" align="center" justify="center">
+                      <Icon as={FiClipboard} color="white" />
+                    </Flex>
+                    <Heading size="md">Información Básica</Heading>
+                  </HStack>
+                </CardHeader>
+                <CardBody>
+                  <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
+                    <FormControl isRequired gridColumn={{ md: 'span 2' }}>
+                      <FormLabel fontWeight="semibold">Producto Terminado</FormLabel>
+                      <Select
                     name="producto_terminado"
                     value={formData.producto_terminado}
                     onChange={handleChange}
-                    required
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="Seleccione un producto"
+                        size="lg"
                   >
-                    <option value="">Seleccione un producto</option>
                     {productos.map(producto => (
-                      <option key={producto.id} value={producto.id}>
-                        {producto.nombre} ({producto.sku})
+                          <option key={producto.id} value={producto.producto || producto.id}>
+                            {producto.producto_nombre || producto.nombre} ({producto.producto_sku || producto.sku})
                       </option>
                     ))}
-                  </select>
-                </div>
+                      </Select>
+                    </FormControl>
 
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Nombre de la Receta *
-                  </label>
-                  <input
-                    type="text"
+                    <FormControl isRequired gridColumn={{ md: 'span 2' }}>
+                      <FormLabel fontWeight="semibold">Nombre de la Receta</FormLabel>
+                      <Input
                     name="nombre"
                     value={formData.nombre}
                     onChange={handleChange}
-                    required
                     placeholder="Ej: Receta estándar de..."
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
+                        size="lg"
+                      />
+                    </FormControl>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Cantidad Producida *
-                  </label>
-                  <input
+                    <FormControl isRequired>
+                      <FormLabel fontWeight="semibold">Cantidad Producida</FormLabel>
+                      <Input
                     type="number"
                     name="cantidad_producida"
                     value={formData.cantidad_producida}
                     onChange={handleChange}
                     min="0.01"
                     step="0.01"
-                    required
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
-                </div>
+                    </FormControl>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Tiempo Estimado (minutos)
-                  </label>
-                  <input
+                {isEditing && (
+                      <FormControl>
+                        <FormLabel fontWeight="semibold">Versión</FormLabel>
+                        <Input
+                      type="number"
+                      name="version"
+                      value={formData.version}
+                      onChange={handleChange}
+                      min="1"
+                        />
+                      </FormControl>
+                    )}
+
+                    <FormControl display="flex" alignItems="center" gridColumn={{ md: 'span 2' }}>
+                      <Switch
+                        id="is_active"
+                      name="is_active"
+                        isChecked={formData.is_active}
+                        onChange={(e) => setFormData(prev => ({ ...prev, is_active: e.target.checked }))}
+                        colorScheme="green"
+                        size="lg"
+                        mr={3}
+                      />
+                      <FormLabel htmlFor="is_active" mb={0}>
+                        Receta activa
+                      </FormLabel>
+                    </FormControl>
+
+                    <FormControl gridColumn={{ md: 'span 2' }}>
+                      <FormLabel fontWeight="semibold">Notas / Instrucciones</FormLabel>
+                      <Textarea
+                    name="notas"
+                    value={formData.notas}
+                    onChange={handleChange}
+                    placeholder="Instrucciones adicionales para la producción..."
+                        rows={3}
+                      />
+                    </FormControl>
+                  </SimpleGrid>
+                </CardBody>
+              </Card>
+
+            {/* Insumos */}
+              <Card bg={cardBg} borderWidth="1px" borderColor={borderColor} borderRadius="xl">
+                <CardHeader pb={2}>
+                  <Flex justify="space-between" align="center">
+                    <HStack>
+                      <Flex w="36px" h="36px" bg="green.500" borderRadius="lg" align="center" justify="center">
+                        <Icon as={FiBox} color="white" />
+                      </Flex>
+                      <Box>
+                        <Heading size="md">Insumos de la Receta</Heading>
+                        <Text fontSize="xs" color="gray.500">Selecciona los productos del inventario necesarios</Text>
+                      </Box>
+                    </HStack>
+                    <Button
+                      leftIcon={<AddIcon />}
+                      colorScheme="blue"
+                      size="sm"
+                  onClick={agregarInsumo}
+                >
+                  Agregar Insumo
+                    </Button>
+                  </Flex>
+                </CardHeader>
+                <CardBody>
+              {formData.detalles.length === 0 ? (
+                    <Box textAlign="center" py={12} bg="gray.50" borderRadius="xl" borderWidth="2px" borderStyle="dashed" borderColor="gray.200">
+                      <Icon as={FiBox} boxSize={10} color="gray.400" mb={3} />
+                      <Text color="gray.600" fontWeight="medium" mb={1}>No hay insumos agregados</Text>
+                      <Text fontSize="sm" color="gray.500">
+                        Haz clic en "Agregar Insumo" para comenzar a construir tu receta
+                      </Text>
+                    </Box>
+                  ) : (
+                    <VStack spacing={4} align="stretch">
+                    {formData.detalles.map((detalle, index) => (
+                        <Box
+                        key={index}
+                          p={4}
+                          bg="white"
+                          borderWidth="2px"
+                          borderColor="gray.200"
+                          borderRadius="xl"
+                          _hover={{ borderColor: 'blue.300' }}
+                          transition="all 0.2s"
+                        >
+                          <Flex align="start" gap={3}>
+                          {/* Número de orden */}
+                            <Flex
+                              w="32px"
+                              h="32px"
+                              bg="blue.500"
+                              borderRadius="lg"
+                              align="center"
+                              justify="center"
+                              flexShrink={0}
+                            >
+                              <Text color="white" fontWeight="bold" fontSize="sm">{index + 1}</Text>
+                            </Flex>
+
+                            <SimpleGrid columns={12} spacing={3} flex={1}>
+                              <FormControl gridColumn={{ base: 'span 12', md: 'span 5' }} isRequired>
+                                <FormLabel fontSize="xs" fontWeight="semibold">Producto/Insumo</FormLabel>
+                                <Select
+                                  value={detalle.insumo}
+                                  onChange={(e) => handleInsumoChange(index, 'insumo', e.target.value)}
+                                  placeholder="Seleccionar producto..."
+                                  size="sm"
+                                >
+                              {insumos.map(insumo => (
+                                    <option key={insumo.id} value={insumo.producto || insumo.id}>
+                                      {insumo.producto_nombre || insumo.nombre} ({insumo.producto_sku || insumo.sku})
+                                </option>
+                              ))}
+                                </Select>
+                              </FormControl>
+
+                              <FormControl gridColumn={{ base: 'span 6', md: 'span 2' }} isRequired>
+                                <FormLabel fontSize="xs" fontWeight="semibold">Cantidad</FormLabel>
+                                <Input
+                              type="number"
+                              value={detalle.cantidad}
+                              onChange={(e) => handleInsumoChange(index, 'cantidad', e.target.value)}
+                              min="0.01"
+                              step="0.01"
+                                  size="sm"
+                                />
+                              </FormControl>
+
+                              <FormControl gridColumn={{ base: 'span 6', md: 'span 2' }}>
+                                <FormLabel fontSize="xs" fontWeight="semibold">Costo Unit.</FormLabel>
+                                <Input
+                              type="number"
+                              value={detalle.costo_unitario}
+                              onChange={(e) => handleInsumoChange(index, 'costo_unitario', e.target.value)}
+                              min="0"
+                              step="0.01"
+                                  size="sm"
+                                />
+                              </FormControl>
+
+                              <FormControl gridColumn={{ base: 'span 10', md: 'span 2' }}>
+                                <FormLabel fontSize="xs" fontWeight="semibold">Subtotal</FormLabel>
+                                <Box
+                                  px={3}
+                                  py={2}
+                                  bg="blue.50"
+                                  borderWidth="1px"
+                                  borderColor="blue.200"
+                                  borderRadius="md"
+                                  textAlign="right"
+                                >
+                                  <Text fontWeight="bold" color="blue.600" fontSize="sm">
+                                    {formatCurrency(parseFloat(detalle.cantidad || 0) * parseFloat(detalle.costo_unitario || 0))}
+                                  </Text>
+                                </Box>
+                              </FormControl>
+
+                              <Flex gridColumn={{ base: 'span 2', md: 'span 1' }} align="end" justify="center">
+                                <IconButton
+                                  icon={<DeleteIcon />}
+                                  variant="ghost"
+                                  colorScheme="red"
+                                  size="sm"
+                              onClick={() => eliminarInsumo(index)}
+                                  aria-label="Eliminar insumo"
+                                />
+                              </Flex>
+
+                              <FormControl gridColumn="span 12" mt={2}>
+                                <Input
+                              value={detalle.notas}
+                              onChange={(e) => handleInsumoChange(index, 'notas', e.target.value)}
+                              placeholder="Notas o instrucciones especiales..."
+                                  size="sm"
+                                  bg="gray.50"
+                                />
+                              </FormControl>
+                            </SimpleGrid>
+                          </Flex>
+                        </Box>
+                      ))}
+                    </VStack>
+                  )}
+                </CardBody>
+              </Card>
+
+            {/* Tiempo y Costos */}
+              <Card bg={cardBg} borderWidth="1px" borderColor={borderColor} borderRadius="xl">
+                <CardHeader pb={2}>
+                  <HStack>
+                    <Flex w="36px" h="36px" bg="purple.500" borderRadius="lg" align="center" justify="center">
+                      <Icon as={FiClock} color="white" />
+                    </Flex>
+                    <Heading size="md">Tiempo y Costos de Producción</Heading>
+                  </HStack>
+                </CardHeader>
+                <CardBody>
+                  <SimpleGrid columns={{ base: 1, md: 3 }} spacing={4}>
+                    <FormControl>
+                      <FormLabel fontWeight="semibold">Tiempo Estimado (minutos)</FormLabel>
+                      <Input
                     type="number"
                     name="tiempo_estimado"
                     value={formData.tiempo_estimado}
                     onChange={handleChange}
                     min="0"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
+                    placeholder="0"
+                      />
+                      <Text fontSize="xs" color="gray.500" mt={1}>Duración estimada del proceso</Text>
+                    </FormControl>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Costo Mano de Obra (S/)
-                  </label>
-                  <input
+                    <FormControl>
+                      <FormLabel fontWeight="semibold">Costo Mano de Obra (S/)</FormLabel>
+                      <Input
                     type="number"
                     name="costo_mano_obra"
                     value={formData.costo_mano_obra}
                     onChange={handleChange}
                     min="0"
                     step="0.01"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
+                    placeholder="0.00"
+                      />
+                      <Text fontSize="xs" color="gray.500" mt={1}>Costo de personal involucrado</Text>
+                    </FormControl>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Costos Indirectos / CIF (S/)
-                  </label>
-                  <input
+                    <FormControl>
+                      <FormLabel fontWeight="semibold">Costos Indirectos / CIF (S/)</FormLabel>
+                      <Input
                     type="number"
                     name="costo_indirecto"
                     value={formData.costo_indirecto}
                     onChange={handleChange}
                     min="0"
                     step="0.01"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
-
-                {isEditing && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Versión
-                    </label>
-                    <input
-                      type="number"
-                      name="version"
-                      value={formData.version}
-                      onChange={handleChange}
-                      min="1"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                  </div>
-                )}
-
-                <div className="flex items-center">
-                  <label className="flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      name="is_active"
-                      checked={formData.is_active}
-                      onChange={handleChange}
-                      className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                    />
-                    <span className="ml-2 text-sm text-gray-700">Receta activa</span>
-                  </label>
-                </div>
-
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Notas / Instrucciones
-                  </label>
-                  <textarea
-                    name="notas"
-                    value={formData.notas}
-                    onChange={handleChange}
-                    rows="3"
-                    placeholder="Instrucciones adicionales para la producción..."
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Insumos */}
-            <div className="bg-white rounded-lg shadow-sm p-6">
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-lg font-semibold text-gray-800">Insumos de la Receta</h2>
-                <button
-                  type="button"
-                  onClick={agregarInsumo}
-                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                  </svg>
-                  Agregar Insumo
-                </button>
-              </div>
-
-              {formData.detalles.length === 0 ? (
-                <div className="text-center py-8 text-gray-500">
-                  No hay insumos agregados. Haga clic en "Agregar Insumo" para comenzar.
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {formData.detalles.map((detalle, index) => (
-                    <div key={index} className="border border-gray-200 rounded-lg p-4">
-                      <div className="grid grid-cols-12 gap-4">
-                        <div className="col-span-12 md:col-span-5">
-                          <label className="block text-xs font-medium text-gray-700 mb-1">
-                            Insumo *
-                          </label>
-                          <select
-                            value={detalle.insumo}
-                            onChange={(e) => handleInsumoChange(index, 'insumo', e.target.value)}
-                            required
-                            className="w-full px-2 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                          >
-                            <option value="">Seleccionar...</option>
-                            {insumos.map(insumo => (
-                              <option key={insumo.id} value={insumo.id}>
-                                {insumo.nombre} ({insumo.sku})
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-
-                        <div className="col-span-6 md:col-span-2">
-                          <label className="block text-xs font-medium text-gray-700 mb-1">
-                            Cantidad *
-                          </label>
-                          <input
-                            type="number"
-                            value={detalle.cantidad}
-                            onChange={(e) => handleInsumoChange(index, 'cantidad', e.target.value)}
-                            min="0.01"
-                            step="0.01"
-                            required
-                            className="w-full px-2 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                          />
-                        </div>
-
-                        <div className="col-span-6 md:col-span-2">
-                          <label className="block text-xs font-medium text-gray-700 mb-1">
-                            Costo Unit.
-                          </label>
-                          <input
-                            type="number"
-                            value={detalle.costo_unitario}
-                            onChange={(e) => handleInsumoChange(index, 'costo_unitario', e.target.value)}
-                            min="0"
-                            step="0.01"
-                            className="w-full px-2 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                          />
-                        </div>
-
-                        <div className="col-span-10 md:col-span-2">
-                          <label className="block text-xs font-medium text-gray-700 mb-1">
-                            Costo Total
-                          </label>
-                          <div className="px-2 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg">
-                            S/ {(parseFloat(detalle.cantidad || 0) * parseFloat(detalle.costo_unitario || 0)).toFixed(2)}
-                          </div>
-                        </div>
-
-                        <div className="col-span-2 md:col-span-1 flex items-end">
-                          <button
-                            type="button"
-                            onClick={() => eliminarInsumo(index)}
-                            className="w-full px-2 py-2 text-red-600 hover:bg-red-50 border border-red-300 rounded-lg"
-                            title="Eliminar"
-                          >
-                            <svg className="w-5 h-5 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                            </svg>
-                          </button>
-                        </div>
-
-                        <div className="col-span-12">
-                          <input
-                            type="text"
-                            value={detalle.notas}
-                            onChange={(e) => handleInsumoChange(index, 'notas', e.target.value)}
-                            placeholder="Notas sobre este insumo..."
-                            className="w-full px-2 py-1 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
+                    placeholder="0.00"
+                      />
+                      <Text fontSize="xs" color="gray.500" mt={1}>Electricidad, agua, depreciación, etc.</Text>
+                    </FormControl>
+                  </SimpleGrid>
+                </CardBody>
+              </Card>
+            </VStack>
+          </Box>
 
           {/* Sidebar - Resumen */}
-          <div className="lg:col-span-1">
-            <div className="bg-white rounded-lg shadow-sm p-6 sticky top-6">
-              <h3 className="text-lg font-semibold text-gray-800 mb-4">Resumen de Costos</h3>
-              
-              <div className="space-y-3">
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Costo Insumos:</span>
-                  <span className="font-medium">S/ {costos.costoInsumos.toFixed(2)}</span>
-                </div>
+          <Box>
+            <Card bg={cardBg} borderWidth="1px" borderColor={borderColor} borderRadius="xl" position="sticky" top={6}>
+              <CardHeader pb={2}>
+                <HStack>
+                  <Flex w="36px" h="36px" bg="yellow.500" borderRadius="lg" align="center" justify="center">
+                    <Icon as={FiDollarSign} color="white" />
+                  </Flex>
+                  <Heading size="md">Resumen de Costos</Heading>
+                </HStack>
+              </CardHeader>
+              <CardBody>
+                <VStack spacing={4} align="stretch">
+                {/* Costo Insumos */}
+                  <Box p={4} bg="gray.50" borderRadius="lg" borderWidth="1px" borderColor="gray.200">
+                    <Flex justify="space-between" align="center">
+                      <HStack>
+                        <Icon as={FiPackage} color="gray.600" />
+                        <Text fontSize="sm" color="gray.600" fontWeight="medium">Costo Insumos</Text>
+                      </HStack>
+                      <Text fontWeight="bold">{formatCurrency(costos.costoInsumos)}</Text>
+                    </Flex>
+                  </Box>
 
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Mano de Obra:</span>
-                  <span className="font-medium">S/ {parseFloat(formData.costo_mano_obra || 0).toFixed(2)}</span>
-                </div>
+                {/* Mano de Obra */}
+                  <Box p={4} bg="gray.50" borderRadius="lg" borderWidth="1px" borderColor="gray.200">
+                    <Flex justify="space-between" align="center">
+                      <HStack>
+                        <Icon as={FiClock} color="gray.600" />
+                        <Text fontSize="sm" color="gray.600" fontWeight="medium">Mano de Obra</Text>
+                      </HStack>
+                      <Text fontWeight="bold">{formatCurrency(formData.costo_mano_obra)}</Text>
+                    </Flex>
+                  </Box>
 
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Costos Indirectos:</span>
-                  <span className="font-medium">S/ {parseFloat(formData.costo_indirecto || 0).toFixed(2)}</span>
-                </div>
+                {/* Costos Indirectos */}
+                  <Box p={4} bg="gray.50" borderRadius="lg" borderWidth="1px" borderColor="gray.200">
+                    <Flex justify="space-between" align="center">
+                      <HStack>
+                        <Icon as={FiDollarSign} color="gray.600" />
+                        <Text fontSize="sm" color="gray.600" fontWeight="medium">Costos Indirectos</Text>
+                      </HStack>
+                      <Text fontWeight="bold">{formatCurrency(formData.costo_indirecto)}</Text>
+                    </Flex>
+                  </Box>
 
-                <div className="border-t pt-3">
-                  <div className="flex justify-between text-base font-semibold">
-                    <span>Costo Total:</span>
-                    <span className="text-blue-600">S/ {costos.costoTotal.toFixed(2)}</span>
-                  </div>
-                </div>
+                  <Divider />
 
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                  <div className="text-xs text-gray-600 mb-1">Costo Unitario</div>
-                  <div className="text-2xl font-bold text-blue-600">
-                    S/ {costos.costoUnitario.toFixed(2)}
-                  </div>
-                  <div className="text-xs text-gray-500 mt-1">
+                {/* Costo Total */}
+                  <Box p={5} bg="blue.500" borderRadius="xl">
+                    <Flex justify="space-between" align="center">
+                      <HStack>
+                        <Icon as={FiDollarSign} color="white" />
+                        <Text color="white" fontWeight="bold">Costo Total</Text>
+                      </HStack>
+                      <Text fontSize="2xl" fontWeight="black" color="white">
+                        {formatCurrency(costos.costoTotal)}
+                      </Text>
+                    </Flex>
+                  </Box>
+
+                {/* Costo por Unidad */}
+                  <Box p={5} bgGradient="linear(to-br, yellow.400, yellow.500)" borderRadius="xl">
+                    <HStack mb={2}>
+                      <Flex w="28px" h="28px" bg="whiteAlpha.300" borderRadius="lg" align="center" justify="center">
+                        <Icon as={FiDollarSign} color="white" boxSize={4} />
+                      </Flex>
+                      <Text fontSize="sm" color="white" fontWeight="bold">Costo por Unidad</Text>
+                    </HStack>
+                    <Text fontSize="2xl" fontWeight="black" color="white" mb={1}>
+                      {formatCurrency(costos.costoUnitario)}
+                    </Text>
+                    <Text fontSize="xs" color="whiteAlpha.900">
                     Por {formData.cantidad_producida} unidad(es)
-                  </div>
-                </div>
+                    </Text>
+                  </Box>
 
-                <div className="pt-3 space-y-2">
-                  <button
+                {/* Botones */}
+                  <VStack spacing={3} pt={4}>
+                    <Button
                     type="submit"
-                    disabled={loading}
-                    className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {loading ? 'Guardando...' : (isEditing ? 'Actualizar Receta' : 'Crear Receta')}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => navigate('/produccion/recetas')}
-                    className="w-full bg-gray-200 hover:bg-gray-300 text-gray-700 py-3 rounded-lg font-medium"
+                      colorScheme="green"
+                      size="lg"
+                      w="full"
+                      isLoading={saveMutation.isLoading}
+                    >
+                        {isEditing ? 'Actualizar Receta' : 'Crear Receta'}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      w="full"
+                    onClick={() => navigate('/app/produccion/recetas')}
                   >
                     Cancelar
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+                    </Button>
+                  </VStack>
+                </VStack>
+              </CardBody>
+            </Card>
+          </Box>
+        </SimpleGrid>
       </form>
-    </div>
+    </Box>
   );
 };
 

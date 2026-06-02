@@ -1,41 +1,160 @@
 import React, { useState } from 'react';
 import {
-  Box,
-  VStack,
-  Icon,
-  Text,
-  Flex,
-  useColorModeValue,
-  Collapse,
-  IconButton,
-  Tooltip,
-  Avatar,
-  HStack,
-  Divider,
-  useBreakpointValue,
-  Drawer,
-  DrawerBody,
-  DrawerHeader,
-  DrawerOverlay,
-  DrawerContent,
-  DrawerCloseButton,
+  Box, VStack, Icon, Text, Flex, Badge,
+  useColorModeValue, Collapse, IconButton,
+  Tooltip, Avatar, HStack, Divider,
+  useBreakpointValue, Drawer, DrawerBody,
+  DrawerOverlay, DrawerContent, DrawerCloseButton,
   useDisclosure,
 } from '@chakra-ui/react';
 import { NavLink } from 'react-router-dom';
-import { ChevronDownIcon, ChevronUpIcon, ChevronLeftIcon, ChevronRightIcon, HamburgerIcon } from '@chakra-ui/icons';
+import {
+  ChevronDownIcon, ChevronUpIcon,
+  ChevronLeftIcon, ChevronRightIcon, HamburgerIcon,
+} from '@chakra-ui/icons';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
+import {
+  FaChartBar, FaShoppingCart, FaBox, FaUsers, FaIndustry,
+  FaFileInvoice, FaMoneyBillWave, FaRobot, FaBrain, FaCog,
+  FaChartLine, FaFileUpload, FaTruck, FaTools,
+} from 'react-icons/fa';
 
-// Componente Motion con Chakra UI
-const MotionBox = motion(Box);
+const MotionBox  = motion(Box);
 const MotionFlex = motion(Flex);
 const MotionText = motion(Text);
 
-const MenuItem = ({ icon, children, to, subItems, isOpen, onToggle, isCollapsed }) => {
-  const activeBg = useColorModeValue('blue.50', 'blue.900');
-  const activeColor = useColorModeValue('blue.600', 'blue.200');
-  const hoverBg = useColorModeValue('gray.100', 'gray.700');
-  const textColor = useColorModeValue('gray.700', 'gray.200');
+// ─── Menu structure ───────────────────────────────────────────────────────────
+// Section 'avanzado' and 'inteligencia' start collapsed.
+// 'beta' items get a Badge.
+
+const MENU_SECTIONS = [
+  {
+    id: 'core',
+    label: 'CORE',
+    collapsible: false,
+    items: [
+      { name: 'Dashboard',    icon: FaChartBar,    path: '/app/dashboard' },
+      { name: 'Ventas',       icon: FaShoppingCart, path: '/app/ventas' },
+      {
+        name: 'Compras', icon: FaBox,
+        subItems: [
+          { name: 'Facturas de Compra', path: '/app/compras' },
+          { name: 'Nueva Compra',       path: '/app/compras/nueva' },
+          { name: 'Órdenes de Compra',  path: '/app/compras/ordenes' },
+        ],
+      },
+      {
+        name: 'Finanzas', icon: FaChartLine,
+        subItems: [
+          { name: 'Dashboard Financiero', path: '/app/finanzas' },
+          { name: 'Gastos Operativos',    path: '/app/finanzas/gastos', badge: 'Nuevo' },
+        ],
+      },
+      {
+        name: 'Inventario', icon: FaBox,
+        subItems: [
+          { name: 'Resumen',            path: '/app/inventario/resumen-separado' },
+          { name: 'General',            path: '/app/inventario' },
+          { name: 'Materias Primas',    path: '/app/inventario/materias-primas' },
+          { name: 'Prod. Terminados',   path: '/app/inventario/productos-terminados' },
+          { name: 'Kardex',             path: '/app/inventario/kardex' },
+          { name: 'Carga Masiva',       path: '/app/inventario/carga-masiva' },
+        ],
+      },
+      { name: 'Clientes',    icon: FaUsers, path: '/app/clientes' },
+      { name: 'Proveedores', icon: FaUsers, path: '/app/proveedores' },
+      { name: 'Guías de Remisión', icon: FaTruck, path: '/app/guias' },
+      { name: 'Órdenes de Servicio', icon: FaTools, path: '/app/servicios', badge: 'Nuevo' },
+      { name: 'Importar Excel', icon: FaFileUpload, path: '/app/importador', badge: 'Nuevo' },
+    ],
+  },
+  {
+    id: 'avanzado',
+    label: 'AVANZADO',
+    collapsible: true,
+    items: [
+      { name: 'Cotizaciones', icon: FaFileInvoice, path: '/app/cotizaciones' },
+      {
+        name: 'Cuentas', icon: FaMoneyBillWave,
+        subItems: [
+          { name: 'Por Cobrar', path: '/app/cuentas/por-cobrar' },
+          { name: 'Por Pagar',  path: '/app/cuentas/por-pagar' },
+        ],
+      },
+      {
+        name: 'Producción', icon: FaIndustry,
+        subItems: [
+          { name: 'Dashboard',   path: '/app/produccion/dashboard' },
+          { name: 'Recetas BOM', path: '/app/produccion/recetas' },
+          { name: 'Órdenes',     path: '/app/produccion/ordenes' },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'inteligencia',
+    label: 'INTELIGENCIA',
+    collapsible: true,
+    badge: 'Beta',
+    items: [
+      { name: 'Asistente Virtual', icon: FaRobot, path: '/app/ai-assistant' },
+      { name: 'Machine Learning',  icon: FaBrain, path: '/app/ml-dashboard' },
+    ],
+  },
+];
+
+// ─── All items flattened (for mobile drawer section check) ────────────────────
+const ALL_ITEMS = MENU_SECTIONS.flatMap(s => s.items);
+
+// ─── SectionLabel ─────────────────────────────────────────────────────────────
+const SectionLabel = ({ label, badge, isCollapsed, isExpanded, onToggle, collapsible }) => {
+  const labelColor = useColorModeValue('neutral.400', 'neutral.500');
+  if (isCollapsed) return <Divider my={2} />;
+  return (
+    <Flex
+      align="center"
+      justify="space-between"
+      px={5}
+      pt={4}
+      pb={1}
+      cursor={collapsible ? 'pointer' : 'default'}
+      onClick={collapsible ? onToggle : undefined}
+      role={collapsible ? 'button' : undefined}
+    >
+      <HStack spacing={2}>
+        <Text
+          fontSize="10px"
+          fontWeight="semibold"
+          letterSpacing="wider"
+          color={labelColor}
+          textTransform="uppercase"
+        >
+          {label}
+        </Text>
+        {badge && (
+          <Badge fontSize="8px" colorScheme="purple" variant="subtle" borderRadius="sm">
+            {badge}
+          </Badge>
+        )}
+      </HStack>
+      {collapsible && (
+        <Icon
+          as={isExpanded ? ChevronUpIcon : ChevronDownIcon}
+          color={labelColor}
+          boxSize="12px"
+        />
+      )}
+    </Flex>
+  );
+};
+
+// ─── NavItem ──────────────────────────────────────────────────────────────────
+const NavItem = ({ icon, children, to, subItems, isOpen, onToggle, isCollapsed, badge }) => {
+  const activeBg    = useColorModeValue('primary.50',  'blue.900');
+  const activeColor = useColorModeValue('primary.600', 'blue.200');
+  const hoverBg     = useColorModeValue('neutral.100', 'gray.700');
+  const textColor   = useColorModeValue('neutral.700', 'neutral.200');
 
   if (subItems) {
     return (
@@ -43,75 +162,65 @@ const MenuItem = ({ icon, children, to, subItems, isOpen, onToggle, isCollapsed 
         <Tooltip label={isCollapsed ? children : ''} placement="right" hasArrow>
           <MotionFlex
             align="center"
-            p={isCollapsed ? "3" : "4"}
-            mx={isCollapsed ? "2" : "4"}
-            borderRadius="lg"
-            role="group"
+            px={isCollapsed ? 3 : 4}
+            py={2}
+            mx={isCollapsed ? 2 : 3}
+            borderRadius="md"
             cursor="pointer"
             onClick={onToggle}
             color={textColor}
-            justify={isCollapsed ? "center" : "flex-start"}
-            whileHover={{ scale: 1.02, x: 5 }}
+            justify={isCollapsed ? 'center' : 'flex-start'}
+            whileHover={{ x: 2 }}
             whileTap={{ scale: 0.98 }}
-            transition={{ duration: 0.2 }}
-            _hover={{
-              bg: hoverBg,
-              color: activeColor,
-            }}
+            _hover={{ bg: hoverBg, color: activeColor }}
           >
-            <Icon
-              mr={isCollapsed ? "0" : "4"}
-              fontSize="20"
-              as={icon}
-            />
+            <Icon mr={isCollapsed ? 0 : 3} fontSize="16px" as={icon} />
             <AnimatePresence>
               {!isCollapsed && (
                 <MotionText
                   flex="1"
-                  initial={{ opacity: 0, width: 0 }}
-                  animate={{ opacity: 1, width: "auto" }}
-                  exit={{ opacity: 0, width: 0 }}
-                  transition={{ duration: 0.2 }}
+                  fontSize="sm"
+                  fontWeight="medium"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.15 }}
                 >
                   {children}
                 </MotionText>
               )}
             </AnimatePresence>
             {!isCollapsed && (
-              <Icon
-                as={isOpen ? ChevronUpIcon : ChevronDownIcon}
-                transition="all .25s ease-in-out"
-              />
+              <Icon as={isOpen ? ChevronUpIcon : ChevronDownIcon} boxSize="14px" opacity={0.6} />
             )}
           </MotionFlex>
         </Tooltip>
+
         {!isCollapsed && (
           <Collapse in={isOpen}>
-            <VStack pl={8} mt={1} spacing={1}>
-              {subItems.map((item, index) => (
-                <NavLink
-                  key={index}
-                  to={item.path}
-                  style={{ textDecoration: 'none', width: '100%' }}
-                >
+            <VStack pl={9} pr={3} mt={0.5} spacing={0.5} align="stretch">
+              {subItems.map((item, i) => (
+                <NavLink key={i} to={item.path} style={{ textDecoration: 'none' }}>
                   {({ isActive }) => (
-                    <MotionFlex
+                    <Flex
                       align="center"
-                      p="3"
-                      mx="4"
-                      borderRadius="lg"
-                      cursor="pointer"
+                      px={3}
+                      py={1.5}
+                      borderRadius="md"
                       bg={isActive ? activeBg : 'transparent'}
-                      color={isActive ? activeColor : textColor}
-                      whileHover={{ scale: 1.02, x: 5 }}
-                      whileTap={{ scale: 0.98 }}
-                      _hover={{
-                        bg: hoverBg,
-                        color: activeColor,
-                      }}
+                      color={isActive ? activeColor : useColorModeValue('neutral.600', 'neutral.400')}
+                      _hover={{ bg: hoverBg, color: activeColor }}
+                      cursor="pointer"
+                      fontSize="sm"
+                      justify="space-between"
                     >
                       <Text fontSize="sm">{item.name}</Text>
-                    </MotionFlex>
+                      {item.badge && (
+                        <Badge fontSize="8px" colorScheme="blue" variant="subtle" borderRadius="sm" ml={1}>
+                          {item.badge}
+                        </Badge>
+                      )}
+                    </Flex>
                   )}
                 </NavLink>
               ))}
@@ -123,44 +232,44 @@ const MenuItem = ({ icon, children, to, subItems, isOpen, onToggle, isCollapsed 
   }
 
   return (
-    <NavLink
-      to={to}
-      style={{ textDecoration: 'none', width: '100%' }}
-    >
+    <NavLink to={to} style={{ textDecoration: 'none', width: '100%' }}>
       {({ isActive }) => (
         <Tooltip label={isCollapsed ? children : ''} placement="right" hasArrow>
           <MotionFlex
             align="center"
-            p={isCollapsed ? "3" : "4"}
-            mx={isCollapsed ? "2" : "4"}
-            borderRadius="lg"
+            px={isCollapsed ? 3 : 4}
+            py={2}
+            mx={isCollapsed ? 2 : 3}
+            borderRadius="md"
             cursor="pointer"
             bg={isActive ? activeBg : 'transparent'}
             color={isActive ? activeColor : textColor}
-            justify={isCollapsed ? "center" : "flex-start"}
-            whileHover={{ scale: 1.02, x: 5 }}
+            justify={isCollapsed ? 'center' : 'flex-start'}
+            whileHover={{ x: 2 }}
             whileTap={{ scale: 0.98 }}
-            transition={{ duration: 0.2 }}
-            _hover={{
-              bg: hoverBg,
-              color: activeColor,
-            }}
+            _hover={{ bg: hoverBg, color: activeColor }}
           >
-            <Icon
-              mr={isCollapsed ? "0" : "4"}
-              fontSize="20"
-              as={icon}
-            />
+            <Icon mr={isCollapsed ? 0 : 3} fontSize="16px" as={icon} />
             <AnimatePresence>
               {!isCollapsed && (
-                <MotionText
-                  initial={{ opacity: 0, width: 0 }}
-                  animate={{ opacity: 1, width: "auto" }}
-                  exit={{ opacity: 0, width: 0 }}
-                  transition={{ duration: 0.2 }}
-                >
-                  {children}
-                </MotionText>
+                <>
+                  <MotionText
+                    fontSize="sm"
+                    fontWeight={isActive ? 'semibold' : 'medium'}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.15 }}
+                    flex="1"
+                  >
+                    {children}
+                  </MotionText>
+                  {badge && (
+                    <Badge fontSize="8px" colorScheme="blue" variant="subtle" borderRadius="sm" ml={1}>
+                      {badge}
+                    </Badge>
+                  )}
+                </>
               )}
             </AnimatePresence>
           </MotionFlex>
@@ -170,21 +279,29 @@ const MenuItem = ({ icon, children, to, subItems, isOpen, onToggle, isCollapsed 
   );
 };
 
-const SidebarContent = ({ menuItems, isCollapsed, onToggleCollapse }) => {
+// ─── SidebarContent ───────────────────────────────────────────────────────────
+const SidebarContent = ({ isCollapsed, onToggleCollapse }) => {
   const [openMenus, setOpenMenus] = useState({});
+  // Avanzado/Inteligencia start collapsed
+  const [expandedSections, setExpandedSections] = useState({
+    core: true,
+    avanzado: false,
+    inteligencia: false,
+  });
   const { user } = useAuth();
-  
-  const bgColor = useColorModeValue('white', 'gray.800');
-  const borderColor = useColorModeValue('gray.200', 'gray.700');
-  const brandColor = useColorModeValue('blue.600', 'blue.300');
 
-  const toggleMenu = (menuName) => {
+  const bgColor     = useColorModeValue('white', 'gray.800');
+  const borderColor = useColorModeValue('neutral.200', 'gray.700');
+  const brandColor  = useColorModeValue('primary.500', 'primary.400');
+
+  const toggleMenu = (name) => {
     if (!isCollapsed) {
-      setOpenMenus(prev => ({
-        ...prev,
-        [menuName]: !prev[menuName]
-      }));
+      setOpenMenus(p => ({ ...p, [name]: !p[name] }));
     }
+  };
+
+  const toggleSection = (id) => {
+    setExpandedSections(p => ({ ...p, [id]: !p[id] }));
   };
 
   return (
@@ -195,163 +312,155 @@ const SidebarContent = ({ menuItems, isCollapsed, onToggleCollapse }) => {
       h="100vh"
       position="sticky"
       top="0"
-      animate={{
-        width: isCollapsed ? "80px" : "280px",
-      }}
-      transition={{
-        duration: 0.3,
-        ease: "easeInOut"
-      }}
+      animate={{ width: isCollapsed ? '64px' : '240px' }}
+      transition={{ duration: 0.25, ease: 'easeInOut' }}
       display="flex"
       flexDirection="column"
+      overflow="hidden"
     >
-      {/* Header con Logo */}
+      {/* Logo */}
       <Flex
         align="center"
-        justify={isCollapsed ? "center" : "space-between"}
-        p={4}
+        justify={isCollapsed ? 'center' : 'flex-start'}
+        px={isCollapsed ? 2 : 4}
+        py={3}
         borderBottom="1px"
         borderColor={borderColor}
+        minH="56px"
       >
+        <Box
+          w="32px" h="32px"
+          bg={brandColor}
+          borderRadius="lg"
+          display="flex" alignItems="center" justifyContent="center"
+          color="white" fontWeight="bold" fontSize="md"
+          flexShrink={0}
+        >
+          E
+        </Box>
         <AnimatePresence>
           {!isCollapsed && (
-            <MotionFlex
-              align="center"
-              gap={3}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+            <MotionText
+              ml={3}
+              fontSize="md"
+              fontWeight="bold"
+              color={brandColor}
+              initial={{ opacity: 0, width: 0 }}
+              animate={{ opacity: 1, width: 'auto' }}
+              exit={{ opacity: 0, width: 0 }}
+              transition={{ duration: 0.2 }}
+              whiteSpace="nowrap"
+              overflow="hidden"
             >
-              <Box
-                w="40px"
-                h="40px"
-                bg={brandColor}
-                borderRadius="lg"
-                display="flex"
-                alignItems="center"
-                justifyContent="center"
-                color="white"
-                fontWeight="bold"
-                fontSize="xl"
-              >
-                E
-              </Box>
-              <Text fontSize="xl" fontWeight="bold" color={brandColor}>
-                ERP System
-              </Text>
-            </MotionFlex>
+              ERP System
+            </MotionText>
           )}
         </AnimatePresence>
-        
-        {isCollapsed && (
-          <Box
-            w="40px"
-            h="40px"
-            bg={brandColor}
-            borderRadius="lg"
-            display="flex"
-            alignItems="center"
-            justifyContent="center"
-            color="white"
-            fontWeight="bold"
-            fontSize="xl"
-          >
-            E
-          </Box>
-        )}
       </Flex>
 
-      {/* Menu Items */}
+      {/* Navigation */}
       <VStack
-        spacing={1}
+        spacing={0}
         align="stretch"
         flex="1"
         overflowY="auto"
         overflowX="hidden"
-        py={4}
+        py={2}
         css={{
-          '&::-webkit-scrollbar': {
-            width: '4px',
-          },
-          '&::-webkit-scrollbar-track': {
-            width: '6px',
-          },
-          '&::-webkit-scrollbar-thumb': {
-            background: borderColor,
-            borderRadius: '24px',
-          },
+          '&::-webkit-scrollbar': { width: '3px' },
+          '&::-webkit-scrollbar-thumb': { background: borderColor, borderRadius: '24px' },
         }}
       >
-        {menuItems.map((item, index) => (
-          <MenuItem
-            key={index}
-            icon={item.icon}
-            to={item.path}
-            subItems={item.subItems}
-            isOpen={openMenus[item.name]}
-            onToggle={() => toggleMenu(item.name)}
-            isCollapsed={isCollapsed}
-          >
-            {item.name}
-          </MenuItem>
-        ))}
+        {MENU_SECTIONS.map((section) => {
+          const isExpanded = expandedSections[section.id];
+          const showItems = !section.collapsible || isExpanded;
+
+          return (
+            <Box key={section.id}>
+              <SectionLabel
+                label={section.label}
+                badge={section.badge}
+                isCollapsed={isCollapsed}
+                isExpanded={isExpanded}
+                onToggle={() => toggleSection(section.id)}
+                collapsible={section.collapsible}
+              />
+              <Collapse in={!isCollapsed ? showItems : true}>
+                <VStack spacing={0.5} align="stretch" mb={1}>
+                  {section.items.map((item) => (
+                    <NavItem
+                      key={item.name}
+                      icon={item.icon}
+                      to={item.path}
+                      subItems={item.subItems}
+                      isOpen={openMenus[item.name]}
+                      onToggle={() => toggleMenu(item.name)}
+                      isCollapsed={isCollapsed}
+                      badge={item.badge}
+                    >
+                      {item.name}
+                    </NavItem>
+                  ))}
+                </VStack>
+              </Collapse>
+            </Box>
+          );
+        })}
+
+        {/* Configuración at bottom */}
+        <Box mt="auto" pt={2}>
+          <Divider mb={2} />
+          <NavItem icon={FaCog} to="/app/configuracion" isCollapsed={isCollapsed}>
+            Configuración
+          </NavItem>
+        </Box>
       </VStack>
 
-      <Divider />
-
-      {/* User Profile */}
-      <MotionBox
-        p={4}
-        borderTop="1px"
-        borderColor={borderColor}
-      >
-        <Tooltip label={isCollapsed ? user?.username || 'Usuario' : ''} placement="right" hasArrow>
+      {/* User */}
+      <Box px={isCollapsed ? 2 : 3} py={3} borderTop="1px" borderColor={borderColor}>
+        <Tooltip label={isCollapsed ? (user?.username || 'Usuario') : ''} placement="right" hasArrow>
           <Flex
             align="center"
-            gap={3}
+            gap={isCollapsed ? 0 : 3}
             p={2}
-            borderRadius="lg"
+            borderRadius="md"
             cursor="pointer"
-            justify={isCollapsed ? "center" : "flex-start"}
-            _hover={{
-              bg: useColorModeValue('gray.100', 'gray.700'),
-            }}
+            justify={isCollapsed ? 'center' : 'flex-start'}
+            _hover={{ bg: useColorModeValue('neutral.100', 'gray.700') }}
           >
-            <Avatar
-              size="sm"
-              name={user?.username || 'Usuario'}
-              bg={brandColor}
-            />
+            <Avatar size="xs" name={user?.username || 'U'} bg={brandColor} flexShrink={0} />
             <AnimatePresence>
               {!isCollapsed && (
                 <MotionBox
-                  initial={{ opacity: 0, width: 0 }}
-                  animate={{ opacity: 1, width: "auto" }}
-                  exit={{ opacity: 0, width: 0 }}
-                  transition={{ duration: 0.2 }}
+                  initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                  transition={{ duration: 0.15 }}
+                  overflow="hidden"
                 >
-                  <Text fontSize="sm" fontWeight="medium">
+                  <Text fontSize="xs" fontWeight="medium" noOfLines={1}>
                     {user?.username || 'Usuario'}
                   </Text>
-                  <Text fontSize="xs" color="gray.500">
-                    {user?.email || 'usuario@erp.com'}
+                  <Text fontSize="10px" color="neutral.400" noOfLines={1}>
+                    {user?.email || ''}
                   </Text>
                 </MotionBox>
               )}
             </AnimatePresence>
           </Flex>
         </Tooltip>
-      </MotionBox>
+      </Box>
 
-      {/* Toggle Button */}
-      <Box p={2} borderTop="1px" borderColor={borderColor}>
-        <Tooltip label={isCollapsed ? "Expandir" : "Colapsar"} placement="right" hasArrow>
+      {/* Collapse toggle */}
+      <Box px={2} pb={2} borderTop="1px" borderColor={borderColor}>
+        <Tooltip label={isCollapsed ? 'Expandir' : 'Colapsar'} placement="right" hasArrow>
           <IconButton
             icon={isCollapsed ? <ChevronRightIcon /> : <ChevronLeftIcon />}
             onClick={onToggleCollapse}
             variant="ghost"
+            size="sm"
             w="full"
             aria-label="Toggle sidebar"
+            color="neutral.400"
+            _hover={{ color: 'primary.500' }}
           />
         </Tooltip>
       </Box>
@@ -359,16 +468,12 @@ const SidebarContent = ({ menuItems, isCollapsed, onToggleCollapse }) => {
   );
 };
 
-const AnimatedSidebar = ({ menuItems }) => {
+// ─── AnimatedSidebar (export) ─────────────────────────────────────────────────
+const AnimatedSidebar = () => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const { isOpen, onOpen, onClose } = useDisclosure();
   const isMobile = useBreakpointValue({ base: true, md: false });
 
-  const toggleCollapse = () => {
-    setIsCollapsed(!isCollapsed);
-  };
-
-  // En móvil, mostrar un drawer
   if (isMobile) {
     return (
       <>
@@ -376,40 +481,30 @@ const AnimatedSidebar = ({ menuItems }) => {
           icon={<HamburgerIcon />}
           onClick={onOpen}
           position="fixed"
-          top={4}
-          left={4}
+          top={4} left={4}
           zIndex={1000}
-          colorScheme="blue"
+          colorScheme="primary"
+          size="sm"
           aria-label="Open menu"
+          boxShadow="md"
         />
-        <Drawer isOpen={isOpen} placement="left" onClose={onClose}>
+        <Drawer isOpen={isOpen} placement="left" onClose={onClose} size="xs">
           <DrawerOverlay />
-          <DrawerContent>
+          <DrawerContent maxW="240px">
             <DrawerCloseButton />
-            <DrawerHeader>Menú</DrawerHeader>
-            <DrawerBody p={0}>
-              <SidebarContent
-                menuItems={menuItems}
-                isCollapsed={false}
-                onToggleCollapse={() => {}}
-              />
-            </DrawerBody>
+            <SidebarContent isCollapsed={false} onToggleCollapse={() => {}} />
           </DrawerContent>
         </Drawer>
       </>
     );
   }
 
-  // En desktop, mostrar sidebar normal
   return (
     <SidebarContent
-      menuItems={menuItems}
       isCollapsed={isCollapsed}
-      onToggleCollapse={toggleCollapse}
+      onToggleCollapse={() => setIsCollapsed(c => !c)}
     />
   );
 };
 
 export default AnimatedSidebar;
-
-

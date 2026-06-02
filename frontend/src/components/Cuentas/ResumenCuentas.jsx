@@ -1,18 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Box,
-  Grid,
-  Card,
-  CardContent,
-  Typography,
-  Button,
-  Stack,
-  LinearProgress,
-  Divider
-} from '@mui/material';
-import AccountBalanceIcon from '@mui/icons-material/AccountBalance';
-import PaidIcon from '@mui/icons-material/Paid';
-import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
+  Box, SimpleGrid, Heading, Text, Button, HStack, VStack,
+  Divider, Progress, Stat, StatLabel, StatNumber, StatHelpText,
+} from '@chakra-ui/react';
+import { FaBalanceScale, FaMoneyBillWave, FaFileInvoice } from 'react-icons/fa';
 import { useNavigate } from 'react-router-dom';
 
 const ResumenCuentas = () => {
@@ -51,153 +42,94 @@ const ResumenCuentas = () => {
   };
 
   if (loading) {
-    return (
-      <Box sx={{ width: '100%', mt: 2 }}>
-        <LinearProgress />
-      </Box>
-    );
+    return <Progress size="sm" isIndeterminate mt={4} />;
   }
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Typography variant="h4" gutterBottom>
-        Resumen de Cuentas
-      </Typography>
+    <Box p={6}>
+      <Heading size="lg" mb={6}>Resumen de Cuentas</Heading>
 
-      <Grid container spacing={3}>
-        {/* Tarjetas de resumen */}
-        <Grid item xs={12} md={4}>
-          <Card>
-            <CardContent>
-              <Stack direction="row" spacing={2} alignItems="center">
-                <AccountBalanceIcon color="primary" sx={{ fontSize: 40 }} />
-                <Box>
-                  <Typography variant="h6" gutterBottom>
-                    Balance General
-                  </Typography>
-                  <Typography variant="h4" color="primary">
-                    {formatCurrency(resumen.total_por_cobrar - resumen.total_por_pagar)}
-                  </Typography>
-                </Box>
-              </Stack>
-            </CardContent>
-          </Card>
-        </Grid>
+      <SimpleGrid columns={{ base: 1, md: 3 }} spacing={6} mb={6}>
+        <Box bg="white" p={5} borderRadius="lg" shadow="sm" border="1px" borderColor="gray.200">
+          <HStack spacing={4}>
+            <Box as={FaBalanceScale} size="40px" color="blue.500" />
+            <Stat>
+              <StatLabel>Balance General</StatLabel>
+              <StatNumber color="blue.600">
+                {formatCurrency(resumen.total_por_cobrar - resumen.total_por_pagar)}
+              </StatNumber>
+            </Stat>
+          </HStack>
+        </Box>
 
-        <Grid item xs={12} md={4}>
-          <Card>
-            <CardContent>
-              <Stack direction="row" spacing={2} alignItems="center">
-                <PaidIcon color="success" sx={{ fontSize: 40 }} />
-                <Box>
-                  <Typography variant="h6" gutterBottom>
-                    Por Cobrar
-                  </Typography>
-                  <Typography variant="h4" color="success.main">
-                    {formatCurrency(resumen.total_por_cobrar)}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    {resumen.ventas_pendientes} ventas pendientes
-                  </Typography>
-                </Box>
-              </Stack>
-            </CardContent>
-          </Card>
-        </Grid>
+        <Box bg="white" p={5} borderRadius="lg" shadow="sm" border="1px" borderColor="gray.200">
+          <HStack spacing={4}>
+            <Box as={FaMoneyBillWave} size="40px" color="green.500" />
+            <Stat>
+              <StatLabel>Por Cobrar</StatLabel>
+              <StatNumber color="green.500">
+                {formatCurrency(resumen.total_por_cobrar)}
+              </StatNumber>
+              <StatHelpText>{resumen.ventas_pendientes} ventas pendientes</StatHelpText>
+            </Stat>
+          </HStack>
+        </Box>
 
-        <Grid item xs={12} md={4}>
-          <Card>
-            <CardContent>
-              <Stack direction="row" spacing={2} alignItems="center">
-                <ReceiptLongIcon color="error" sx={{ fontSize: 40 }} />
-                <Box>
-                  <Typography variant="h6" gutterBottom>
-                    Por Pagar
-                  </Typography>
-                  <Typography variant="h4" color="error.main">
-                    {formatCurrency(resumen.total_por_pagar)}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    {resumen.compras_pendientes} compras pendientes
-                  </Typography>
-                </Box>
-              </Stack>
-            </CardContent>
-          </Card>
-        </Grid>
+        <Box bg="white" p={5} borderRadius="lg" shadow="sm" border="1px" borderColor="gray.200">
+          <HStack spacing={4}>
+            <Box as={FaFileInvoice} size="40px" color="red.500" />
+            <Stat>
+              <StatLabel>Por Pagar</StatLabel>
+              <StatNumber color="red.500">
+                {formatCurrency(resumen.total_por_pagar)}
+              </StatNumber>
+              <StatHelpText>{resumen.compras_pendientes} compras pendientes</StatHelpText>
+            </Stat>
+          </HStack>
+        </Box>
+      </SimpleGrid>
 
-        {/* Acciones rápidas */}
-        <Grid item xs={12}>
-          <Card>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
-                Acciones Rápidas
-              </Typography>
-              <Stack direction="row" spacing={2}>
-                <Button
-                  variant="contained"
-                  color="primary"
-                  onClick={() => navigate('/app/cuentas/por-cobrar')}
-                >
-                  Ver Cuentas por Cobrar
-                </Button>
-                <Button
-                  variant="contained"
-                  color="secondary"
-                  onClick={() => navigate('/app/cuentas/por-pagar')}
-                >
-                  Ver Cuentas por Pagar
-                </Button>
-              </Stack>
-            </CardContent>
-          </Card>
-        </Grid>
+      <Box bg="white" p={5} borderRadius="lg" shadow="sm" border="1px" borderColor="gray.200" mb={6}>
+        <Heading size="sm" mb={4}>Acciones Rápidas</Heading>
+        <HStack spacing={4}>
+          <Button colorScheme="blue" onClick={() => navigate('/app/cuentas/por-cobrar')}>
+            Ver Cuentas por Cobrar
+          </Button>
+          <Button colorScheme="purple" onClick={() => navigate('/app/cuentas/por-pagar')}>
+            Ver Cuentas por Pagar
+          </Button>
+        </HStack>
+      </Box>
 
-        {/* Próximos vencimientos */}
-        <Grid item xs={12} md={6}>
-          <Card>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
-                Próximos Vencimientos por Cobrar
-              </Typography>
-              <Divider sx={{ my: 2 }} />
-              {resumen.proximos_vencimientos_cobrar.map((vencimiento) => (
-                <Box key={vencimiento.id} sx={{ mb: 2 }}>
-                  <Typography variant="subtitle1">
-                    {vencimiento.cliente} - {formatCurrency(vencimiento.monto)}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Vence el: {new Date(vencimiento.fecha_vencimiento).toLocaleDateString()}
-                  </Typography>
-                </Box>
-              ))}
-            </CardContent>
-          </Card>
-        </Grid>
+      <SimpleGrid columns={{ base: 1, md: 2 }} spacing={6}>
+        <Box bg="white" p={5} borderRadius="lg" shadow="sm" border="1px" borderColor="gray.200">
+          <Heading size="sm" mb={3}>Próximos Vencimientos por Cobrar</Heading>
+          <Divider mb={3} />
+          {resumen.proximos_vencimientos_cobrar.map((v) => (
+            <Box key={v.id} mb={3}>
+              <Text fontWeight="medium">{v.cliente} - {formatCurrency(v.monto)}</Text>
+              <Text fontSize="sm" color="gray.500">
+                Vence el: {new Date(v.fecha_vencimiento).toLocaleDateString()}
+              </Text>
+            </Box>
+          ))}
+        </Box>
 
-        <Grid item xs={12} md={6}>
-          <Card>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
-                Próximos Vencimientos por Pagar
-              </Typography>
-              <Divider sx={{ my: 2 }} />
-              {resumen.proximos_vencimientos_pagar.map((vencimiento) => (
-                <Box key={vencimiento.id} sx={{ mb: 2 }}>
-                  <Typography variant="subtitle1">
-                    {vencimiento.proveedor} - {formatCurrency(vencimiento.monto)}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Vence el: {new Date(vencimiento.fecha_vencimiento).toLocaleDateString()}
-                  </Typography>
-                </Box>
-              ))}
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+        <Box bg="white" p={5} borderRadius="lg" shadow="sm" border="1px" borderColor="gray.200">
+          <Heading size="sm" mb={3}>Próximos Vencimientos por Pagar</Heading>
+          <Divider mb={3} />
+          {resumen.proximos_vencimientos_pagar.map((v) => (
+            <Box key={v.id} mb={3}>
+              <Text fontWeight="medium">{v.proveedor} - {formatCurrency(v.monto)}</Text>
+              <Text fontSize="sm" color="gray.500">
+                Vence el: {new Date(v.fecha_vencimiento).toLocaleDateString()}
+              </Text>
+            </Box>
+          ))}
+        </Box>
+      </SimpleGrid>
     </Box>
   );
 };
 
-export default ResumenCuentas; 
+export default ResumenCuentas;

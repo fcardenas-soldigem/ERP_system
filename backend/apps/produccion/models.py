@@ -728,3 +728,69 @@ class ProductionCost(models.Model):
             'costo_unitario': float(self.costo_unitario),
             'cantidad_producida': float(self.cantidad_producida)
         }
+
+
+class HistorialOrdenProduccion(models.Model):
+    """
+    Registra el historial de actividades/eventos de una orden de producción.
+    """
+    TIPO_EVENTO_CHOICES = [
+        ('creacion', 'Orden creada'),
+        ('inicio', 'Producción iniciada'),
+        ('actualizacion_progreso', 'Progreso actualizado'),
+        ('pausa', 'Producción pausada'),
+        ('reanudacion', 'Producción reanudada'),
+        ('consumo', 'Consumo registrado'),
+        ('finalizacion', 'Orden finalizada'),
+        ('cancelacion', 'Orden cancelada'),
+        ('edicion', 'Orden editada'),
+        ('otro', 'Otro evento'),
+    ]
+    
+    orden = models.ForeignKey(
+        OrdenProduccion,
+        on_delete=models.CASCADE,
+        related_name='historial'
+    )
+    tipo_evento = models.CharField(
+        max_length=30,
+        choices=TIPO_EVENTO_CHOICES,
+        default='otro'
+    )
+    descripcion = models.CharField(
+        max_length=500,
+        verbose_name='Descripción'
+    )
+    datos_adicionales = models.JSONField(
+        blank=True,
+        null=True,
+        verbose_name='Datos adicionales',
+        help_text='JSON con información extra del evento'
+    )
+    usuario = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='eventos_produccion'
+    )
+    fecha = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        verbose_name = 'Historial de Orden'
+        verbose_name_plural = 'Historiales de Órdenes'
+        ordering = ['-fecha']
+    
+    def __str__(self):
+        return f"{self.orden.numero} - {self.get_tipo_evento_display()} - {self.fecha}"
+    
+    @classmethod
+    def registrar_evento(cls, orden, tipo_evento, descripcion, usuario=None, datos_adicionales=None):
+        """Método helper para registrar eventos fácilmente"""
+        return cls.objects.create(
+            orden=orden,
+            tipo_evento=tipo_evento,
+            descripcion=descripcion,
+            usuario=usuario,
+            datos_adicionales=datos_adicionales
+        )

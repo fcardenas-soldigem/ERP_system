@@ -328,6 +328,7 @@ const Inventario = () => {
                     <Tr>
                         <Th>SKU</Th>
                         <Th>NOMBRE</Th>
+                        <Th>UNIDAD</Th>
                         <Th>DESCRIPCIÓN</Th>
                         <Th isNumeric>STOCK TOTAL</Th>
                         <Th isNumeric>STOCK MÍNIMO</Th>
@@ -347,10 +348,27 @@ const Inventario = () => {
                             stock_minimo: stockMinimo
                         });
 
+                        const unidadLabels = {
+                            'unidad': 'Unidad',
+                            'kilo': 'Kg',
+                            'gramo': 'g',
+                            'litro': 'L',
+                            'metro': 'm',
+                            'decena': 'Decena',
+                            'docena': 'Docena',
+                            'centenar': 'Centenar',
+                            'millar': 'Millar'
+                        };
+
                         return (
                         <Tr key={producto.id}>
                             <Td>{producto.sku}</Td>
                             <Td>{producto.nombre}</Td>
+                            <Td>
+                                <Badge colorScheme="blue" fontSize="xs">
+                                    {unidadLabels[producto.unidad_medida] || producto.unidad_medida || 'Unidad'}
+                                </Badge>
+                            </Td>
                             <Td>{producto.descripcion}</Td>
                                 <Td isNumeric>{Math.floor(stockTotal)}</Td>
                                 <Td isNumeric>{Math.floor(stockMinimo)}</Td>

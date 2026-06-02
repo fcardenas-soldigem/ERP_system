@@ -44,13 +44,11 @@ class VentasAssistant:
             return thread.id, conversation.id
             
         except Exception as e:
-            print(f"❌ Error creando thread de ventas: {str(e)}")
             raise
 
     def send_message(self, thread_id, user_message, user):
         """Enviar mensaje y procesar respuesta con tools"""
         try:
-            print(f"🗣️ Usuario {user.username} envía: {user_message}")
             
             # Buscar conversación
             conversation = Conversation.objects.get(thread_id=thread_id, usuario=user)
@@ -76,7 +74,6 @@ class VentasAssistant:
                 tools=VENTAS_TOOLS
             )
             
-            print(f"🔄 Run creado: {run.id}")
             
             # Procesar run
             final_response = self._wait_for_completion(run, thread_id, user)
@@ -91,7 +88,6 @@ class VentasAssistant:
             return final_response
             
         except Exception as e:
-            print(f"❌ Error en VentasAssistant: {str(e)}")
             return f"❌ Error: {str(e)}"
 
     def _wait_for_completion(self, run, thread_id, user):
@@ -104,7 +100,6 @@ class VentasAssistant:
                 run_id=run.id
             )
             
-            print(f"🔄 Run status: {run_status.status}")
             
             if run_status.status == 'completed':
                 # Obtener mensajes
@@ -112,7 +107,6 @@ class VentasAssistant:
                 return messages.data[0].content[0].text.value
                 
             elif run_status.status == 'requires_action':
-                print("🛠️ El asistente requiere ejecutar funciones...")
                 self._handle_tool_calls(run_status, thread_id, run.id, user)
                 
             elif run_status.status == 'failed':
@@ -125,7 +119,6 @@ class VentasAssistant:
         tool_calls = run_status.required_action.submit_tool_outputs.tool_calls
         tool_outputs = []
         
-        print(f"🔧 Procesando {len(tool_calls)} function calls...")
         
         executor = VentasExecutor(user)
         
@@ -133,8 +126,6 @@ class VentasAssistant:
             function_name = tool_call.function.name
             arguments = json.loads(tool_call.function.arguments)
             
-            print(f"📞 Llamando función: {function_name}")
-            print(f"📋 Argumentos: {json.dumps(arguments, indent=2, ensure_ascii=False)}")
             
             try:
                 if function_name == 'crear_venta':
@@ -146,7 +137,6 @@ class VentasAssistant:
                 else:
                     result = {'success': False, 'error': f'Función {function_name} no reconocida'}
                 
-                print(f"✅ Resultado: {result}")
                 
                 tool_outputs.append({
                     "tool_call_id": tool_call.id,
@@ -154,7 +144,6 @@ class VentasAssistant:
                 })
                 
             except Exception as e:
-                print(f"❌ Error ejecutando {function_name}: {str(e)}")
                 tool_outputs.append({
                     "tool_call_id": tool_call.id,
                     "output": json.dumps({'success': False, 'error': str(e)}, ensure_ascii=False)
@@ -183,5 +172,4 @@ class VentasAssistant:
                 return self.create_thread(user)
                 
         except Exception as e:
-            print(f"❌ Error obteniendo conversación: {str(e)}")
             return self.create_thread(user) 

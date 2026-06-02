@@ -1,17 +1,20 @@
 import React, { useEffect, useState } from 'react';
-import api from '../../api.jsx';
-import { Table, Button, Modal, Form, Row, Col } from 'react-bootstrap';
+import {
+  Box, Heading, Button, Table, Thead, Tbody, Tr, Th, Td, TableContainer,
+  Modal, ModalOverlay, ModalContent, ModalHeader, ModalCloseButton, ModalBody,
+  FormControl, FormLabel, Input, Select, SimpleGrid, VStack, HStack, IconButton,
+  useDisclosure,
+} from '@chakra-ui/react';
+import { DeleteIcon, AddIcon } from '@chakra-ui/icons';
+import { api } from '../../lib/api';
 
 const OrdenesVenta = () => {
   const [ordenesVenta, setOrdenesVenta] = useState([]);
   const [clientes, setClientes] = useState([]);
   const [productos, setProductos] = useState([]);
-  const [showModal, setShowModal] = useState(false);
+  const { isOpen, onOpen, onClose } = useDisclosure();
   const [nuevaOrden, setNuevaOrden] = useState({
-    cliente: '',
-    fecha: '',
-    estado: 'pendiente',
-    productos: []
+    cliente: '', fecha: '', estado: 'pendiente', productos: []
   });
 
   useEffect(() => {
@@ -24,43 +27,31 @@ const OrdenesVenta = () => {
     try {
       const response = await api.get('ventas/ordenes/');
       setOrdenesVenta(response.data);
-    } catch (error) {
-      console.error('Error al obtener órdenes de venta:', error);
-    }
+    } catch (error) { console.error('Error al obtener órdenes de venta:', error); }
   };
 
   const fetchClientes = async () => {
     try {
       const response = await api.get('ventas/clientes/');
       setClientes(response.data);
-    } catch (error) {
-      console.error('Error al obtener clientes:', error);
-    }
+    } catch (error) { console.error('Error al obtener clientes:', error); }
   };
 
   const fetchProductos = async () => {
     try {
       const response = await api.get('inventario/productos/');
       setProductos(response.data);
-    } catch (error) {
-      console.error('Error al obtener productos:', error);
-    }
+    } catch (error) { console.error('Error al obtener productos:', error); }
   };
 
   const handleInputChange = (e) => {
-    setNuevaOrden({
-      ...nuevaOrden,
-      [e.target.name]: e.target.value
-    });
+    setNuevaOrden({ ...nuevaOrden, [e.target.name]: e.target.value });
   };
 
   const handleProductoChange = (index, field, value) => {
     const nuevosProductos = [...nuevaOrden.productos];
     nuevosProductos[index][field] = value;
-    setNuevaOrden({
-      ...nuevaOrden,
-      productos: nuevosProductos
-    });
+    setNuevaOrden({ ...nuevaOrden, productos: nuevosProductos });
   };
 
   const agregarProducto = () => {
@@ -73,10 +64,7 @@ const OrdenesVenta = () => {
   const eliminarProducto = (index) => {
     const nuevosProductos = [...nuevaOrden.productos];
     nuevosProductos.splice(index, 1);
-    setNuevaOrden({
-      ...nuevaOrden,
-      productos: nuevosProductos
-    });
+    setNuevaOrden({ ...nuevaOrden, productos: nuevosProductos });
   };
 
   const handleSubmit = async (e) => {
@@ -84,173 +72,107 @@ const OrdenesVenta = () => {
     try {
       await api.post('ventas/ordenes/', nuevaOrden);
       fetchOrdenesVenta();
-      setShowModal(false);
+      onClose();
       setNuevaOrden({ cliente: '', fecha: '', estado: 'pendiente', productos: [] });
-    } catch (error) {
-      console.error('Error al crear orden de venta:', error);
-    }
+    } catch (error) { console.error('Error al crear orden de venta:', error); }
   };
 
   const handleDelete = async (id) => {
     try {
       await api.delete(`ventas/ordenes/${id}/`);
       fetchOrdenesVenta();
-    } catch (error) {
-      console.error('Error al eliminar orden de venta:', error);
-    }
+    } catch (error) { console.error('Error al eliminar orden de venta:', error); }
   };
 
   return (
-    <div className="mt-5">
-      <h4>Órdenes de Venta</h4>
-      <Button variant="primary" onClick={() => setShowModal(true)}>
-        Crear Orden de Venta
-      </Button>
+    <Box mt={5}>
+      <HStack justify="space-between" mb={4}>
+        <Heading size="md">Órdenes de Venta</Heading>
+        <Button colorScheme="blue" leftIcon={<AddIcon />} onClick={onOpen}>
+          Crear Orden de Venta
+        </Button>
+      </HStack>
 
-      <Table striped bordered hover className="mt-3">
-        <thead>
-          <tr>
-            <th>ID Orden</th>
-            <th>Cliente</th>
-            <th>Fecha</th>
-            <th>Estado</th>
-            <th>Acciones</th>
-          </tr>
-        </thead>
-        <tbody>
-          {ordenesVenta.map((orden) => (
-            <tr key={orden.id}>
-              <td>{orden.id}</td>
-              <td>{orden.cliente.nombre}</td>
-              <td>{orden.fecha}</td>
-              <td>{orden.estado}</td>
-              <td>
-                <Button variant="danger" size="sm" onClick={() => handleDelete(orden.id)}>
-                  Eliminar
-                </Button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </Table>
+      <TableContainer bg="white" borderRadius="lg" shadow="sm">
+        <Table variant="simple">
+          <Thead><Tr>
+            <Th>ID Orden</Th><Th>Cliente</Th><Th>Fecha</Th><Th>Estado</Th><Th>Acciones</Th>
+          </Tr></Thead>
+          <Tbody>
+            {ordenesVenta.map((orden) => (
+              <Tr key={orden.id}>
+                <Td>{orden.id}</Td>
+                <Td>{orden.cliente.nombre}</Td>
+                <Td>{orden.fecha}</Td>
+                <Td>{orden.estado}</Td>
+                <Td>
+                  <Button size="sm" colorScheme="red" onClick={() => handleDelete(orden.id)}>
+                    Eliminar
+                  </Button>
+                </Td>
+              </Tr>
+            ))}
+          </Tbody>
+        </Table>
+      </TableContainer>
 
-      {/* Modal para Crear Orden de Venta */}
-      <Modal show={showModal} onHide={() => setShowModal(false)} size="lg">
-        <Modal.Header closeButton>
-          <Modal.Title>Crear Orden de Venta</Modal.Title>
-        </Modal.Header>
-        <Modal.Body>
-          <Form onSubmit={handleSubmit}>
-            <Row>
-              <Col md={6}>
-                <Form.Group className="mb-3">
-                  <Form.Label>Cliente</Form.Label>
-                  <Form.Control
-                    as="select"
-                    name="cliente"
-                    value={nuevaOrden.cliente}
-                    onChange={handleInputChange}
-                    required
-                  >
-                    <option value="">Selecciona un cliente</option>
-                    {clientes.map((cliente) => (
-                      <option key={cliente.id} value={cliente.id}>{cliente.nombre}</option>
-                    ))}
-                  </Form.Control>
-                </Form.Group>
-              </Col>
-              <Col md={3}>
-                <Form.Group className="mb-3">
-                  <Form.Label>Fecha</Form.Label>
-                  <Form.Control
-                    type="date"
-                    name="fecha"
-                    value={nuevaOrden.fecha}
-                    onChange={handleInputChange}
-                    required
-                  />
-                </Form.Group>
-              </Col>
-              <Col md={3}>
-                <Form.Group className="mb-3">
-                  <Form.Label>Estado</Form.Label>
-                  <Form.Control
-                    as="select"
-                    name="estado"
-                    value={nuevaOrden.estado}
-                    onChange={handleInputChange}
-                    required
-                  >
+      <Modal isOpen={isOpen} onClose={onClose} size="xl">
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>Crear Orden de Venta</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody pb={6}>
+            <form onSubmit={handleSubmit}>
+              <SimpleGrid columns={{ base: 1, md: 3 }} spacing={4} mb={4}>
+                <FormControl isRequired>
+                  <FormLabel>Cliente</FormLabel>
+                  <Select name="cliente" value={nuevaOrden.cliente} onChange={handleInputChange} placeholder="Selecciona un cliente">
+                    {clientes.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                  </Select>
+                </FormControl>
+                <FormControl isRequired>
+                  <FormLabel>Fecha</FormLabel>
+                  <Input type="date" name="fecha" value={nuevaOrden.fecha} onChange={handleInputChange} />
+                </FormControl>
+                <FormControl isRequired>
+                  <FormLabel>Estado</FormLabel>
+                  <Select name="estado" value={nuevaOrden.estado} onChange={handleInputChange}>
                     <option value="pendiente">Pendiente</option>
                     <option value="completada">Completada</option>
                     <option value="cancelada">Cancelada</option>
-                  </Form.Control>
-                </Form.Group>
-              </Col>
-            </Row>
+                  </Select>
+                </FormControl>
+              </SimpleGrid>
 
-            <h5>Productos</h5>
-            {nuevaOrden.productos.map((prod, index) => (
-              <Row key={index} className="mb-3 border p-3">
-                <Col md={5}>
-                  <Form.Group>
-                    <Form.Label>Producto</Form.Label>
-                    <Form.Control
-                      as="select"
-                      value={prod.producto}
-                      onChange={(e) => handleProductoChange(index, 'producto', e.target.value)}
-                      required
-                    >
-                      <option value="">Selecciona un producto</option>
-                      {productos.map((producto) => (
-                        <option key={producto.id} value={producto.id}>{producto.nombre}</option>
-                      ))}
-                    </Form.Control>
-                  </Form.Group>
-                </Col>
-                <Col md={3}>
-                  <Form.Group>
-                    <Form.Label>Cantidad</Form.Label>
-                    <Form.Control
-                      type="number"
-                      min="1"
-                      value={prod.cantidad}
-                      onChange={(e) => handleProductoChange(index, 'cantidad', e.target.value)}
-                      required
-                    />
-                  </Form.Group>
-                </Col>
-                <Col md={3}>
-                  <Form.Group>
-                    <Form.Label>Precio</Form.Label>
-                    <Form.Control
-                      type="number"
-                      min="0"
-                      value={prod.precio}
-                      onChange={(e) => handleProductoChange(index, 'precio', e.target.value)}
-                      required
-                    />
-                  </Form.Group>
-                </Col>
-                <Col md={1} className="d-flex align-items-end">
-                  <Button variant="danger" onClick={() => eliminarProducto(index)}>
-                    X
-                  </Button>
-                </Col>
-              </Row>
-            ))}
-            <Button variant="secondary" onClick={agregarProducto}>
-              Agregar Producto
-            </Button>
-            <br /><br />
-            <Button variant="primary" type="submit">
-              Crear Orden
-            </Button>
-          </Form>
-        </Modal.Body>
+              <Heading size="sm" mb={3}>Productos</Heading>
+              <VStack spacing={3} align="stretch">
+                {nuevaOrden.productos.map((prod, index) => (
+                  <HStack key={index} p={3} border="1px" borderColor="gray.200" borderRadius="md">
+                    <FormControl flex={5}>
+                      <Select value={prod.producto} onChange={(e) => handleProductoChange(index, 'producto', e.target.value)} placeholder="Selecciona un producto">
+                        {productos.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                      </Select>
+                    </FormControl>
+                    <FormControl flex={2}>
+                      <Input type="number" min="1" value={prod.cantidad} onChange={(e) => handleProductoChange(index, 'cantidad', e.target.value)} />
+                    </FormControl>
+                    <FormControl flex={2}>
+                      <Input type="number" min="0" value={prod.precio} onChange={(e) => handleProductoChange(index, 'precio', e.target.value)} />
+                    </FormControl>
+                    <IconButton icon={<DeleteIcon />} colorScheme="red" variant="ghost" onClick={() => eliminarProducto(index)} />
+                  </HStack>
+                ))}
+              </VStack>
+              <HStack mt={4} spacing={4}>
+                <Button variant="outline" onClick={agregarProducto}>Agregar Producto</Button>
+                <Button colorScheme="blue" type="submit">Crear Orden</Button>
+              </HStack>
+            </form>
+          </ModalBody>
+        </ModalContent>
       </Modal>
-    </div>
+    </Box>
   );
 };
 
-export default OrdenesVenta; 
+export default OrdenesVenta;

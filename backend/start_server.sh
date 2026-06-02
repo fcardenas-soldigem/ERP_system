@@ -1,19 +1,12 @@
 #!/bin/bash
 
-# Script para iniciar el servidor Django con las configuraciones correctas
-
-echo "🚀 Iniciando servidor Django..."
+echo "Iniciando servidor Django..."
 
 # Activar entorno virtual
 source venv/bin/activate
 
-# Configurar variables de entorno
-export DB_USER=erp_user
-export DB_PASSWORD=""
-export DB_NAME=ERP_system
-export DB_HOST=localhost
-export DB_PORT=5432
+# Limpiar variables de DB para que .env tenga prioridad (via load_dotenv override=True)
+unset DB_USER DB_PASSWORD DB_NAME DB_HOST DB_PORT
 
 # Iniciar servidor
 python manage.py runserver 0.0.0.0:8080
-

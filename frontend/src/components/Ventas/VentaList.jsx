@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { TableSkeleton } from '../common/SkeletonLoaders';
 import {
   Box,
   Table,
@@ -254,7 +255,7 @@ const VentaList = () => {
   };
 
   if (isLoading) {
-    return <Box p={4} display="flex" justifyContent="center"><Spinner size="xl" /></Box>;
+    return <Box p={4}><TableSkeleton rows={8} columns={7} /></Box>;
   }
 
   if (error) {
@@ -310,32 +311,41 @@ const VentaList = () => {
               <Td>{getEstadoBadge(venta.estado)}</Td>
               <Td>{formatCurrency(venta.total, venta.moneda)}</Td>
               <Td>
-                <Menu>
-                  <MenuButton
-                    as={IconButton}
-                    icon={<ChevronDownIcon />}
-                    variant="outline"
-                    size="sm"
-                  />
-                  <MenuList>
-                    <MenuItem icon={<ViewIcon />} onClick={() => navigate(`/app/ventas/${venta.id}`)}>
-                      Ver Detalles
-                    </MenuItem>
-                    <MenuItem icon={<EditIcon />} onClick={() => navigate(`/app/ventas/${venta.id}/editar`)}>
-                      Editar
-                    </MenuItem>
-                    {venta.tipo_venta !== 'contado' && venta.estado !== 'pagado' && (
-                      <MenuItem icon={<AddIcon />} onClick={() => handleRegistrarPago(venta)}>
-                        Registrar Pago
+                <HStack spacing={1}>
+                  {/* Quick action: inline payment button for pending credit sales */}
+                  {venta.estado === 'pendiente' && venta.tipo_venta !== 'contado' && (
+                    <Button
+                      size="xs"
+                      colorScheme="green"
+                      variant="solid"
+                      onClick={() => navigate(`/app/ventas/${venta.id}/pagos/nuevo`)}
+                    >
+                      Pagar
+                    </Button>
+                  )}
+                  <Menu>
+                    <MenuButton
+                      as={IconButton}
+                      icon={<ChevronDownIcon />}
+                      variant="ghost"
+                      size="sm"
+                      aria-label="Acciones"
+                    />
+                    <MenuList>
+                      <MenuItem icon={<ViewIcon />} onClick={() => navigate(`/app/ventas/${venta.id}`)}>
+                        Ver detalles
                       </MenuItem>
-                    )}
-                    {venta.estado !== 'anulado' && (
-                      <MenuItem icon={<DeleteIcon />} onClick={() => handleEliminarVenta(venta.id)}>
-                        Anular
+                      <MenuItem icon={<EditIcon />} onClick={() => navigate(`/app/ventas/${venta.id}/editar`)}>
+                        Editar estado
                       </MenuItem>
-                    )}
-                  </MenuList>
-                </Menu>
+                      {venta.estado !== 'anulado' && venta.estado !== 'pagado' && (
+                        <MenuItem icon={<DeleteIcon />} color="red.500" onClick={() => handleEliminarVenta(venta.id)}>
+                          Anular
+                        </MenuItem>
+                      )}
+                    </MenuList>
+                  </Menu>
+                </HStack>
               </Td>
             </Tr>
           ))}

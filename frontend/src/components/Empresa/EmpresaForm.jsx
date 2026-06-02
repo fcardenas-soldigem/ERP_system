@@ -14,25 +14,26 @@ import {
   FormErrorMessage,
   VStack,
   HStack,
+  useToast,
 } from '@chakra-ui/react';
 import { useForm } from 'react-hook-form';
 import { useMutation } from '@tanstack/react-query';
-import api from '../../api';
-import { toast } from 'react-toastify';
+import api from '../../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 
 const EmpresaForm = ({ isOpen, onClose }) => {
   const { user, setUser, checkAuth } = useAuth();
   const navigate = useNavigate();
+  const toast = useToast();
   
   const { register, handleSubmit, formState: { errors } } = useForm({
     defaultValues: {
-      razon_social: 'Soldigem',
-      ruc: '20123456789',
-      email: 'contacto@soldigem.com',
-      direccion: 'Av. Principal 123',
-      telefono: '987654321'
+      razon_social: '',
+      ruc: '',
+      email: '',
+      direccion: '',
+      telefono: ''
     }
   });
 
@@ -66,14 +67,14 @@ const EmpresaForm = ({ isOpen, onClose }) => {
     },
     onSuccess: async (data) => {
       console.log('6. Mutación completada exitosamente:', data);
-      toast.success('Empresa creada exitosamente');
+      toast({ title: 'Empresa creada exitosamente', status: 'success', duration: 3000, isClosable: true });
       await checkAuth();
       onClose();
       navigate('/app/dashboard');
     },
     onError: (error) => {
       const errorMessage = error.response?.data?.detail || 'Error al crear la empresa';
-      toast.error(errorMessage);
+      toast({ title: errorMessage, status: 'error', duration: 5000, isClosable: true });
     }
   });
 

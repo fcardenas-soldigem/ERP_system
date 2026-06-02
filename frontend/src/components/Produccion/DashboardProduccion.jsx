@@ -1,29 +1,71 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import produccionService from '../../services/produccion.service';
+import { useQuery } from '@tanstack/react-query';
+import { produccionService } from '../../services/produccion.service';
+import {
+  Box,
+  Heading,
+  Text,
+  Flex,
+  SimpleGrid,
+  Card,
+  CardHeader,
+  CardBody,
+  Button,
+  Stat,
+  StatLabel,
+  StatNumber,
+  StatHelpText,
+  HStack,
+  VStack,
+  Badge,
+  Progress,
+  Alert,
+  AlertIcon,
+  AlertTitle,
+  AlertDescription,
+  Icon,
+  Input,
+  InputGroup,
+  InputLeftElement,
+  Select,
+  useColorModeValue,
+  Spinner,
+  Divider
+} from '@chakra-ui/react';
+import { keyframes } from '@emotion/react';
+import { 
+  RepeatIcon, 
+  AddIcon, 
+  ChevronRightIcon, 
+  SearchIcon,
+  WarningIcon 
+} from '@chakra-ui/icons';
+import { FiPackage, FiBox, FiClipboard, FiTool, FiClock, FiCheckCircle } from 'react-icons/fi';
+import QuickCreateOrden from './QuickCreateOrden';
+
+// Animación de pulso
+const pulseAnimation = keyframes`
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+`;
 
 const DashboardProduccion = () => {
   const navigate = useNavigate();
-  const [metricas, setMetricas] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [periodo, setPeriodo] = useState('7'); // Solo vista semanal por defecto
+  const cardBg = useColorModeValue('white', 'gray.800');
+  const borderColor = useColorModeValue('gray.200', 'gray.600');
+  
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [filtroEstado, setFiltroEstado] = useState('');
+  const [busqueda, setBusqueda] = useState('');
 
-  useEffect(() => {
-    cargarMetricas();
-    // Recargar cada 30 segundos
-    const interval = setInterval(cargarMetricas, 30000);
-    return () => clearInterval(interval);
-  }, [periodo]);
-
-  const cargarMetricas = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-
+  // Query para métricas del dashboard
+  const { data: metricas, isLoading, refetch, isFetching } = useQuery({
+    queryKey: ['dashboard-produccion'],
+    queryFn: async () => {
       const fechaHasta = new Date();
       const fechaDesde = new Date();
-      fechaDesde.setDate(fechaDesde.getDate() - parseInt(periodo));
+      fechaDesde.setDate(fechaDesde.getDate() - 7);
 
       const params = {
         fecha_desde: fechaDesde.toISOString().split('T')[0],
@@ -31,368 +73,542 @@ const DashboardProduccion = () => {
       };
 
       const response = await produccionService.getDashboard(params);
-      setMetricas(response.data);
-    } catch (err) {
-      console.error('Error al cargar métricas:', err);
-      setError('Error al cargar las métricas');
-    } finally {
-      setLoading(false);
+      return response.data || response;
+    },
+    refetchInterval: 30000,
+    refetchOnWindowFocus: true
+  });
+
+  // Query para órdenes recientes
+  const { data: ordenesRecientes = [] } = useQuery({
+    queryKey: ['ordenes-recientes', filtroEstado],
+    queryFn: async () => {
+      const params = filtroEstado ? { estado: filtroEstado } : {};
+      const response = await produccionService.getOrdenes(params);
+      const data = response.data;
+      return Array.isArray(data) ? data : data?.results || [];
+    }
+  });
+
+  // Filtrar órdenes
+  const ordenesFiltradas = ordenesRecientes.filter(orden => {
+    if (!busqueda) return true;
+    const search = busqueda.toLowerCase();
+    return (
+      orden.numero?.toString().includes(search) ||
+      orden.producto_nombre?.toLowerCase().includes(search)
+    );
+  }).slice(0, 10);
+
+  // Calcular métricas
+  const metricasOperativas = metricas?.metricas_operativas || {};
+  const ordenesHoy = metricas?.ordenes_hoy || [];
+  const ordenesActivas = metricasOperativas.ordenes_activas || {};
+  const produccion = metricasOperativas.produccion || {};
+  const mermas = metricasOperativas.mermas || {};
+  const cumplimiento = metricasOperativas.cumplimiento || {};
+  const costos = metricasOperativas.costos || {};
+
+  // Alertas
+  const alertas = [];
+  if (ordenesActivas.retrasadas > 0) {
+    alertas.push({
+      tipo: 'error',
+      titulo: `${ordenesActivas.retrasadas} órdenes retrasadas`
+    });
+  }
+  if (mermas.porcentaje_merma > 10) {
+    alertas.push({
+      tipo: 'warning',
+      titulo: `Merma elevada: ${mermas.porcentaje_merma?.toFixed(1)}%`
+    });
+  }
+
+  const formatCurrency = (amount) => {
+    return new Intl.NumberFormat('es-PE', {
+      style: 'currency',
+      currency: 'PEN',
+      minimumFractionDigits: 2
+    }).format(amount || 0);
+  };
+
+  const getStatusColor = (estado) => {
+    switch (estado) {
+      case 'pendiente': return 'yellow';
+      case 'en_proceso': return 'blue';
+      case 'finalizada': return 'green';
+      case 'cancelada': return 'red';
+      default: return 'gray';
     }
   };
 
-  if (loading && !metricas) {
+  if (isLoading) {
     return (
-      <div className="container mx-auto p-6">
-        <div className="flex justify-center items-center h-64">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-        </div>
-      </div>
+      <Box p={6}>
+        <Flex justify="center" align="center" h="300px" direction="column">
+          <Spinner size="xl" color="blue.500" thickness="4px" mb={4} />
+          <Text color="gray.600">Cargando dashboard de producción...</Text>
+        </Flex>
+      </Box>
     );
-  }
-
-  if (error || !metricas) {
-    return (
-      <div className="container mx-auto p-6">
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
-          {error || 'Error al cargar métricas'}
-        </div>
-      </div>
-    );
-  }
-
-  const { metricas_operativas, ordenes_hoy } = metricas;
-
-  // Calcular alertas
-  const alertas = [];
-  
-  // Alerta de órdenes retrasadas
-  if (metricas_operativas.ordenes_activas.retrasadas > 0) {
-    alertas.push({
-      tipo: 'error',
-      icono: '⚠️',
-      mensaje: `${metricas_operativas.ordenes_activas.retrasadas} órdenes retrasadas`,
-      accion: () => navigate('/produccion/ordenes?retrasadas=true')
-    });
-  }
-
-  // Alerta de merma elevada (>10%)
-  if (metricas_operativas.mermas.porcentaje_merma > 10) {
-    alertas.push({
-      tipo: 'warning',
-      icono: '📉',
-      mensaje: `Merma elevada: ${metricas_operativas.mermas.porcentaje_merma.toFixed(1)}%`,
-      accion: null
-    });
-  }
-
-  // Alerta de cumplimiento bajo (<80%)
-  if (metricas_operativas.cumplimiento.porcentaje_cumplimiento < 80 && metricas_operativas.cumplimiento.ordenes_finalizadas > 0) {
-    alertas.push({
-      tipo: 'warning',
-      icono: '📊',
-      mensaje: `Cumplimiento bajo: ${metricas_operativas.cumplimiento.porcentaje_cumplimiento.toFixed(0)}%`,
-      accion: null
-    });
   }
 
   return (
-    <div className="container mx-auto p-6 max-w-7xl">
-      {/* Header Simplificado */}
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-800">Control de Producción</h1>
-          <p className="text-gray-600 mt-1">Vista en tiempo real de tu planta</p>
-        </div>
-        <div className="flex gap-2">
-          <button
-            onClick={() => navigate('/produccion/ordenes/nueva')}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium"
+    <Box p={6}>
+      {/* Header */}
+      <Flex justify="space-between" align="center" mb={6} flexWrap="wrap" gap={4}>
+        <Box>
+          <Heading size="lg" bgGradient="linear(to-r, purple.600, blue.600)" bgClip="text">
+            Dashboard de Producción
+          </Heading>
+          <Text color="gray.600" mt={1}>
+            Vista en tiempo real de tu planta de producción
+          </Text>
+        </Box>
+        <HStack spacing={3}>
+          <Button
+            leftIcon={<RepeatIcon />}
+            onClick={() => refetch()}
+            variant="outline"
+            colorScheme="blue"
+            isLoading={isFetching}
+            loadingText="Actualizando"
           >
-            + Nueva Orden
-          </button>
-        </div>
-      </div>
+            Actualizar
+          </Button>
+          <Button
+            leftIcon={<AddIcon />}
+            colorScheme="blue"
+            onClick={() => setShowCreateModal(true)}
+          >
+            Nueva Orden
+          </Button>
+        </HStack>
+      </Flex>
 
-      {/* ALERTAS PROMINENTES */}
+      {/* Alertas */}
       {alertas.length > 0 && (
-        <div className="mb-6 space-y-2">
-          {alertas.map((alerta, idx) => (
-            <div
-              key={idx}
-              className={`rounded-lg p-4 flex items-center justify-between cursor-pointer ${
-                alerta.tipo === 'error' ? 'bg-red-50 border-2 border-red-500' :
-                'bg-yellow-50 border-2 border-yellow-500'
-              }`}
-              onClick={alerta.accion}
-            >
-              <div className="flex items-center gap-3">
-                <span className="text-3xl">{alerta.icono}</span>
-                <span className={`text-lg font-semibold ${
-                  alerta.tipo === 'error' ? 'text-red-800' : 'text-yellow-800'
-                }`}>
-                  {alerta.mensaje}
-                </span>
-              </div>
-              {alerta.accion && (
-                <span className="text-sm text-gray-600">Clic para ver →</span>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* 6 KPIs PRINCIPALES - Vista Control de Planta */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-        {/* KPI 1: Producción Hoy */}
-        <div className="bg-gradient-to-br from-blue-500 to-blue-600 text-white rounded-xl shadow-lg p-6">
-          <div className="flex items-center justify-between mb-3">
-            <div className="text-sm font-medium opacity-90">PRODUCCIÓN HOY</div>
-            <svg className="w-8 h-8 opacity-80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-            </svg>
-          </div>
-          <div className="text-5xl font-bold mb-2">{ordenes_hoy.length}</div>
-          <div className="text-sm opacity-90">órdenes programadas</div>
-        </div>
-
-        {/* KPI 2: Órdenes Activas */}
-        <div className="bg-gradient-to-br from-purple-500 to-purple-600 text-white rounded-xl shadow-lg p-6">
-          <div className="flex items-center justify-between mb-3">
-            <div className="text-sm font-medium opacity-90">EN PROCESO</div>
-            <svg className="w-8 h-8 opacity-80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-            </svg>
-          </div>
-          <div className="text-5xl font-bold mb-2">
-            {metricas_operativas.ordenes_activas.en_proceso}
-          </div>
-          <div className="text-sm opacity-90">órdenes activas ahora</div>
-        </div>
-
-        {/* KPI 3: Cumplimiento */}
-        <div className="bg-gradient-to-br from-green-500 to-green-600 text-white rounded-xl shadow-lg p-6">
-          <div className="flex items-center justify-between mb-3">
-            <div className="text-sm font-medium opacity-90">CUMPLIMIENTO</div>
-            <svg className="w-8 h-8 opacity-80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </div>
-          <div className="text-5xl font-bold mb-2">
-            {metricas_operativas.cumplimiento.porcentaje_cumplimiento.toFixed(0)}%
-          </div>
-          <div className="text-sm opacity-90">órdenes a tiempo (7 días)</div>
-        </div>
-
-        {/* KPI 4: Pendientes */}
-        <div className="bg-gradient-to-br from-yellow-500 to-yellow-600 text-white rounded-xl shadow-lg p-6">
-          <div className="flex items-center justify-between mb-3">
-            <div className="text-sm font-medium opacity-90">PENDIENTES</div>
-            <svg className="w-8 h-8 opacity-80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </div>
-          <div className="text-5xl font-bold mb-2">
-            {metricas_operativas.ordenes_activas.pendientes}
-          </div>
-          <div className="text-sm opacity-90">por iniciar</div>
-        </div>
-
-        {/* KPI 5: Eficiencia */}
-        <div className="bg-gradient-to-br from-indigo-500 to-indigo-600 text-white rounded-xl shadow-lg p-6">
-          <div className="flex items-center justify-between mb-3">
-            <div className="text-sm font-medium opacity-90">EFICIENCIA</div>
-            <svg className="w-8 h-8 opacity-80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-            </svg>
-          </div>
-          <div className="text-5xl font-bold mb-2">
-            {metricas.metricas_eficiencia.eficiencia_produccion_promedio.toFixed(0)}%
-          </div>
-          <div className="text-sm opacity-90">promedio semanal</div>
-        </div>
-
-        {/* KPI 6: Merma */}
-        <div className={`bg-gradient-to-br ${
-          metricas_operativas.mermas.porcentaje_merma > 10 ? 'from-red-500 to-red-600' : 'from-teal-500 to-teal-600'
-        } text-white rounded-xl shadow-lg p-6`}>
-          <div className="flex items-center justify-between mb-3">
-            <div className="text-sm font-medium opacity-90">MERMA</div>
-            <svg className="w-8 h-8 opacity-80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </div>
-          <div className="text-5xl font-bold mb-2">
-            {metricas_operativas.mermas.porcentaje_merma.toFixed(1)}%
-          </div>
-          <div className="text-sm opacity-90">
-            S/ {metricas_operativas.mermas.costo_merma.toFixed(0)} en costos
-          </div>
-        </div>
-      </div>
-
-      {/* GRÁFICO SIMPLE: Producción Planificada vs Real */}
-      <div className="bg-white rounded-xl shadow-lg p-6 mb-8">
-        <h3 className="text-lg font-semibold text-gray-800 mb-4">Producción: Plan vs Real (Últimos 7 días)</h3>
-        
-        <div className="space-y-4">
-          <div>
-            <div className="flex justify-between text-sm mb-2">
-              <span className="text-gray-600">Planificado</span>
-              <span className="font-bold text-gray-900">
-                {metricas_operativas.produccion.total_planificado.toFixed(0)} unidades
-              </span>
-            </div>
-            <div className="w-full bg-gray-200 rounded-full h-8">
-              <div
-                className="bg-blue-400 h-8 rounded-full flex items-center justify-end pr-3 text-white text-sm font-medium"
-                style={{ width: '100%' }}
-              >
-                100%
-              </div>
-            </div>
-          </div>
-
-          <div>
-            <div className="flex justify-between text-sm mb-2">
-              <span className="text-gray-600">Producido</span>
-              <span className="font-bold text-blue-600">
-                {metricas_operativas.produccion.total_producido.toFixed(0)} unidades
-              </span>
-            </div>
-            <div className="w-full bg-gray-200 rounded-full h-8">
-              <div
-                className={`h-8 rounded-full flex items-center justify-end pr-3 text-white text-sm font-medium ${
-                  metricas_operativas.produccion.diferencia >= 0 ? 'bg-green-500' : 'bg-red-500'
-                }`}
-                style={{
-                  width: `${Math.min(
-                    (metricas_operativas.produccion.total_producido / 
-                     Math.max(metricas_operativas.produccion.total_planificado, 1)) * 100,
-                    100
-                  )}%`
-                }}
-              >
-                {((metricas_operativas.produccion.total_producido / 
-                   Math.max(metricas_operativas.produccion.total_planificado, 1)) * 100).toFixed(0)}%
-              </div>
-            </div>
-          </div>
-
-          <div className="pt-2 border-t">
-            <div className="flex justify-between items-center">
-              <span className="text-sm text-gray-600">Diferencia:</span>
-              <span className={`text-xl font-bold ${
-                metricas_operativas.produccion.diferencia >= 0 ? 'text-green-600' : 'text-red-600'
-              }`}>
-                {metricas_operativas.produccion.diferencia > 0 ? '+' : ''}
-                {metricas_operativas.produccion.diferencia.toFixed(0)} unidades
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Órdenes de Hoy - Simple */}
-      {ordenes_hoy.length > 0 && (
-        <div className="bg-white rounded-xl shadow-lg p-6">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-semibold text-gray-800">Órdenes Programadas Hoy</h3>
-            <Link to="/produccion/ordenes" className="text-blue-600 hover:text-blue-800 text-sm font-medium">
-              Ver todas →
-            </Link>
-          </div>
-          
-          <div className="space-y-3">
-            {ordenes_hoy.slice(0, 5).map((orden) => (
-              <div
-                key={orden.id}
-                onClick={() => navigate(`/produccion/ordenes/${orden.id}`)}
-                className="flex items-center justify-between p-4 bg-gray-50 hover:bg-gray-100 rounded-lg cursor-pointer transition-colors"
-              >
-                <div className="flex items-center gap-4 flex-1">
-                  <div className={`w-3 h-3 rounded-full ${
-                    orden.estado === 'pendiente' ? 'bg-yellow-500' :
-                    orden.estado === 'en_proceso' ? 'bg-blue-500 animate-pulse' :
-                    orden.estado === 'finalizada' ? 'bg-green-500' : 'bg-gray-500'
-                  }`}></div>
-                  
-                  <div className="flex-1">
-                    <div className="font-medium text-gray-900">OP-{orden.numero}</div>
-                    <div className="text-sm text-gray-500">{orden.receta__producto_terminado__nombre}</div>
-                  </div>
-
-                  <div className="text-right">
-                    <div className="text-sm font-medium text-gray-900">
-                      {orden.cantidad_producida || 0} / {orden.cantidad_planificada}
-                    </div>
-                    <div className="text-xs text-gray-500">
-                      {orden.estado === 'pendiente' ? 'Por iniciar' :
-                       orden.estado === 'en_proceso' ? 'En proceso' :
-                       orden.estado === 'finalizada' ? 'Finalizada' : 'Cancelada'}
-                    </div>
-                  </div>
-
-                  {orden.estado === 'en_proceso' && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        navigate(`/produccion/ordenes/${orden.id}/ejecutar`);
-                      }}
-                      className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
-                    >
-                      Continuar →
-                    </button>
-                  )}
-                  
-                  {orden.estado === 'pendiente' && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        navigate(`/produccion/ordenes/${orden.id}/ejecutar`);
-                      }}
-                      className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
-                    >
-                      Iniciar →
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {ordenes_hoy.length > 5 && (
-            <div className="mt-4 text-center">
-              <Link
-                to="/produccion/ordenes"
-                className="text-blue-600 hover:text-blue-800 text-sm font-medium"
-              >
-                Ver {ordenes_hoy.length - 5} órdenes más →
-              </Link>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Sin órdenes hoy */}
-      {ordenes_hoy.length === 0 && (
-        <div className="bg-white rounded-xl shadow-lg p-12 text-center">
-          <svg className="mx-auto h-16 w-16 text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-          </svg>
-          <h3 className="text-lg font-medium text-gray-900 mb-2">No hay órdenes para hoy</h3>
-          <p className="text-gray-600 mb-4">Comienza creando una nueva orden de producción</p>
-          <button
-            onClick={() => navigate('/produccion/ordenes/nueva')}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium inline-flex items-center gap-2"
+        <Alert 
+          status="warning" 
+          mb={6} 
+          borderRadius="xl"
+          animation={`${pulseAnimation} 3s ease-in-out infinite`}
+        >
+          <AlertIcon />
+          <Box flex="1">
+            <AlertTitle>Se requiere atención</AlertTitle>
+            <AlertDescription>
+              {alertas.map(a => a.titulo).join(' • ')}
+            </AlertDescription>
+          </Box>
+          <Button 
+            size="sm" 
+            colorScheme="orange"
+            onClick={() => navigate('/app/produccion/ordenes?retrasadas=true')}
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-            Nueva Orden de Producción
-          </button>
-        </div>
+            Ver Detalles
+          </Button>
+        </Alert>
       )}
-    </div>
+
+      {/* Cards Principales */}
+      <SimpleGrid columns={{ base: 1, lg: 2 }} spacing={6} mb={6}>
+        {/* Card En Proceso */}
+        <Card bg={cardBg} borderWidth="1px" borderColor={borderColor} shadow="md" borderRadius="xl" overflow="hidden">
+          <Box h="4px" bgGradient="linear(to-r, blue.400, blue.600)" />
+          <CardHeader pb={2}>
+            <Flex justify="space-between" align="center">
+              <HStack spacing={3}>
+                <Flex w="40px" h="40px" bg="blue.50" borderRadius="lg" align="center" justify="center">
+                  <Icon as={FiClock} boxSize={5} color="blue.500" />
+                </Flex>
+                <Heading size="md" color="gray.700">En Proceso</Heading>
+              </HStack>
+              <Button 
+                size="sm" 
+                rightIcon={<ChevronRightIcon />}
+                variant="ghost"
+                colorScheme="blue"
+                onClick={() => navigate('/app/produccion/ordenes?estado=en_proceso')}
+              >
+                Ver Todo
+              </Button>
+            </Flex>
+          </CardHeader>
+          <CardBody>
+            <SimpleGrid columns={2} spacing={4}>
+              <Stat>
+                <StatLabel>Órdenes Activas</StatLabel>
+                <StatNumber color="blue.600">{ordenesActivas.en_proceso || 0}</StatNumber>
+              </Stat>
+              <Stat>
+                <StatLabel>Unidades en Proceso</StatLabel>
+                <StatNumber color="blue.600">{produccion.total_planificado?.toFixed(0) || 0}</StatNumber>
+              </Stat>
+              <Stat>
+                <StatLabel>Progreso Promedio</StatLabel>
+                <StatNumber>{cumplimiento.porcentaje_cumplimiento?.toFixed(0) || 0}%</StatNumber>
+              </Stat>
+              <Stat>
+                <StatLabel>Retrasadas</StatLabel>
+                <StatNumber color={ordenesActivas.retrasadas > 0 ? 'red.500' : 'green.500'}>
+                  {ordenesActivas.retrasadas || 0}
+                </StatNumber>
+              </Stat>
+            </SimpleGrid>
+          </CardBody>
+        </Card>
+
+        {/* Card Completadas */}
+        <Card bg={cardBg} borderWidth="1px" borderColor={borderColor} shadow="md" borderRadius="xl" overflow="hidden">
+          <Box h="4px" bgGradient="linear(to-r, green.400, green.600)" />
+          <CardHeader pb={2}>
+            <Flex justify="space-between" align="center">
+              <HStack spacing={3}>
+                <Flex w="40px" h="40px" bg="green.50" borderRadius="lg" align="center" justify="center">
+                  <Icon as={FiCheckCircle} boxSize={5} color="green.500" />
+                </Flex>
+                <Heading size="md" color="gray.700">Completadas (7 días)</Heading>
+              </HStack>
+              <Button 
+                size="sm" 
+                rightIcon={<ChevronRightIcon />}
+                variant="ghost"
+                colorScheme="green"
+                onClick={() => navigate('/app/produccion/ordenes?estado=finalizada')}
+              >
+                Ver Todo
+              </Button>
+            </Flex>
+          </CardHeader>
+          <CardBody>
+            <SimpleGrid columns={2} spacing={4}>
+              <Stat>
+                <StatLabel>Total Órdenes</StatLabel>
+                <StatNumber color="green.600">{cumplimiento.ordenes_finalizadas || 0}</StatNumber>
+              </Stat>
+              <Stat>
+                <StatLabel>Unidades Producidas</StatLabel>
+                <StatNumber color="green.600">{produccion.total_producido?.toFixed(0) || 0}</StatNumber>
+              </Stat>
+              <Stat>
+                <StatLabel>A Tiempo</StatLabel>
+                <StatNumber color="green.600">{cumplimiento.ordenes_a_tiempo || 0}</StatNumber>
+              </Stat>
+              <Stat>
+                <StatLabel>Cumplimiento</StatLabel>
+                <StatNumber>{cumplimiento.porcentaje_cumplimiento?.toFixed(0) || 0}%</StatNumber>
+              </Stat>
+            </SimpleGrid>
+          </CardBody>
+        </Card>
+      </SimpleGrid>
+
+      {/* Resumen Consolidado */}
+      <Card bg={cardBg} borderWidth="1px" borderColor={borderColor} shadow="md" mb={6} borderRadius="xl" overflow="hidden">
+        <Box h="4px" bgGradient="linear(to-r, purple.400, purple.600)" />
+        <CardHeader>
+          <Heading size="md" color="gray.700">Resumen Consolidado</Heading>
+        </CardHeader>
+        <CardBody>
+          <SimpleGrid columns={{ base: 2, md: 4 }} spacing={4}>
+            <Stat textAlign="center" p={4} bg="blue.50" borderRadius="xl">
+              <StatLabel fontSize="xs" color="gray.600">Costo Producción</StatLabel>
+              <StatNumber fontSize="xl" color="blue.600">
+                {formatCurrency(costos.total_costo_produccion || 0)}
+              </StatNumber>
+              <StatHelpText fontSize="xs">Últimos 7 días</StatHelpText>
+            </Stat>
+            
+            <Stat textAlign="center" p={4} bg="green.50" borderRadius="xl">
+              <StatLabel fontSize="xs" color="gray.600">Valor Producido</StatLabel>
+              <StatNumber fontSize="xl" color="green.600">
+                {formatCurrency((produccion.total_producido || 0) * (costos.costo_promedio || 0))}
+              </StatNumber>
+              <StatHelpText fontSize="xs">Valor estimado</StatHelpText>
+            </Stat>
+            
+            <Stat textAlign="center" p={4} bg="orange.50" borderRadius="xl">
+              <StatLabel fontSize="xs" color="gray.600">Merma</StatLabel>
+              <StatNumber fontSize="xl" color={mermas.porcentaje_merma > 10 ? 'red.600' : 'orange.600'}>
+                {mermas.porcentaje_merma?.toFixed(1) || 0}%
+              </StatNumber>
+              <StatHelpText fontSize="xs">Porcentaje desperdicio</StatHelpText>
+            </Stat>
+            
+            <Stat textAlign="center" p={4} bg="purple.50" borderRadius="xl">
+              <StatLabel fontSize="xs" color="gray.600">Pendientes</StatLabel>
+              <StatNumber fontSize="xl" color="purple.600">
+                {ordenesActivas.pendientes || 0}
+              </StatNumber>
+              <StatHelpText fontSize="xs">Por iniciar</StatHelpText>
+            </Stat>
+          </SimpleGrid>
+        </CardBody>
+      </Card>
+
+      {/* Producción: Plan vs Real */}
+      <Card bg={cardBg} borderWidth="1px" borderColor={borderColor} shadow="md" mb={6} borderRadius="xl">
+        <CardHeader>
+          <Flex justify="space-between" align="center">
+            <Heading size="md" color="gray.700">Producción: Plan vs Real</Heading>
+            <Text fontSize="sm" color="gray.500">Últimos 7 días</Text>
+          </Flex>
+        </CardHeader>
+        <CardBody>
+          <VStack spacing={4} align="stretch">
+            <Box>
+              <Flex justify="space-between" mb={2}>
+                <Text fontSize="sm" color="gray.600">Planificado</Text>
+                <Text fontWeight="bold">{produccion.total_planificado?.toFixed(0) || 0} unidades</Text>
+              </Flex>
+              <Progress value={100} colorScheme="blue" borderRadius="full" h="20px" />
+            </Box>
+            
+            <Box>
+              <Flex justify="space-between" mb={2}>
+                <Text fontSize="sm" color="gray.600">Producido</Text>
+                <Text fontWeight="bold" color={(produccion.diferencia || 0) >= 0 ? 'green.600' : 'red.600'}>
+                  {produccion.total_producido?.toFixed(0) || 0} unidades
+                </Text>
+              </Flex>
+              <Progress 
+                value={Math.min((produccion.total_producido / Math.max(produccion.total_planificado, 1)) * 100, 100)} 
+                colorScheme={(produccion.diferencia || 0) >= 0 ? 'green' : 'red'} 
+                borderRadius="full" 
+                h="20px" 
+              />
+            </Box>
+            
+            <Divider />
+            
+            <Flex justify="space-between" align="center">
+              <Text color="gray.600">Diferencia:</Text>
+              <Text fontSize="xl" fontWeight="bold" color={(produccion.diferencia || 0) >= 0 ? 'green.600' : 'red.600'}>
+                {(produccion.diferencia || 0) > 0 ? '+' : ''}{(produccion.diferencia || 0).toFixed(0)} unidades
+              </Text>
+            </Flex>
+          </VStack>
+        </CardBody>
+      </Card>
+
+      {/* Órdenes Recientes */}
+      <Card bg={cardBg} borderWidth="1px" borderColor={borderColor} shadow="md" mb={6} borderRadius="xl">
+        <CardHeader>
+          <Flex justify="space-between" align="center">
+            <Heading size="md" color="gray.700">Órdenes de Producción</Heading>
+            <Button 
+              size="sm" 
+              rightIcon={<ChevronRightIcon />}
+              variant="ghost"
+              colorScheme="blue"
+              onClick={() => navigate('/app/produccion/ordenes')}
+            >
+              Ver todas
+            </Button>
+          </Flex>
+        </CardHeader>
+        <CardBody>
+          {/* Filtros */}
+          <HStack spacing={4} mb={4}>
+            <InputGroup flex={1}>
+              <InputLeftElement pointerEvents="none">
+                <SearchIcon color="gray.400" />
+              </InputLeftElement>
+              <Input
+                placeholder="Buscar por número, producto..."
+                value={busqueda}
+                onChange={(e) => setBusqueda(e.target.value)}
+              />
+            </InputGroup>
+            <Select 
+              w="200px"
+              value={filtroEstado}
+              onChange={(e) => setFiltroEstado(e.target.value)}
+            >
+              <option value="">Todos los estados</option>
+              <option value="pendiente">Pendiente</option>
+              <option value="en_proceso">En Proceso</option>
+              <option value="finalizada">Finalizada</option>
+              <option value="cancelada">Cancelada</option>
+            </Select>
+          </HStack>
+
+          {/* Lista de órdenes */}
+          {ordenesFiltradas.length === 0 ? (
+            <VStack py={12} spacing={4}>
+              <Icon as={FiClipboard} boxSize={12} color="gray.400" />
+              <Text fontSize="lg" fontWeight="medium" color="gray.600">No hay órdenes</Text>
+              <Text color="gray.500" textAlign="center">
+                Comienza creando una nueva orden de producción
+              </Text>
+              <Button
+                leftIcon={<AddIcon />}
+                colorScheme="blue"
+                onClick={() => setShowCreateModal(true)}
+              >
+                Nueva Orden
+              </Button>
+            </VStack>
+          ) : (
+            <VStack spacing={3} align="stretch">
+              {ordenesFiltradas.map((orden) => (
+                <Box
+                  key={orden.id}
+                  p={4}
+                  borderRadius="lg"
+                  borderWidth="1px"
+                  borderLeftWidth="4px"
+                  borderLeftColor={`${getStatusColor(orden.estado)}.500`}
+                  bg={`${getStatusColor(orden.estado)}.50`}
+                  cursor="pointer"
+                  onClick={() => navigate(`/app/produccion/ordenes/${orden.id}`)}
+                  _hover={{ shadow: 'md', transform: 'translateY(-2px)' }}
+                  transition="all 0.2s"
+                >
+                  <Flex justify="space-between" align="center" flexWrap="wrap" gap={2}>
+                    <HStack spacing={4} flex={1}>
+                      <Box 
+                        w="10px" 
+                        h="10px" 
+                        borderRadius="full" 
+                        bg={`${getStatusColor(orden.estado)}.500`}
+                        animation={orden.estado === 'en_proceso' ? `${pulseAnimation} 1.5s ease-in-out infinite` : undefined}
+                      />
+                      <Box>
+                        <HStack spacing={2}>
+                          <Text fontWeight="bold">OP-{orden.numero || orden.id}</Text>
+                          <Badge colorScheme={getStatusColor(orden.estado)} fontSize="xs">
+                            {orden.estado === 'pendiente' ? 'Pendiente' :
+                             orden.estado === 'en_proceso' ? 'En Proceso' :
+                             orden.estado === 'finalizada' ? 'Finalizada' : 'Cancelada'}
+                          </Badge>
+                        </HStack>
+                        <Text fontSize="sm" color="gray.600">
+                          {orden.producto_nombre || orden.receta__producto_terminado__nombre || 'Producto'}
+                        </Text>
+                      </Box>
+                    </HStack>
+                    
+                    <HStack spacing={6}>
+                      <Box textAlign="center" display={{ base: 'none', md: 'block' }}>
+                        <Text fontSize="sm" fontWeight="medium">
+                      {orden.cantidad_producida || 0} / {orden.cantidad_planificada}
+                        </Text>
+                        <Progress 
+                          value={((orden.cantidad_producida || 0) / (orden.cantidad_planificada || 1)) * 100}
+                          size="sm"
+                          colorScheme={getStatusColor(orden.estado)}
+                          w="80px"
+                          borderRadius="full"
+                        />
+                      </Box>
+                      
+                      {(orden.estado === 'pendiente' || orden.estado === 'en_proceso') && (
+                        <Button
+                          size="sm"
+                          colorScheme={orden.estado === 'en_proceso' ? 'blue' : 'green'}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                            navigate(`/app/produccion/ordenes/${orden.id}/ejecutar`);
+                          }}
+                        >
+                          {orden.estado === 'en_proceso' ? 'Continuar' : 'Iniciar'}
+                        </Button>
+                      )}
+                    </HStack>
+                  </Flex>
+                </Box>
+              ))}
+            </VStack>
+          )}
+        </CardBody>
+      </Card>
+
+      {/* Accesos Rápidos */}
+      <SimpleGrid columns={{ base: 2, md: 4 }} spacing={4}>
+        <Button
+          variant="outline"
+          h="auto"
+          p={5}
+          borderRadius="xl"
+          borderWidth="2px"
+          onClick={() => setShowCreateModal(true)}
+          _hover={{ transform: 'translateY(-4px)', shadow: 'lg', borderColor: 'blue.300', bg: 'blue.50' }}
+          transition="all 0.3s ease"
+        >
+          <VStack spacing={3}>
+            <Flex w="48px" h="48px" bg="blue.100" borderRadius="lg" align="center" justify="center">
+              <Icon as={FiPackage} boxSize={6} color="blue.600" />
+            </Flex>
+            <Text fontWeight="medium" color="gray.700">Nueva Orden</Text>
+          </VStack>
+        </Button>
+        
+        <Button
+          variant="outline"
+          h="auto"
+          p={5}
+          borderRadius="xl"
+          borderWidth="2px"
+          onClick={() => navigate('/app/produccion/recetas')}
+          _hover={{ transform: 'translateY(-4px)', shadow: 'lg', borderColor: 'green.300', bg: 'green.50' }}
+          transition="all 0.3s ease"
+        >
+          <VStack spacing={3}>
+            <Flex w="48px" h="48px" bg="green.100" borderRadius="lg" align="center" justify="center">
+              <Icon as={FiClipboard} boxSize={6} color="green.600" />
+            </Flex>
+            <Text fontWeight="medium" color="gray.700">Recetas (BOM)</Text>
+          </VStack>
+        </Button>
+        
+        <Button
+          variant="outline"
+          h="auto"
+          p={5}
+          borderRadius="xl"
+          borderWidth="2px"
+          onClick={() => navigate('/app/produccion/ordenes')}
+          _hover={{ transform: 'translateY(-4px)', shadow: 'lg', borderColor: 'purple.300', bg: 'purple.50' }}
+          transition="all 0.3s ease"
+        >
+          <VStack spacing={3}>
+            <Flex w="48px" h="48px" bg="purple.100" borderRadius="lg" align="center" justify="center">
+              <Icon as={FiTool} boxSize={6} color="purple.600" />
+            </Flex>
+            <Text fontWeight="medium" color="gray.700">Todas las Órdenes</Text>
+          </VStack>
+        </Button>
+        
+        <Button
+          variant="outline"
+          h="auto"
+          p={5}
+          borderRadius="xl"
+          borderWidth="2px"
+          onClick={() => navigate('/app/inventario/materias-primas')}
+          _hover={{ transform: 'translateY(-4px)', shadow: 'lg', borderColor: 'orange.300', bg: 'orange.50' }}
+          transition="all 0.3s ease"
+        >
+          <VStack spacing={3}>
+            <Flex w="48px" h="48px" bg="orange.100" borderRadius="lg" align="center" justify="center">
+              <Icon as={FiBox} boxSize={6} color="orange.600" />
+            </Flex>
+            <Text fontWeight="medium" color="gray.700">Materias Primas</Text>
+          </VStack>
+        </Button>
+      </SimpleGrid>
+
+      {/* Modal de crear orden */}
+      <QuickCreateOrden 
+        isOpen={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        onSuccess={(orden) => {
+          navigate(`/app/produccion/ordenes/${orden.id}`);
+        }}
+      />
+    </Box>
   );
 };
 

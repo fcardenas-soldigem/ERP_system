@@ -15,7 +15,7 @@ import {
   useToast,
 } from '@chakra-ui/react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { comprasAPI } from '../../api';
+import { comprasAPI } from '../../lib/api';
 
 const CrearEmpresa = ({ isOpen, onClose, onSuccess }) => {
   const toast = useToast();

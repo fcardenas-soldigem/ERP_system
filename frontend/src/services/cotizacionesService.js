@@ -1,4 +1,4 @@
-import api from '../config/axios';
+import api from '../lib/api';
 
 const cotizacionesService = {
   // Obtener todas las cotizaciones
@@ -46,6 +46,15 @@ const cotizacionesService = {
   // Convertir a venta
   convertirVenta: async (id) => {
     const response = await api.post(`/api/cotizaciones/${id}/convertir-venta/`);
+    return response.data;
+  },
+
+  // Vincular producto del inventario a una línea de detalle
+  vincularProducto: async (cotizacionId, detalleId, productoId) => {
+    const response = await api.post(
+      `/api/cotizaciones/${cotizacionId}/vincular-producto/`,
+      { detalle_id: detalleId, producto_id: productoId }
+    );
     return response.data;
   },
 

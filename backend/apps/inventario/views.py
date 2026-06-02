@@ -5,11 +5,12 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters
-from django.db.models import Sum, Count, Q, Case, When, ExpressionWrapper, DecimalField, F
+from django.db.models import Sum, Count, Q, Case, When, ExpressionWrapper, DecimalField, F, Prefetch
 from django.db import transaction
 from django.utils import timezone
 from django.http import HttpResponse
 from django.core.exceptions import ValidationError
+from django.core.cache import cache
 from decimal import Decimal
 import openpyxl
 from datetime import datetime, timedelta
@@ -19,13 +20,18 @@ from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from django.shortcuts import get_object_or_404
 
+# Cache utilities
+from apps.core.cache_utils import cache_manager, make_cache_key, get_cache_timeout
+
 from .models import (
     Almacen, 
     Categoria, 
     Producto, 
     Stock, 
     AjusteInventario, 
-    MovimientoInventario
+    MovimientoInventario,
+    InventarioMateriasPrimas,
+    InventarioProductosTerminados
 )
 from .serializers import (
     AlmacenSerializer, 
@@ -36,7 +42,17 @@ from .serializers import (
     MovimientoInventarioSerializer,
     KardexSerializer,
     KardexResumenSerializer,
-    MovimientoInventarioCreateSerializer
+    MovimientoInventarioCreateSerializer,
+    InventarioMateriasPrimasSerializer,
+    InventarioMateriasPrimasCreateSerializer,
+    InventarioProductosTerminadosSerializer,
+    InventarioProductosTerminadosCreateSerializer,
+    EntradaCompraSerializer,
+    SalidaProduccionSerializer,
+    EntradaProduccionSerializer,
+    SalidaVentaSerializer,
+    AlertaStockSerializer,
+    ResumenInventarioSeparadoSerializer
 )
 from apps.core.permissions import HasEmpresaPermission
 
@@ -64,22 +80,73 @@ class ProductoViewSet(viewsets.ModelViewSet):
     serializer_class = ProductoSerializer
     permission_classes = [IsAuthenticated, HasEmpresaPermission]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['categoria', 'almacen']
+    filterset_fields = ['categoria', 'almacen', 'tipo_producto']
     search_fields = ['nombre', 'sku', 'descripcion']
     ordering_fields = ['nombre', 'sku', 'stock_total', 'precio_venta']
     ordering = ['sku']
 
     def get_queryset(self):
-        queryset = Producto.objects.filter(empresa=self.request.user.empresa, is_active=True)
+        # Optimizar con select_related y prefetch_related
+        queryset = Producto.objects.filter(
+            empresa=self.request.user.empresa, 
+            is_active=True
+        ).select_related(
+            'categoria', 
+            'almacen'
+        ).prefetch_related(
+            Prefetch('stocks', queryset=Stock.objects.select_related('almacen')),
+        )
         return queryset
+
+    def list(self, request, *args, **kwargs):
+        """Override list para agregar caching"""
+        empresa_id = request.user.empresa_id
+        cache_key = make_cache_key('productos_list', empresa_id)
+        
+        # Intentar obtener del cache
+        cached_data = cache.get(cache_key)
+        if cached_data is not None and not request.query_params:
+            return Response(cached_data)
+        
+        # Si no hay cache o hay filtros, ejecutar query normal
+        response = super().list(request, *args, **kwargs)
+        
+        # Solo cachear si no hay filtros
+        if not request.query_params:
+            cache.set(cache_key, response.data, get_cache_timeout('productos'))
+        
+        return response
 
     def perform_create(self, serializer):
         serializer.save(empresa=self.request.user.empresa)
+        # Invalidar cache
+        cache_manager.invalidate_productos(self.request.user.empresa_id)
+
+    def perform_update(self, serializer):
+        serializer.save()
+        # Invalidar cache
+        cache_manager.invalidate_productos(self.request.user.empresa_id)
+
+    def perform_destroy(self, instance):
+        instance.delete()
+        # Invalidar cache
+        cache_manager.invalidate_productos(self.request.user.empresa_id)
 
     @action(detail=False, methods=['get'])
     def stock_bajo(self, request):
         productos = self.get_queryset().filter(
             stock_total__lte=F('stock_minimo')
+        )
+        serializer = self.get_serializer(productos, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'])
+    def materias_primas(self, request):
+        """Obtiene solo productos que pertenecen a la categoría 'Materia Prima' o 'Insumo'"""
+        from django.db.models import Q
+        productos = self.get_queryset().filter(
+            Q(categoria__nombre__icontains='materia prima') |
+            Q(categoria__nombre__icontains='insumo')
         )
         serializer = self.get_serializer(productos, many=True)
         return Response(serializer.data)
@@ -383,20 +450,78 @@ class ImportarProductosAPIView(views.APIView):
     
     def post(self, request):
         """Importa productos desde archivo Excel"""
-        print("REQUEST.FILES:", request.FILES)  # Debug: ver qué archivos llegan
         archivo = request.FILES.get('file')  # Cambiado de 'archivo' a 'file'
         if not archivo:
             return Response({'error': 'No se proporcionó archivo'}, status=400)
         
         try:
-            # Leer archivo Excel
             df = pd.read_excel(archivo)
-            
-            # Validar columnas requeridas
+
+            df.columns = df.columns.str.strip().str.lower()
+            existing_cols = set(df.columns)
+            COLUMN_MAP = {}
+            if 'nombre' not in existing_cols:
+                for alias in ['producto', 'name', 'item']:
+                    if alias in existing_cols:
+                        COLUMN_MAP[alias] = 'nombre'
+                        break
+            if 'sku' not in existing_cols:
+                for alias in ['código', 'codigo', 'cod', 'code']:
+                    if alias in existing_cols:
+                        COLUMN_MAP[alias] = 'sku'
+                        break
+            if 'precio_compra' not in existing_cols:
+                for alias in ['precio compra', 'costo', 'precio_costo', 'cost']:
+                    if alias in existing_cols:
+                        COLUMN_MAP[alias] = 'precio_compra'
+                        break
+            if 'precio_venta' not in existing_cols:
+                for alias in ['precio venta', 'venta', 'price', 'precio']:
+                    if alias in existing_cols:
+                        COLUMN_MAP[alias] = 'precio_venta'
+                        break
+            if 'categoria' not in existing_cols:
+                for alias in ['categoría', 'category']:
+                    if alias in existing_cols:
+                        COLUMN_MAP[alias] = 'categoria'
+                        break
+            if 'almacen' not in existing_cols:
+                for alias in ['almacén', 'warehouse']:
+                    if alias in existing_cols:
+                        COLUMN_MAP[alias] = 'almacen'
+                        break
+            if 'stock_inicial' not in existing_cols:
+                for alias in ['stock', 'stock inicial', 'cantidad']:
+                    if alias in existing_cols:
+                        COLUMN_MAP[alias] = 'stock_inicial'
+                        break
+            if 'stock_minimo' not in existing_cols:
+                for alias in ['stock mínimo', 'stock minimo']:
+                    if alias in existing_cols:
+                        COLUMN_MAP[alias] = 'stock_minimo'
+                        break
+            if 'stock_maximo' not in existing_cols:
+                for alias in ['stock máximo', 'stock maximo']:
+                    if alias in existing_cols:
+                        COLUMN_MAP[alias] = 'stock_maximo'
+                        break
+
+            if COLUMN_MAP:
+                df.rename(columns=COLUMN_MAP, inplace=True)
+
             columnas_requeridas = ['sku', 'nombre', 'precio_compra', 'precio_venta']
-            for col in columnas_requeridas:
-                if col not in df.columns:
-                    return Response({'error': f'Columna requerida faltante: {col}'}, status=400)
+
+            if 'precio_compra' not in df.columns and 'precio_venta' in df.columns:
+                df['precio_compra'] = df['precio_venta']
+            if 'precio_venta' not in df.columns and 'precio_compra' in df.columns:
+                df['precio_venta'] = df['precio_compra']
+
+            missing = [c for c in columnas_requeridas if c not in df.columns]
+            if missing:
+                return Response({
+                    'error': f'Columnas requeridas faltantes: {", ".join(missing)}. '
+                             f'Columnas encontradas: {", ".join(df.columns)}'
+                }, status=400)
             
             productos_creados = 0
             categorias_creadas = []
@@ -406,67 +531,102 @@ class ImportarProductosAPIView(views.APIView):
             with transaction.atomic():
                 for index, row in df.iterrows():
                     try:
-                        # Validar datos básicos
-                        if pd.isna(row['sku']) or not str(row['sku']).strip():
+                        sku_val = row['sku'] if not isinstance(row['sku'], pd.Series) else row['sku'].iloc[0]
+                        nombre_val = row['nombre'] if not isinstance(row['nombre'], pd.Series) else row['nombre'].iloc[0]
+
+                        if pd.isna(sku_val) or not str(sku_val).strip():
+                            if pd.isna(nombre_val) or not str(nombre_val).strip():
+                                continue
                             errores.append(f"Fila {index + 2}: SKU es requerido")
                             continue
-                            
-                        if pd.isna(row['nombre']) or not str(row['nombre']).strip():
+
+                        if pd.isna(nombre_val) or not str(nombre_val).strip():
                             errores.append(f"Fila {index + 2}: Nombre es requerido")
                             continue
-                            
-                        if pd.isna(row['precio_compra']) or row['precio_compra'] <= 0:
-                            errores.append(f"Fila {index + 2}: Precio de compra debe ser mayor a 0")
+
+                        def parse_price(val):
+                            if pd.isna(val):
+                                return 0
+                            s = str(val).strip()
+                            for ch in ['$', 'S/', 'US$', 'USD', 'PEN', 'S/.']:
+                                s = s.replace(ch, '')
+                            s = s.strip()
+                            if ',' in s and '.' in s:
+                                s = s.replace(',', '')
+                            elif ',' in s:
+                                s = s.replace(',', '.')
+                            try:
+                                return float(s)
+                            except (ValueError, TypeError):
+                                return 0
+
+                        precio_compra = parse_price(row['precio_compra'])
+                        if precio_compra <= 0:
+                            errores.append(f"Fila {index + 2}: Precio de compra debe ser mayor a 0 (valor: '{row['precio_compra']}')")
                             continue
-                            
-                        if pd.isna(row['precio_venta']) or row['precio_venta'] <= 0:
-                            errores.append(f"Fila {index + 2}: Precio de venta debe ser mayor a 0")
+
+                        precio_venta = parse_price(row['precio_venta'])
+                        if precio_venta <= 0:
+                            errores.append(f"Fila {index + 2}: Precio de venta debe ser mayor a 0 (valor: '{row['precio_venta']}')")
                             continue
                         
-                        # Verificar si el SKU ya existe
+                        clean_sku = str(sku_val).strip()
+                        clean_nombre = str(nombre_val).strip()
+
                         if Producto.objects.filter(
                             empresa=request.user.empresa,
-                            sku=row['sku']
+                            sku=clean_sku
                         ).exists():
-                            errores.append(f"Fila {index + 2}: SKU '{row['sku']}' ya existe")
+                            errores.append(f"Fila {index + 2}: SKU '{clean_sku}' ya existe")
                             continue
                         
-                        # Buscar o crear categoría si se proporciona
+                        def safe_str(val, default=''):
+                            if isinstance(val, pd.Series):
+                                val = val.iloc[0]
+                            if pd.isna(val):
+                                return default
+                            return str(val).strip()
+
                         categoria = None
-                        if 'categoria' in row and pd.notna(row['categoria']):
+                        cat_val = safe_str(row.get('categoria'))
+                        if cat_val:
                             categoria, created = Categoria.objects.get_or_create(
                                 empresa=request.user.empresa,
-                                nombre=row['categoria']
+                                nombre=cat_val
                             )
                             if created and categoria.nombre not in categorias_creadas:
                                 categorias_creadas.append(categoria.nombre)
-                        
-                        # Buscar o crear almacén si se proporciona
+
                         almacen = None
-                        if 'almacen' in row and pd.notna(row['almacen']):
+                        alm_val = safe_str(row.get('almacen'))
+                        if alm_val:
                             almacen, created = Almacen.objects.get_or_create(
                                 empresa=request.user.empresa,
-                                nombre=row['almacen'],
-                                defaults={
-                                    'direccion': f"Dirección automática para {row['almacen']}"
-                                }
+                                nombre=alm_val,
+                                defaults={'direccion': f"Dirección automática para {alm_val}"}
                             )
                             if created and almacen.nombre not in almacenes_creados:
                                 almacenes_creados.append(almacen.nombre)
-                        
-                        # Crear producto SIN almacén primero para evitar creación automática de Stock
+
+                        desc_val = safe_str(row.get('descripcion'))
+                        moneda_val = safe_str(row.get('moneda'), 'PEN')
+                        if moneda_val not in ('PEN', 'USD'):
+                            moneda_val = 'PEN'
+
+                        stock_min = parse_price(row.get('stock_minimo', 0))
+                        stock_max = parse_price(row.get('stock_maximo', 0))
+
                         producto = Producto.objects.create(
                             empresa=request.user.empresa,
-                            sku=row['sku'],
-                            nombre=row['nombre'],
-                            descripcion=row.get('descripcion', ''),
+                            sku=clean_sku,
+                            nombre=clean_nombre,
+                            descripcion=desc_val,
                             categoria=categoria,
-                            # NO asignar almacen aquí para evitar creación automática de Stock
-                            precio_compra=row['precio_compra'],
-                            precio_venta=row['precio_venta'],
-                            moneda=row.get('moneda', 'PEN'),
-                            stock_minimo=row.get('stock_minimo', 0),
-                            stock_maximo=row.get('stock_maximo', 0)
+                            precio_compra=precio_compra,
+                            precio_venta=precio_venta,
+                            moneda=moneda_val,
+                            stock_minimo=stock_min,
+                            stock_maximo=stock_max
                         )
                         
                         # Ahora asignar el almacén manualmente SIN triggear el save()
@@ -488,20 +648,16 @@ class ImportarProductosAPIView(views.APIView):
                                     # Si ya existe, reemplazamos la cantidad (no sumamos)
                                     stock_obj.cantidad = float(row['stock_inicial'])
                                     stock_obj.save()
-                                print(f"Stock creado/actualizado: {stock_obj.cantidad} para {producto.nombre}")
                                     
                             except Exception as stock_error:
-                                print(f"Error al guardar stock: {stock_error}")
                                 errores.append(f"Fila {index + 2}: Error en stock - {str(stock_error)}")
                         
                         # IMPORTANTE: Siempre actualizar el stock_total del producto al final
                         producto.actualizar_stock_total()
-                        print(f"Producto '{producto.nombre}' creado con stock total: {producto.stock_total}")
                         
                         productos_creados += 1
                         
                     except Exception as e:
-                        print(f"Error general en fila {index + 2}: {str(e)}")
                         errores.append(f"Fila {index + 2}: {str(e)}")
             
             return Response({
@@ -1113,3 +1269,959 @@ class KardexViewSet(viewsets.ModelViewSet):
         
         response_serializer = MovimientoInventarioSerializer(movimiento)
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+
+
+# =====================================================
+# VIEWS PARA INVENTARIOS SEPARADOS (MATERIAS PRIMAS Y PRODUCTOS TERMINADOS)
+# =====================================================
+
+class InventarioMateriasPrimasViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet para gestionar el inventario de materias primas e insumos.
+    Proporciona CRUD completo y acciones adicionales para operaciones específicas.
+    Optimizado con cache y queries eficientes.
+    """
+    permission_classes = [IsAuthenticated, HasEmpresaPermission]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['producto', 'almacen', 'lote']
+    search_fields = ['producto__nombre', 'producto__sku', 'ubicacion_almacen', 'lote']
+    ordering_fields = ['cantidad_disponible', 'costo_unitario_promedio', 'fecha_vencimiento', 'ultima_actualizacion']
+    ordering = ['producto__nombre']
+    
+    def get_queryset(self):
+        return InventarioMateriasPrimas.objects.filter(
+            empresa=self.request.user.empresa
+        ).select_related(
+            'producto', 
+            'producto__categoria',
+            'almacen'
+        ).only(
+            'id', 'cantidad_disponible', 'cantidad_reservada', 
+            'costo_unitario_promedio', 'ubicacion_almacen',
+            'stock_minimo', 'stock_maximo', 'lote', 
+            'fecha_vencimiento', 'ultima_actualizacion',
+            'producto__id', 'producto__nombre', 'producto__sku',
+            'producto__unidad_medida', 'producto__categoria__nombre',
+            'almacen__id', 'almacen__nombre'
+        )
+    
+    def get_serializer_class(self):
+        if self.action in ['create', 'update', 'partial_update']:
+            return InventarioMateriasPrimasCreateSerializer
+        return InventarioMateriasPrimasSerializer
+    
+    def list(self, request, *args, **kwargs):
+        """Override list para caching"""
+        empresa_id = request.user.empresa_id
+        cache_key = make_cache_key('inventario_mp_list', empresa_id)
+        
+        # Sin filtros, intentar cache
+        if not request.query_params:
+            cached_data = cache.get(cache_key)
+            if cached_data is not None:
+                return Response(cached_data)
+        
+        response = super().list(request, *args, **kwargs)
+        
+        if not request.query_params:
+            cache.set(cache_key, response.data, get_cache_timeout('inventario_mp'))
+        
+        return response
+    
+    def perform_create(self, serializer):
+        serializer.save(empresa=self.request.user.empresa)
+        cache_manager.invalidate_inventario_mp(self.request.user.empresa_id)
+    
+    def perform_update(self, serializer):
+        serializer.save()
+        cache_manager.invalidate_inventario_mp(self.request.user.empresa_id)
+    
+    def perform_destroy(self, instance):
+        instance.delete()
+        cache_manager.invalidate_inventario_mp(self.request.user.empresa_id)
+    
+    @action(detail=False, methods=['get'])
+    def stock_bajo(self, request):
+        """Obtiene materias primas con stock bajo"""
+        inventarios = self.get_queryset().filter(
+            cantidad_disponible__lte=F('stock_minimo'),
+            stock_minimo__gt=0
+        )
+        serializer = InventarioMateriasPrimasSerializer(inventarios, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'])
+    def por_vencer(self, request):
+        """Obtiene materias primas próximas a vencer (30 días)"""
+        fecha_limite = timezone.now().date() + timedelta(days=30)
+        inventarios = self.get_queryset().filter(
+            fecha_vencimiento__lte=fecha_limite,
+            fecha_vencimiento__isnull=False,
+            cantidad_disponible__gt=0
+        ).order_by('fecha_vencimiento')
+        serializer = InventarioMateriasPrimasSerializer(inventarios, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'])
+    def alertas(self, request):
+        """Obtiene todas las alertas de materias primas"""
+        alertas = InventarioMateriasPrimas.obtener_alertas_stock(request.user.empresa)
+        serializer = AlertaStockSerializer(alertas, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['post'])
+    def entrada_compra(self, request):
+        """Registra entrada de materia prima por compra"""
+        serializer = EntradaCompraSerializer(data=request.data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        
+        data = serializer.validated_data
+        empresa = request.user.empresa
+        
+        try:
+            with transaction.atomic():
+                # Registrar entrada en inventario de materias primas
+                inventario = InventarioMateriasPrimas.registrar_entrada_compra(
+                    empresa=empresa,
+                    producto=data['producto'],
+                    almacen=data['almacen'],
+                    cantidad=data['cantidad'],
+                    costo_unitario=data['costo_unitario'],
+                    lote=data.get('lote', ''),
+                    fecha_vencimiento=data.get('fecha_vencimiento'),
+                    ubicacion=data.get('ubicacion', '')
+                )
+                
+                # Registrar movimiento de inventario
+                MovimientoInventario.objects.create(
+                    empresa=empresa,
+                    producto=data['producto'],
+                    almacen=data['almacen'],
+                    fecha=timezone.now(),
+                    tipo_movimiento='entrada_compra',
+                    tipo_documento='compra',
+                    tipo_inventario='materia_prima',
+                    numero_documento=str(data.get('compra_id', '')),
+                    cantidad_entrada=data['cantidad'],
+                    costo_unitario=data['costo_unitario'],
+                    costo_total_entrada=data['cantidad'] * data['costo_unitario'],
+                    cantidad_saldo=inventario.cantidad_disponible + inventario.cantidad_reservada,
+                    costo_saldo=inventario.valor_inventario,
+                    costo_promedio=inventario.costo_unitario_promedio,
+                    inventario_anterior=inventario.cantidad_disponible + inventario.cantidad_reservada - data['cantidad'],
+                    inventario_actual=inventario.cantidad_disponible + inventario.cantidad_reservada,
+                    compra_id=data.get('compra_id'),
+                    lote_referencia=data.get('lote', ''),
+                    observaciones=f"Entrada por compra ID: {data.get('compra_id', 'N/A')}",
+                    created_by=request.user.username
+                )
+                
+                return Response({
+                    'success': True,
+                    'message': 'Entrada registrada correctamente',
+                    'inventario': InventarioMateriasPrimasSerializer(inventario).data
+                }, status=status.HTTP_201_CREATED)
+                
+        except ValidationError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    @action(detail=True, methods=['post'])
+    def reservar(self, request, pk=None):
+        """Reserva material para producción"""
+        inventario = self.get_object()
+        cantidad = Decimal(str(request.data.get('cantidad', 0)))
+        orden_produccion_id = request.data.get('orden_produccion_id')
+        
+        if cantidad <= 0:
+            return Response({'error': 'La cantidad debe ser mayor a 0'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            with transaction.atomic():
+                inventario_actualizado = InventarioMateriasPrimas.reservar_para_produccion(
+                    empresa=request.user.empresa,
+                    producto=inventario.producto,
+                    almacen=inventario.almacen,
+                    cantidad=cantidad
+                )
+                
+                # Registrar movimiento
+                MovimientoInventario.objects.create(
+                    empresa=request.user.empresa,
+                    producto=inventario.producto,
+                    almacen=inventario.almacen,
+                    fecha=timezone.now(),
+                    tipo_movimiento='reserva_produccion',
+                    tipo_documento='orden_produccion',
+                    tipo_inventario='materia_prima',
+                    numero_documento=str(orden_produccion_id or ''),
+                    cantidad_salida=cantidad,
+                    costo_unitario=inventario.costo_unitario_promedio,
+                    costo_total_salida=cantidad * inventario.costo_unitario_promedio,
+                    cantidad_saldo=inventario_actualizado.cantidad_disponible,
+                    observaciones=f"Reserva para orden de producción: {orden_produccion_id}",
+                    orden_produccion_id=orden_produccion_id,
+                    created_by=request.user.username
+                )
+                
+                return Response({
+                    'success': True,
+                    'message': f'Reservado {cantidad} unidades correctamente',
+                    'inventario': InventarioMateriasPrimasSerializer(inventario_actualizado).data
+                })
+                
+        except ValidationError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    
+    @action(detail=True, methods=['post'])
+    def liberar_reserva(self, request, pk=None):
+        """Libera reserva de material"""
+        inventario = self.get_object()
+        cantidad = Decimal(str(request.data.get('cantidad', 0)))
+        
+        if cantidad <= 0:
+            return Response({'error': 'La cantidad debe ser mayor a 0'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            inventario_actualizado = InventarioMateriasPrimas.liberar_reserva(
+                empresa=request.user.empresa,
+                producto=inventario.producto,
+                almacen=inventario.almacen,
+                cantidad=cantidad
+            )
+            
+            return Response({
+                'success': True,
+                'message': f'Liberado {cantidad} unidades de reserva',
+                'inventario': InventarioMateriasPrimasSerializer(inventario_actualizado).data
+            })
+            
+        except ValidationError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    
+    @action(detail=True, methods=['post'])
+    def ajustar(self, request, pk=None):
+        """Realiza un ajuste de inventario"""
+        inventario = self.get_object()
+        cantidad_ajuste = Decimal(str(request.data.get('cantidad_ajuste', 0)))
+        motivo = request.data.get('motivo', '')
+        
+        if cantidad_ajuste == 0:
+            return Response({'error': 'La cantidad de ajuste no puede ser 0'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            with transaction.atomic():
+                inventario_actualizado = InventarioMateriasPrimas.ajustar_inventario(
+                    empresa=request.user.empresa,
+                    producto=inventario.producto,
+                    almacen=inventario.almacen,
+                    cantidad_ajuste=cantidad_ajuste,
+                    motivo=motivo
+                )
+                
+                # Registrar movimiento
+                tipo_mov = 'ajuste_entrada' if cantidad_ajuste > 0 else 'ajuste_salida'
+                MovimientoInventario.objects.create(
+                    empresa=request.user.empresa,
+                    producto=inventario.producto,
+                    almacen=inventario.almacen,
+                    fecha=timezone.now(),
+                    tipo_movimiento=tipo_mov,
+                    tipo_documento='ajuste',
+                    tipo_inventario='materia_prima',
+                    cantidad_entrada=cantidad_ajuste if cantidad_ajuste > 0 else 0,
+                    cantidad_salida=abs(cantidad_ajuste) if cantidad_ajuste < 0 else 0,
+                    costo_unitario=inventario.costo_unitario_promedio,
+                    cantidad_saldo=inventario_actualizado.cantidad_disponible,
+                    observaciones=f"Ajuste de inventario: {motivo}",
+                    created_by=request.user.username
+                )
+                
+                return Response({
+                    'success': True,
+                    'message': f'Ajuste de {cantidad_ajuste} unidades realizado',
+                    'inventario': InventarioMateriasPrimasSerializer(inventario_actualizado).data
+                })
+                
+        except ValidationError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    
+    @action(detail=False, methods=['get'])
+    def valor_total(self, request):
+        """Obtiene el valor total del inventario de materias primas"""
+        inventarios = self.get_queryset()
+        
+        valor_total = sum(
+            float(inv.cantidad_total * inv.costo_unitario_promedio)
+            for inv in inventarios
+        )
+        
+        cantidad_total = sum(float(inv.cantidad_total) for inv in inventarios)
+        
+        return Response({
+            'valor_total': valor_total,
+            'cantidad_total': cantidad_total,
+            'total_items': inventarios.count()
+        })
+
+
+class InventarioProductosTerminadosViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet para gestionar el inventario de productos terminados.
+    Proporciona CRUD completo y acciones adicionales para operaciones específicas.
+    """
+    permission_classes = [IsAuthenticated, HasEmpresaPermission]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['producto', 'almacen', 'lote_produccion']
+    search_fields = ['producto__nombre', 'producto__sku', 'ubicacion_almacen', 'lote_produccion']
+    ordering_fields = ['cantidad_disponible', 'costo_produccion_unitario', 'fecha_produccion', 'ultima_actualizacion']
+    ordering = ['producto__nombre']
+    
+    def get_queryset(self):
+        return InventarioProductosTerminados.objects.filter(
+            empresa=self.request.user.empresa
+        ).select_related('producto', 'almacen')
+    
+    def get_serializer_class(self):
+        if self.action in ['create', 'update', 'partial_update']:
+            return InventarioProductosTerminadosCreateSerializer
+        return InventarioProductosTerminadosSerializer
+    
+    def perform_create(self, serializer):
+        serializer.save(empresa=self.request.user.empresa)
+    
+    @action(detail=False, methods=['get'])
+    def stock_bajo(self, request):
+        """Obtiene productos terminados con stock bajo"""
+        inventarios = self.get_queryset().filter(
+            cantidad_disponible__lte=F('stock_minimo'),
+            stock_minimo__gt=0
+        )
+        serializer = InventarioProductosTerminadosSerializer(inventarios, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'])
+    def alertas(self, request):
+        """Obtiene todas las alertas de productos terminados"""
+        alertas = InventarioProductosTerminados.obtener_alertas_stock(request.user.empresa)
+        serializer = AlertaStockSerializer(alertas, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['post'])
+    def entrada_produccion(self, request):
+        """Registra entrada de producto terminado desde producción"""
+        serializer = EntradaProduccionSerializer(data=request.data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        
+        data = serializer.validated_data
+        empresa = request.user.empresa
+        
+        try:
+            with transaction.atomic():
+                # Registrar entrada en inventario de productos terminados
+                inventario = InventarioProductosTerminados.registrar_entrada_produccion(
+                    empresa=empresa,
+                    producto=data['producto'],
+                    almacen=data['almacen'],
+                    cantidad=data['cantidad'],
+                    costo_produccion=data['costo_produccion'],
+                    lote=data.get('lote', ''),
+                    orden_produccion_id=data.get('orden_produccion_id'),
+                    fecha_produccion=data.get('fecha_produccion'),
+                    fecha_vencimiento=data.get('fecha_vencimiento'),
+                    ubicacion=data.get('ubicacion', '')
+                )
+                
+                # Registrar movimiento de inventario
+                MovimientoInventario.objects.create(
+                    empresa=empresa,
+                    producto=data['producto'],
+                    almacen=data['almacen'],
+                    fecha=timezone.now(),
+                    tipo_movimiento='entrada_produccion',
+                    tipo_documento='recepcion_produccion',
+                    tipo_inventario='producto_terminado',
+                    numero_documento=str(data.get('orden_produccion_id', '')),
+                    cantidad_entrada=data['cantidad'],
+                    costo_unitario=data['costo_produccion'],
+                    costo_total_entrada=data['cantidad'] * data['costo_produccion'],
+                    cantidad_saldo=inventario.cantidad_disponible + inventario.cantidad_reservada,
+                    costo_saldo=inventario.valor_inventario,
+                    costo_promedio=inventario.costo_produccion_unitario,
+                    inventario_anterior=inventario.cantidad_disponible + inventario.cantidad_reservada - data['cantidad'],
+                    inventario_actual=inventario.cantidad_disponible + inventario.cantidad_reservada,
+                    orden_produccion_id=data.get('orden_produccion_id'),
+                    lote_referencia=data.get('lote', ''),
+                    observaciones=f"Entrada por producción - Orden: {data.get('orden_produccion_id', 'N/A')}",
+                    created_by=request.user.username
+                )
+                
+                return Response({
+                    'success': True,
+                    'message': 'Entrada de producción registrada correctamente',
+                    'inventario': InventarioProductosTerminadosSerializer(inventario).data
+                }, status=status.HTTP_201_CREATED)
+                
+        except ValidationError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    @action(detail=False, methods=['post'])
+    def salida_venta(self, request):
+        """Registra salida de producto terminado por venta"""
+        serializer = SalidaVentaSerializer(data=request.data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        
+        data = serializer.validated_data
+        empresa = request.user.empresa
+        
+        try:
+            with transaction.atomic():
+                # Procesar salida por venta
+                resultado = InventarioProductosTerminados.procesar_venta(
+                    empresa=empresa,
+                    producto=data['producto'],
+                    almacen=data['almacen'],
+                    cantidad=data['cantidad'],
+                    desde_reserva=data.get('desde_reserva', False)
+                )
+                
+                inventario = resultado['inventario']
+                
+                # Registrar movimiento de inventario
+                MovimientoInventario.objects.create(
+                    empresa=empresa,
+                    producto=data['producto'],
+                    almacen=data['almacen'],
+                    fecha=timezone.now(),
+                    tipo_movimiento='salida_venta',
+                    tipo_documento='venta',
+                    tipo_inventario='producto_terminado',
+                    numero_documento=str(data.get('venta_id', '')),
+                    cantidad_salida=data['cantidad'],
+                    costo_unitario=resultado['costo_unitario'],
+                    costo_total_salida=resultado['costo_venta'],
+                    cantidad_saldo=inventario.cantidad_disponible + inventario.cantidad_reservada,
+                    costo_saldo=inventario.valor_inventario,
+                    costo_promedio=inventario.costo_produccion_unitario,
+                    inventario_anterior=inventario.cantidad_disponible + inventario.cantidad_reservada + data['cantidad'],
+                    inventario_actual=inventario.cantidad_disponible + inventario.cantidad_reservada,
+                    venta_id=data.get('venta_id'),
+                    observaciones=f"Salida por venta ID: {data.get('venta_id', 'N/A')}",
+                    created_by=request.user.username
+                )
+                
+                return Response({
+                    'success': True,
+                    'message': 'Salida por venta registrada correctamente',
+                    'inventario': InventarioProductosTerminadosSerializer(inventario).data,
+                    'costo_venta': float(resultado['costo_venta'])
+                }, status=status.HTTP_201_CREATED)
+                
+        except ValidationError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    @action(detail=True, methods=['post'])
+    def reservar(self, request, pk=None):
+        """Reserva producto para venta pendiente"""
+        inventario = self.get_object()
+        cantidad = Decimal(str(request.data.get('cantidad', 0)))
+        venta_id = request.data.get('venta_id')
+        
+        if cantidad <= 0:
+            return Response({'error': 'La cantidad debe ser mayor a 0'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            with transaction.atomic():
+                inventario_actualizado = InventarioProductosTerminados.reservar_para_venta(
+                    empresa=request.user.empresa,
+                    producto=inventario.producto,
+                    almacen=inventario.almacen,
+                    cantidad=cantidad
+                )
+                
+                # Registrar movimiento
+                MovimientoInventario.objects.create(
+                    empresa=request.user.empresa,
+                    producto=inventario.producto,
+                    almacen=inventario.almacen,
+                    fecha=timezone.now(),
+                    tipo_movimiento='reserva_venta',
+                    tipo_documento='venta',
+                    tipo_inventario='producto_terminado',
+                    numero_documento=str(venta_id or ''),
+                    cantidad_salida=cantidad,
+                    costo_unitario=inventario.costo_produccion_unitario,
+                    costo_total_salida=cantidad * inventario.costo_produccion_unitario,
+                    cantidad_saldo=inventario_actualizado.cantidad_disponible,
+                    observaciones=f"Reserva para venta: {venta_id}",
+                    venta_id=venta_id,
+                    created_by=request.user.username
+                )
+                
+                return Response({
+                    'success': True,
+                    'message': f'Reservado {cantidad} unidades correctamente',
+                    'inventario': InventarioProductosTerminadosSerializer(inventario_actualizado).data
+                })
+                
+        except ValidationError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    
+    @action(detail=True, methods=['post'])
+    def liberar_reserva(self, request, pk=None):
+        """Libera reserva de producto"""
+        inventario = self.get_object()
+        cantidad = Decimal(str(request.data.get('cantidad', 0)))
+        
+        if cantidad <= 0:
+            return Response({'error': 'La cantidad debe ser mayor a 0'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            inventario_actualizado = InventarioProductosTerminados.liberar_reserva(
+                empresa=request.user.empresa,
+                producto=inventario.producto,
+                almacen=inventario.almacen,
+                cantidad=cantidad
+            )
+            
+            return Response({
+                'success': True,
+                'message': f'Liberado {cantidad} unidades de reserva',
+                'inventario': InventarioProductosTerminadosSerializer(inventario_actualizado).data
+            })
+            
+        except ValidationError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    
+    @action(detail=True, methods=['post'])
+    def ajustar(self, request, pk=None):
+        """Realiza un ajuste de inventario"""
+        inventario = self.get_object()
+        cantidad_ajuste = Decimal(str(request.data.get('cantidad_ajuste', 0)))
+        motivo = request.data.get('motivo', '')
+        
+        if cantidad_ajuste == 0:
+            return Response({'error': 'La cantidad de ajuste no puede ser 0'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            with transaction.atomic():
+                inventario_actualizado = InventarioProductosTerminados.ajustar_inventario(
+                    empresa=request.user.empresa,
+                    producto=inventario.producto,
+                    almacen=inventario.almacen,
+                    cantidad_ajuste=cantidad_ajuste,
+                    motivo=motivo
+                )
+                
+                # Registrar movimiento
+                tipo_mov = 'ajuste_entrada' if cantidad_ajuste > 0 else 'ajuste_salida'
+                MovimientoInventario.objects.create(
+                    empresa=request.user.empresa,
+                    producto=inventario.producto,
+                    almacen=inventario.almacen,
+                    fecha=timezone.now(),
+                    tipo_movimiento=tipo_mov,
+                    tipo_documento='ajuste',
+                    tipo_inventario='producto_terminado',
+                    cantidad_entrada=cantidad_ajuste if cantidad_ajuste > 0 else 0,
+                    cantidad_salida=abs(cantidad_ajuste) if cantidad_ajuste < 0 else 0,
+                    costo_unitario=inventario.costo_produccion_unitario,
+                    cantidad_saldo=inventario_actualizado.cantidad_disponible,
+                    observaciones=f"Ajuste de inventario: {motivo}",
+                    created_by=request.user.username
+                )
+                
+                return Response({
+                    'success': True,
+                    'message': f'Ajuste de {cantidad_ajuste} unidades realizado',
+                    'inventario': InventarioProductosTerminadosSerializer(inventario_actualizado).data
+                })
+                
+        except ValidationError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    
+    @action(detail=False, methods=['get'])
+    def valor_total(self, request):
+        """Obtiene el valor total del inventario de productos terminados"""
+        inventarios = self.get_queryset()
+        
+        valor_costo = sum(
+            float(inv.cantidad_total * inv.costo_produccion_unitario)
+            for inv in inventarios
+        )
+        
+        valor_venta = sum(
+            float(inv.cantidad_disponible * inv.precio_venta_sugerido)
+            for inv in inventarios
+        )
+        
+        cantidad_total = sum(float(inv.cantidad_total) for inv in inventarios)
+        
+        return Response({
+            'valor_costo': valor_costo,
+            'valor_venta_potencial': valor_venta,
+            'margen_potencial': valor_venta - valor_costo,
+            'cantidad_total': cantidad_total,
+            'total_items': inventarios.count()
+        })
+
+
+class ResumenInventariosSeparadosView(views.APIView):
+    """
+    Vista para obtener resumen de ambos inventarios (materias primas y productos terminados).
+    """
+    permission_classes = [IsAuthenticated, HasEmpresaPermission]
+    
+    def get(self, request):
+        empresa = request.user.empresa
+        
+        # Resumen de materias primas
+        materias_primas = InventarioMateriasPrimas.objects.filter(empresa=empresa)
+        total_mp = materias_primas.count()
+        valor_mp = sum(
+            float(inv.cantidad_total * inv.costo_unitario_promedio)
+            for inv in materias_primas
+        )
+        mp_stock_bajo = materias_primas.filter(
+            cantidad_disponible__lte=F('stock_minimo'),
+            stock_minimo__gt=0
+        ).count()
+        
+        # Materias primas por vencer
+        fecha_limite = timezone.now().date() + timedelta(days=30)
+        mp_por_vencer = materias_primas.filter(
+            fecha_vencimiento__lte=fecha_limite,
+            fecha_vencimiento__isnull=False,
+            cantidad_disponible__gt=0
+        ).count()
+        
+        # Resumen de productos terminados
+        productos_terminados = InventarioProductosTerminados.objects.filter(empresa=empresa)
+        total_pt = productos_terminados.count()
+        valor_pt = sum(
+            float(inv.cantidad_total * inv.costo_produccion_unitario)
+            for inv in productos_terminados
+        )
+        pt_stock_bajo = productos_terminados.filter(
+            cantidad_disponible__lte=F('stock_minimo'),
+            stock_minimo__gt=0
+        ).count()
+        valor_venta = sum(
+            float(inv.cantidad_disponible * inv.precio_venta_sugerido)
+            for inv in productos_terminados
+        )
+        
+        # Obtener todas las alertas
+        alertas_mp = InventarioMateriasPrimas.obtener_alertas_stock(empresa)
+        alertas_pt = InventarioProductosTerminados.obtener_alertas_stock(empresa)
+        todas_alertas = alertas_mp + alertas_pt
+        
+        data = {
+            'total_materias_primas': total_mp,
+            'valor_total_materias_primas': valor_mp,
+            'materias_primas_stock_bajo': mp_stock_bajo,
+            'materias_primas_por_vencer': mp_por_vencer,
+            'total_productos_terminados': total_pt,
+            'valor_total_productos_terminados': valor_pt,
+            'productos_terminados_stock_bajo': pt_stock_bajo,
+            'valor_venta_potencial': valor_venta,
+            'alertas': todas_alertas
+        }
+        
+        serializer = ResumenInventarioSeparadoSerializer(data)
+        return Response(serializer.data)
+
+
+class ValidarStockProduccionView(views.APIView):
+    """
+    Vista para validar si hay stock suficiente de materias primas para una producción.
+    """
+    permission_classes = [IsAuthenticated, HasEmpresaPermission]
+    
+    def post(self, request):
+        """
+        Valida stock para una lista de materiales.
+        Espera: { "materiales": [{ "producto_id": 1, "almacen_id": 1, "cantidad": 10 }, ...] }
+        """
+        materiales = request.data.get('materiales', [])
+        
+        if not materiales:
+            return Response({'error': 'Debe proporcionar lista de materiales'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        empresa = request.user.empresa
+        resultados = []
+        puede_producir = True
+        
+        for material in materiales:
+            producto_id = material.get('producto_id')
+            almacen_id = material.get('almacen_id')
+            cantidad_requerida = Decimal(str(material.get('cantidad', 0)))
+            
+            try:
+                producto = Producto.objects.get(id=producto_id, empresa=empresa)
+                almacen = Almacen.objects.get(id=almacen_id, empresa=empresa)
+                
+                try:
+                    inventario = InventarioMateriasPrimas.objects.get(
+                        empresa=empresa,
+                        producto=producto,
+                        almacen=almacen
+                    )
+                    disponible = inventario.cantidad_disponible
+                    suficiente = disponible >= cantidad_requerida
+                except InventarioMateriasPrimas.DoesNotExist:
+                    disponible = Decimal('0')
+                    suficiente = False
+                
+                if not suficiente:
+                    puede_producir = False
+                
+                resultados.append({
+                    'producto_id': producto_id,
+                    'producto_nombre': producto.nombre,
+                    'almacen_id': almacen_id,
+                    'almacen_nombre': almacen.nombre,
+                    'cantidad_requerida': float(cantidad_requerida),
+                    'cantidad_disponible': float(disponible),
+                    'suficiente': suficiente,
+                    'faltante': float(max(0, cantidad_requerida - disponible))
+                })
+                
+            except Producto.DoesNotExist:
+                resultados.append({
+                    'producto_id': producto_id,
+                    'error': 'Producto no encontrado',
+                    'suficiente': False
+                })
+                puede_producir = False
+            except Almacen.DoesNotExist:
+                resultados.append({
+                    'almacen_id': almacen_id,
+                    'error': 'Almacén no encontrado',
+                    'suficiente': False
+                })
+                puede_producir = False
+        
+        return Response({
+            'puede_producir': puede_producir,
+            'validacion_materiales': resultados
+        })
+
+
+# ========================================
+# CARGA MASIVA DE INVENTARIO
+# ========================================
+
+from rest_framework.decorators import api_view, permission_classes, parser_classes
+from rest_framework.parsers import MultiPartParser, FormParser
+from django.http import HttpResponse
+import tempfile
+import os
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def descargar_plantilla_inventario(request):
+    """
+    Descarga la plantilla Excel mejorada para carga masiva de inventario.
+    
+    La plantilla incluye:
+    - Instrucciones de uso
+    - Template con headers correctos
+    - Ejemplos de materias primas y productos terminados
+    - Referencia de categorías válidas
+    """
+    from .utils.carga_masiva import generar_plantilla_excel
+    
+    try:
+        output = generar_plantilla_excel()
+        
+        response = HttpResponse(
+            output.read(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        response['Content-Disposition'] = 'attachment; filename=plantilla_carga_inventario.xlsx'
+        return response
+    
+    except Exception as e:
+        return Response(
+            {'error': f'Error al generar plantilla: {str(e)}'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@parser_classes([MultiPartParser, FormParser])
+def cargar_inventario_masivo(request):
+    """
+    Procesa un archivo Excel para carga masiva de inventario.
+    
+    El sistema detecta automáticamente el tipo de producto basándose en la categoría:
+    - Categorías MP/Materia Prima/Insumo → InventarioMateriasPrimas
+    - Otras categorías → InventarioProductosTerminados
+    
+    Request:
+        archivo: Archivo Excel (.xlsx)
+        
+    Response:
+        {
+            "success": true/false,
+            "resumen": {
+                "filas_procesadas": 10,
+                "productos_validos": 8,
+                "materias_primas": 3,
+                "productos_terminados": 5,
+                "errores": 2,
+                "warnings": 1
+            },
+            "errores": [...],
+            "warnings": [...],
+            "productos_creados": [...]
+        }
+    """
+    from .utils.carga_masiva import procesar_carga_masiva_excel
+    
+    if 'archivo' not in request.FILES:
+        return Response(
+            {'error': 'No se envió ningún archivo. Use el campo "archivo".'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    archivo = request.FILES['archivo']
+    
+    # Validar extensión
+    if not archivo.name.endswith(('.xlsx', '.xls')):
+        return Response(
+            {'error': 'El archivo debe ser un Excel (.xlsx o .xls)'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    # Obtener empresa del usuario
+    empresa = request.user.empresa
+    if not empresa:
+        return Response(
+            {'error': 'Usuario sin empresa asignada'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    # Guardar archivo temporalmente
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp:
+            for chunk in archivo.chunks():
+                tmp.write(chunk)
+            tmp_path = tmp.name
+        
+        # Procesar archivo
+        resultado = procesar_carga_masiva_excel(tmp_path, empresa)
+        
+        # Eliminar archivo temporal
+        os.unlink(tmp_path)
+        
+        # Determinar código de estado
+        if resultado['success']:
+            return Response(resultado, status=status.HTTP_201_CREATED)
+        elif resultado['resumen']['errores'] > 0:
+            return Response(resultado, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            return Response(resultado, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            
+    except Exception as e:
+        # Limpiar archivo temporal si existe
+        if 'tmp_path' in locals():
+            try:
+                os.unlink(tmp_path)
+            except:
+                pass
+        
+        return Response(
+            {'error': f'Error al procesar archivo: {str(e)}'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@parser_classes([MultiPartParser, FormParser])
+def validar_archivo_inventario(request):
+    """
+    Valida un archivo Excel sin crear productos.
+    Útil para preview antes de la carga definitiva.
+    
+    Request:
+        archivo: Archivo Excel (.xlsx)
+        
+    Response:
+        Mismo formato que cargar_inventario_masivo pero sin crear productos
+    """
+    import pandas as pd
+    from .utils.carga_masiva import detectar_tipo_producto, validar_fila
+    
+    if 'archivo' not in request.FILES:
+        return Response(
+            {'error': 'No se envió ningún archivo'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    archivo = request.FILES['archivo']
+    
+    try:
+        df = pd.read_excel(archivo, sheet_name='Template Productos')
+        df.columns = df.columns.str.lower().str.strip().str.replace(' ', '_')
+        
+        resultado = {
+            'success': True,
+            'resumen': {
+                'filas_encontradas': len(df),
+                'materias_primas': 0,
+                'productos_terminados': 0,
+                'errores': 0,
+                'warnings': 0
+            },
+            'errores': [],
+            'warnings': [],
+            'preview': []
+        }
+        
+        for idx, row in df.iterrows():
+            numero_fila = idx + 2
+            fila = row.to_dict()
+            
+            if pd.isna(fila.get('sku')) and pd.isna(fila.get('nombre')):
+                continue
+            
+            tipo = detectar_tipo_producto(fila.get('categoria'))
+            es_valido, errores, warnings = validar_fila(fila, numero_fila, tipo)
+            
+            resultado['errores'].extend(errores)
+            resultado['warnings'].extend(warnings)
+            
+            if tipo == 'RAW':
+                resultado['resumen']['materias_primas'] += 1
+            else:
+                resultado['resumen']['productos_terminados'] += 1
+            
+            resultado['preview'].append({
+                'fila': numero_fila,
+                'sku': fila.get('sku'),
+                'nombre': fila.get('nombre'),
+                'tipo_detectado': 'Materia Prima' if tipo == 'RAW' else 'Producto Terminado',
+                'valido': es_valido
+            })
+        
+        resultado['resumen']['errores'] = len(resultado['errores'])
+        resultado['resumen']['warnings'] = len(resultado['warnings'])
+        resultado['success'] = resultado['resumen']['errores'] == 0
+        
+        return Response(resultado)
+        
+    except Exception as e:
+        return Response(
+            {'error': f'Error al validar archivo: {str(e)}'},
+            status=status.HTTP_400_BAD_REQUEST
+        )

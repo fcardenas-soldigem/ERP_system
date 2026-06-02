@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Box,
   Button,
@@ -21,11 +21,32 @@ import {
   Divider,
   Switch,
   Spinner,
-  FormHelperText
+  FormHelperText,
+  Alert,
+  AlertIcon,
+  AlertDescription,
+  Tooltip,
+  Icon,
+  HStack,
+  Text,
+  Badge
 } from '@chakra-ui/react';
+import { InfoIcon, WarningIcon } from '@chakra-ui/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { inventarioService } from '../../services/inventario.service';
+
+// Nombres de categorías que se consideran materias primas o insumos
+const CATEGORIAS_MATERIA_PRIMA = [
+  'materia prima',
+  'materias primas',
+  'materia_prima',
+  'insumo',
+  'insumos',
+  'raw',
+  'raw material',
+  'supplies'
+];
 
 const AddProducto = () => {
   const toast = useToast();
@@ -47,7 +68,9 @@ const AddProducto = () => {
     stock_minimo: '',
     stock_maximo: '',
     alerta_stock: false,
-    activo: true
+    activo: true,
+    unidad_medida: 'unidad',
+    tipo_producto: 'FINISHED' // Por defecto producto terminado
   });
 
   // Obtener categorías
@@ -97,6 +120,41 @@ const AddProducto = () => {
       });
     }
   }, [id]);
+
+  // Detectar si la categoría seleccionada es Materia Prima o Insumo
+  const esMateriaPrima = useMemo(() => {
+    if (!producto.categoria || !categorias.length) return false;
+    
+    const categoriaSeleccionada = categorias.find(cat => 
+      cat.id === parseInt(producto.categoria) || cat.id === producto.categoria
+    );
+    
+    if (!categoriaSeleccionada) return false;
+    
+    const nombreCategoria = categoriaSeleccionada.nombre?.toLowerCase().trim() || '';
+    
+    return CATEGORIAS_MATERIA_PRIMA.some(mp => 
+      nombreCategoria.includes(mp) || mp.includes(nombreCategoria)
+    );
+  }, [producto.categoria, categorias]);
+
+  // Efecto para limpiar campos de venta cuando se selecciona materia prima
+  useEffect(() => {
+    if (esMateriaPrima) {
+      setProducto(prev => ({
+        ...prev,
+        precio_venta: '',
+        margen_ganancia: '',
+        tipo_producto: 'RAW' // Marcar como materia prima
+      }));
+    } else if (producto.tipo_producto === 'RAW') {
+      // Si cambia de MP a otra categoría, restaurar tipo
+      setProducto(prev => ({
+        ...prev,
+        tipo_producto: 'FINISHED'
+      }));
+    }
+  }, [esMateriaPrima]);
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -197,29 +255,42 @@ const AddProducto = () => {
 
   const createMutation = useMutation({
     mutationFn: async (data) => {
-      if (isNaN(parseFloat(data.precio_venta)) || parseFloat(data.precio_venta) < 0) {
-        throw new Error('El precio de venta debe ser un número válido mayor o igual a 0');
+      // Determinar si es materia prima
+      const esMPData = data.tipo_producto === 'RAW' || data.tipo_producto === 'SEMIFINISHED';
+      
+      // Validación de precio de compra (siempre requerido)
+      if (isNaN(parseFloat(data.precio_compra)) || parseFloat(data.precio_compra) <= 0) {
+        throw new Error('El precio de compra debe ser un número válido mayor a 0');
       }
-      if (isNaN(parseFloat(data.precio_compra)) || parseFloat(data.precio_compra) < 0) {
-        throw new Error('El precio de compra debe ser un número válido mayor o igual a 0');
+      
+      // Validación de precio de venta solo para productos terminados
+      if (!esMPData) {
+        if (isNaN(parseFloat(data.precio_venta)) || parseFloat(data.precio_venta) <= 0) {
+          throw new Error('El precio de venta debe ser un número válido mayor a 0');
+        }
       }
-      if (isNaN(parseFloat(data.stock_total)) || parseFloat(data.stock_total) < 0) {
+      
+      // Validación de stock
+      if (data.stock_total && (isNaN(parseFloat(data.stock_total)) || parseFloat(data.stock_total) < 0)) {
         throw new Error('El stock total debe ser un número válido mayor o igual a 0');
       }
+      
       const productoData = {
         ...data,
-        stock: parseFloat(data.stock_total),
-        stock_total: parseFloat(data.stock_total),
-        precio_venta: parseFloat(data.precio_venta),
+        stock: parseFloat(data.stock_total) || 0,
+        stock_total: parseFloat(data.stock_total) || 0,
+        precio_venta: esMPData ? null : parseFloat(data.precio_venta),
         precio_compra: parseFloat(data.precio_compra),
-        margen_ganancia: parseFloat(data.margen_ganancia),
+        margen_ganancia: esMPData ? null : (parseFloat(data.margen_ganancia) || null),
         stock_minimo: parseFloat(data.stock_minimo) || 0,
         stock_maximo: parseFloat(data.stock_maximo) || 0,
         empresa: parseInt(localStorage.getItem('empresa_id')),
-        activo: Boolean(data.activo)
+        activo: Boolean(data.activo),
+        tipo_producto: data.tipo_producto || 'FINISHED'
       };
 
       console.log('Datos del producto a crear/actualizar:', productoData);
+      console.log('Es materia prima:', esMPData);
 
       if (id) {
         return inventarioService.actualizarProducto(id, productoData);
@@ -247,7 +318,16 @@ const AddProducto = () => {
       }
     },
     onSuccess: () => {
+      // Invalidar todas las queries relacionadas con inventario
       queryClient.invalidateQueries(['productos']);
+      queryClient.invalidateQueries(['resumen-inventarios-separados']);
+      queryClient.invalidateQueries(['inventario-materias-primas']);
+      queryClient.invalidateQueries(['inventario-productos-terminados']);
+      queryClient.invalidateQueries(['alertas-materias-primas']);
+      queryClient.invalidateQueries(['alertas-productos-terminados']);
+      queryClient.invalidateQueries(['valor-total-materias-primas']);
+      queryClient.invalidateQueries(['valor-total-productos-terminados']);
+      
       toast({
         title: id ? 'Producto actualizado' : 'Producto creado',
         description: 'El producto se ha guardado correctamente',
@@ -274,19 +354,32 @@ const AddProducto = () => {
   const handleSubmit = (e) => {
     e.preventDefault();
     
-    // Validaciones adicionales antes de enviar
-    const validaciones = [
+    // Validaciones base (siempre aplicables)
+    const validacionesBase = [
       { condition: !producto.nombre?.trim(), message: 'El nombre es requerido' },
       { condition: !producto.sku?.trim(), message: 'El SKU es requerido' },
       { condition: !producto.categoria, message: 'La categoría es requerida' },
       { condition: !producto.almacen, message: 'El almacén es requerido' },
-      { condition: isNaN(parseFloat(producto.precio_venta)) || parseFloat(producto.precio_venta) < 0, 
-        message: 'El precio de venta debe ser un número válido mayor o igual a 0' },
-      { condition: isNaN(parseFloat(producto.precio_compra)) || parseFloat(producto.precio_compra) < 0,
-        message: 'El precio de compra debe ser un número válido mayor o igual a 0' },
-      { condition: isNaN(parseFloat(producto.stock_total)) || parseFloat(producto.stock_total) < 0,
-        message: 'El stock total debe ser un número válido mayor o igual a 0' }
+      { condition: isNaN(parseFloat(producto.precio_compra)) || parseFloat(producto.precio_compra) <= 0,
+        message: 'El precio de compra debe ser un número válido mayor a 0' },
     ];
+
+    // Validaciones adicionales según tipo de producto
+    let validaciones = [...validacionesBase];
+    
+    if (esMateriaPrima) {
+      // Para materias primas: NO requiere precio de venta
+      validaciones.push({
+        condition: producto.precio_venta && parseFloat(producto.precio_venta) > 0,
+        message: 'Las materias primas no deben tener precio de venta definido'
+      });
+    } else {
+      // Para productos terminados: SÍ requiere precio de venta
+      validaciones.push({
+        condition: isNaN(parseFloat(producto.precio_venta)) || parseFloat(producto.precio_venta) <= 0, 
+        message: 'El precio de venta debe ser un número válido mayor a 0'
+      });
+    }
 
     const error = validaciones.find(v => v.condition);
     if (error) {
@@ -299,7 +392,17 @@ const AddProducto = () => {
       return;
     }
 
-      createMutation.mutate(producto);
+    // Preparar datos según tipo
+    // NOTA: precio_venta debe ser 0 (no null) para materias primas porque el modelo no permite null
+    const productoAEnviar = {
+      ...producto,
+      tipo_producto: esMateriaPrima ? 'RAW' : 'FINISHED',
+      precio_venta: esMateriaPrima ? 0 : producto.precio_venta,
+      margen_ganancia: esMateriaPrima ? 0 : producto.margen_ganancia,
+    };
+
+    console.log('Producto a enviar:', productoAEnviar);
+    createMutation.mutate(productoAEnviar);
   };
 
   return (
@@ -390,7 +493,30 @@ const AddProducto = () => {
             </FormControl>
 
             <Divider />
-            <Heading size="md">Precios</Heading>
+            <HStack justify="space-between" w="full">
+              <Heading size="md">Precios</Heading>
+              {esMateriaPrima && (
+                <Badge colorScheme="blue" fontSize="sm" px={3} py={1} borderRadius="full">
+                  🏭 Materia Prima
+                </Badge>
+              )}
+            </HStack>
+
+            {/* Mensaje informativo para materias primas */}
+            {esMateriaPrima && (
+              <Alert status="info" borderRadius="lg" variant="left-accent">
+                <AlertIcon />
+                <Box>
+                  <Text fontWeight="bold" fontSize="sm">
+                    Has seleccionado una categoría de Materia Prima
+                  </Text>
+                  <AlertDescription fontSize="sm">
+                    Este tipo de producto se utiliza para fabricar otros productos y no se vende directamente. 
+                    Los campos de precio de venta y margen han sido deshabilitados.
+                  </AlertDescription>
+                </Box>
+              </Alert>
+            )}
 
             <FormControl isRequired>
               <FormLabel>Precio de Compra</FormLabel>
@@ -409,50 +535,92 @@ const AddProducto = () => {
                   <NumberDecrementStepper />
                 </NumberInputStepper>
               </NumberInput>
-              <FormHelperText>Precio al que compras el producto</FormHelperText>
+              <FormHelperText>
+                {esMateriaPrima 
+                  ? 'Costo al que adquieres del proveedor (obligatorio para materias primas)'
+                  : 'Precio al que compras el producto'
+                }
+              </FormHelperText>
             </FormControl>
 
-            <FormControl>
-              <FormLabel>Margen de Utilidad (%)</FormLabel>
+            <FormControl isDisabled={esMateriaPrima}>
+              <HStack>
+                <FormLabel mb={0}>Margen de Utilidad (%)</FormLabel>
+                {esMateriaPrima && (
+                  <Tooltip 
+                    label="Campo no disponible para materias primas. Solo los productos terminados tienen margen de venta."
+                    placement="top"
+                  >
+                    <InfoIcon color="gray.400" boxSize={4} />
+                  </Tooltip>
+                )}
+              </HStack>
               <NumberInput
                 precision={2}
                 step={0.01}
                 max={99.99}
-                value={producto.margen_ganancia}
-                onChange={(valueString) => handlePrecioChange('margen_ganancia', valueString)}
+                value={esMateriaPrima ? '' : producto.margen_ganancia}
+                onChange={(valueString) => !esMateriaPrima && handlePrecioChange('margen_ganancia', valueString)}
                 format={val => val}
                 parse={val => val.replace(/[^\d.]/g, '')}
+                isDisabled={esMateriaPrima}
+                bg={esMateriaPrima ? 'gray.100' : 'white'}
               >
-                <NumberInputField />
+                <NumberInputField 
+                  bg={esMateriaPrima ? 'gray.100' : 'white'}
+                  cursor={esMateriaPrima ? 'not-allowed' : 'text'}
+                />
                 <NumberInputStepper>
                   <NumberIncrementStepper />
                   <NumberDecrementStepper />
                 </NumberInputStepper>
               </NumberInput>
-              <FormHelperText>
-                Porcentaje de utilidad sobre el precio de venta. 
-                Ejemplo: Si el precio de compra es 100 y el precio de venta es 200, el margen es 50%.
+              <FormHelperText color={esMateriaPrima ? 'gray.400' : 'gray.600'}>
+                {esMateriaPrima 
+                  ? 'No aplica para materias primas'
+                  : 'Porcentaje de utilidad sobre el precio de venta. Ejemplo: Si el precio de compra es 100 y el precio de venta es 200, el margen es 50%.'
+                }
               </FormHelperText>
             </FormControl>
 
-            <FormControl isRequired>
-              <FormLabel>Precio de Venta</FormLabel>
+            <FormControl isRequired={!esMateriaPrima} isDisabled={esMateriaPrima}>
+              <HStack>
+                <FormLabel mb={0}>Precio de Venta</FormLabel>
+                {esMateriaPrima && (
+                  <Tooltip 
+                    label="Las materias primas no se venden directamente. Solo los productos terminados tienen precio de venta."
+                    placement="top"
+                  >
+                    <InfoIcon color="gray.400" boxSize={4} />
+                  </Tooltip>
+                )}
+              </HStack>
               <NumberInput
                 min={0}
                 precision={2}
                 step={0.01}
-                value={producto.precio_venta}
-                onChange={(valueString) => handlePrecioChange('precio_venta', valueString)}
+                value={esMateriaPrima ? '' : producto.precio_venta}
+                onChange={(valueString) => !esMateriaPrima && handlePrecioChange('precio_venta', valueString)}
                 format={val => val}
                 parse={val => val.replace(/[^\d.]/g, '')}
+                isDisabled={esMateriaPrima}
+                bg={esMateriaPrima ? 'gray.100' : 'white'}
               >
-                <NumberInputField />
+                <NumberInputField 
+                  bg={esMateriaPrima ? 'gray.100' : 'white'}
+                  cursor={esMateriaPrima ? 'not-allowed' : 'text'}
+                />
                 <NumberInputStepper>
                   <NumberIncrementStepper />
                   <NumberDecrementStepper />
                 </NumberInputStepper>
               </NumberInput>
-              <FormHelperText>Precio al que vendes el producto</FormHelperText>
+              <FormHelperText color={esMateriaPrima ? 'gray.400' : 'gray.600'}>
+                {esMateriaPrima 
+                  ? 'No aplica para materias primas - se utilizan en producción, no en ventas directas'
+                  : 'Precio al que vendes el producto'
+                }
+              </FormHelperText>
             </FormControl>
 
             <FormControl isRequired>
@@ -466,6 +634,26 @@ const AddProducto = () => {
                 <option value="USD">Dólar Americano ($)</option>
               </Select>
               <FormHelperText>Moneda para precios de compra y venta</FormHelperText>
+            </FormControl>
+
+            <FormControl isRequired>
+              <FormLabel>Unidad de Medida</FormLabel>
+              <Select
+                name="unidad_medida"
+                value={producto.unidad_medida}
+                onChange={handleChange}
+              >
+                <option value="unidad">Unidad</option>
+                <option value="kilo">Kilogramo (Kg)</option>
+                <option value="gramo">Gramo (g)</option>
+                <option value="litro">Litro (L)</option>
+                <option value="metro">Metro (m)</option>
+                <option value="decena">Decena</option>
+                <option value="docena">Docena (12 unidades)</option>
+                <option value="centenar">Centenar (100 unidades)</option>
+                <option value="millar">Millar (1000 unidades)</option>
+              </Select>
+              <FormHelperText>Unidad en la que se mide el producto</FormHelperText>
             </FormControl>
 
             <Divider />

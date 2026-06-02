@@ -1,7 +1,7 @@
 /**
  * Servicio para interactuar con las APIs de Machine Learning
  */
-import api from '../config/axios';
+import api from '../lib/api';
 
 const mlService = {
   // ============================================

@@ -32,7 +32,7 @@ class RecetaProductoViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Filtrar recetas por empresa del usuario"""
-        empresa = self.request.user.perfil.empresa
+        empresa = self.request.user.empresa
         queryset = RecetaProducto.objects.filter(empresa=empresa).select_related(
             'producto_terminado'
         ).prefetch_related('detalles__insumo')
@@ -117,7 +117,7 @@ class RecetaProductoViewSet(viewsets.ModelViewSet):
             )
         
         try:
-            empresa = request.user.perfil.empresa
+            empresa = request.user.empresa
             resultado = ProduccionService.validar_stock_receta(
                 empresa, receta_id, Decimal(str(cantidad)), almacen_insumos_id
             )
@@ -134,7 +134,7 @@ class OrdenProduccionViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Filtrar órdenes por empresa del usuario"""
-        empresa = self.request.user.perfil.empresa
+        empresa = self.request.user.empresa
         queryset = OrdenProduccion.objects.filter(empresa=empresa).select_related(
             'receta__producto_terminado',
             'almacen_insumos',
@@ -191,6 +191,40 @@ class OrdenProduccionViewSet(viewsets.ModelViewSet):
         elif self.action == 'create':
             return OrdenProduccionCreateSerializer
         return OrdenProduccionSerializer
+    
+    def create(self, request, *args, **kwargs):
+        """Override create para devolver el serializer correcto en la respuesta"""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        orden = serializer.save()
+        # Usar OrdenProduccionSerializer para la respuesta
+        response_serializer = OrdenProduccionSerializer(orden)
+        return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+    
+    def partial_update(self, request, *args, **kwargs):
+        """Override partial_update para registrar historial al actualizar progreso"""
+        from .models import HistorialOrdenProduccion
+        
+        orden = self.get_object()
+        cantidad_anterior = orden.cantidad_producida
+        
+        response = super().partial_update(request, *args, **kwargs)
+        
+        # Si se actualizó la cantidad producida, registrar en historial
+        if 'cantidad_producida' in request.data:
+            nueva_cantidad = request.data.get('cantidad_producida')
+            HistorialOrdenProduccion.registrar_evento(
+                orden=orden,
+                tipo_evento='actualizacion_progreso',
+                descripcion=f'Progreso actualizado: {cantidad_anterior} → {nueva_cantidad} unidades',
+                usuario=request.user,
+                datos_adicionales={
+                    'cantidad_anterior': float(cantidad_anterior or 0),
+                    'cantidad_nueva': float(nueva_cantidad or 0)
+                }
+            )
+        
+        return response
     
     @action(detail=True, methods=['post'])
     def iniciar(self, request, pk=None):
@@ -284,7 +318,7 @@ class DashboardProduccionView(APIView):
     permission_classes = [IsAuthenticated]
     
     def get(self, request):
-        empresa = request.user.perfil.empresa
+        empresa = request.user.empresa
         
         # Parámetros de fecha (por defecto último mes)
         fecha_hasta = timezone.now().date()

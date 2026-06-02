@@ -1,14 +1,29 @@
-import { api } from '../api';
+import { api } from '../lib/api';
 
 export const productosService = {
-    getProductos: async () => {
+    getProductos: async (filtros = {}) => {
         try {
-            console.log('Iniciando petición a productos...');
-            const response = await api.get('/api/inventario/productos/');
+            console.log('Iniciando petición a productos...', filtros);
+            const response = await api.get('/api/inventario/productos/', { params: filtros });
             console.log('Respuesta completa:', response);
             return response.data;
         } catch (error) {
             console.error('Error en getProductos:', error);
+            throw error;
+        }
+    },
+
+    // Obtener solo productos terminados (para ventas y cotizaciones)
+    getProductosParaVenta: async () => {
+        try {
+            console.log('Obteniendo productos terminados para venta...');
+            const response = await api.get('/api/inventario/productos/', {
+                params: { tipo_producto: 'FINISHED' }
+            });
+            console.log('Productos para venta:', response.data);
+            return response.data;
+        } catch (error) {
+            console.error('Error en getProductosParaVenta:', error);
             throw error;
         }
     },
@@ -105,6 +120,18 @@ export const productosService = {
             return response.data;
         } catch (error) {
             console.error('Error en actualizarStock:', error);
+            throw error;
+        }
+    },
+
+    getMateriasPrimas: async () => {
+        try {
+            console.log('Solicitando materias primas...');
+            const response = await api.get('/api/inventario/productos/materias_primas/');
+            console.log('Materias primas recibidas:', response.data);
+            return response.data;
+        } catch (error) {
+            console.error('Error en getMateriasPrimas:', error);
             throw error;
         }
     },

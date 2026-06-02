@@ -1,4 +1,4 @@
-import api from '../config/axios';
+import api from '../lib/api';
 
 const API_URL = '/api/produccion';
 
@@ -79,7 +79,39 @@ export const produccionService = {
     return api.post(`${API_URL}/recetas/validar_stock/`, data);
   },
 
-  // ========== ÓRDENES DE PRODUCCIÓN ==========
+  /**
+   * Verifica stock disponible para una receta y cantidad
+   * @param {number} recetaId - ID de la receta
+   * @param {number} cantidad - Cantidad a producir
+   */
+  verificarStock: async (recetaId, cantidad) => {
+    try {
+      const response = await api.post(`${API_URL}/recetas/validar_stock/`, {
+        receta_id: recetaId,
+        cantidad: cantidad
+      });
+      return response.data;
+    } catch (error) {
+      // Si el endpoint no existe, calculamos localmente
+      const receta = await api.get(`${API_URL}/recetas/${recetaId}/`);
+      const detalles = receta.data?.detalles || [];
+      
+      const materiales = detalles.map(det => ({
+        nombre: det.materia_prima_nombre || det.producto_nombre,
+        requerido: det.cantidad * cantidad,
+        disponible: det.stock_disponible || 0,
+        suficiente: (det.stock_disponible || 0) >= (det.cantidad * cantidad),
+        unidad: det.unidad_medida || 'und'
+      }));
+      
+      return {
+        puede_producir: materiales.every(m => m.suficiente),
+        materiales
+      };
+    }
+  },
+
+  // ========== ��RDENES DE PRODUCCI��N ==========
 
   /**
    * Obtiene lista de órdenes de producción
@@ -158,6 +190,36 @@ export const produccionService = {
   },
 
   /**
+   * Actualiza el progreso de una orden de producción
+   * @param {number} id - ID de la orden
+   * @param {Object} data - { cantidad_producida }
+   */
+  actualizarProgreso: (id, data) => {
+    return api.patch(`${API_URL}/ordenes/${id}/`, data);
+  },
+
+  /**
+   * Completa una orden de producción (alias de finalizar)
+   * @param {number} id - ID de la orden
+   * @param {Object} data - Datos opcionales de finalización
+   */
+  completarOrden: (id, data = {}) => {
+    return api.post(`${API_URL}/ordenes/${id}/finalizar/`, data);
+  },
+
+  /**
+   * Obtiene los usuarios disponibles para asignar a órdenes
+   */
+  getUsuarios: async () => {
+    try {
+      const response = await api.get('/api/usuarios/');
+      return response.data;
+    } catch {
+      return [];
+    }
+  },
+
+  /**
    * Actualiza el consumo real de un insumo
    * @param {number} ordenId - ID de la orden
    * @param {Object} data - { insumo_id, cantidad_real, merma, notas }
@@ -169,8 +231,8 @@ export const produccionService = {
   // ========== DASHBOARD ==========
 
   /**
-   * Obtiene métricas del dashboard de producción
-   * @param {Object} params - Parámetros (fecha_desde, fecha_hasta)
+   * Obtiene mรฉtricas del dashboard de producciรณn
+   * @param {Object} params - Parรกmetros (fecha_desde, fecha_hasta)
    */
   getDashboard: (params = {}) => {
     return api.get(`${API_URL}/dashboard/`, { params });

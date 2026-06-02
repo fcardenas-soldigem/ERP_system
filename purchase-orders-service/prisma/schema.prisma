@@ -1,0 +1,164 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+  schemas   = ["po"]
+}
+
+// ──────────────────────────────────────────────
+// ENUMS
+// ──────────────────────────────────────────────
+
+enum PoCurrency {
+  USD
+  PEN
+
+  @@map("po_currency")
+  @@schema("po")
+}
+
+enum PoStatus {
+  DRAFT
+  APPROVED
+  CLOSED
+
+  @@map("po_status")
+  @@schema("po")
+}
+
+// ──────────────────────────────────────────────
+// PURCHASE ORDER – Cabecera
+// ──────────────────────────────────────────────
+
+model PurchaseOrder {
+  id                 String   @id @default(uuid()) @db.Uuid
+  poNumber           String   @unique @map("po_number")
+
+  // Proveedor
+  supplierName       String   @map("supplier_name")
+  supplierRuc        String   @map("supplier_ruc") @db.VarChar(20)
+  supplierAddress    String?  @map("supplier_address")
+  supplierContact    String?  @map("supplier_contact")
+  supplierEmail      String?  @map("supplier_email")
+
+  // Empresa emisora
+  companyName        String   @map("company_name")
+  companyRuc         String   @map("company_ruc") @db.VarChar(20)
+  companyAddress     String?  @map("company_address")
+  companyLogoUrl     String?  @map("company_logo_url")
+
+  // Moneda y pago
+  currency           PoCurrency @default(PEN)
+  paymentTerms       String?    @map("payment_terms") @db.VarChar(50)
+
+  // Fechas
+  issueDate          DateTime   @map("issue_date") @db.Date
+  dueDate            DateTime?  @map("due_date") @db.Date
+
+  // Totales (calculados en backend)
+  subtotal           Decimal    @default(0) @db.Decimal(14, 2)
+  baseImponible      Decimal    @default(0) @map("base_imponible") @db.Decimal(14, 2)
+  igv                Decimal    @default(0) @db.Decimal(14, 2)
+  total              Decimal    @default(0) @db.Decimal(14, 2)
+
+  // IGV incluido en precios
+  incluyeIgv         Boolean    @default(false) @map("incluye_igv")
+
+  // Descuento
+  descuentoTipo      String?    @default("porcentaje") @map("descuento_tipo") @db.VarChar(20)
+  descuentoValor     Decimal    @default(0) @map("descuento_valor") @db.Decimal(14, 2)
+  descuentoMonto     Decimal    @default(0) @map("descuento_monto") @db.Decimal(14, 2)
+
+  // Tipo de orden
+  orderType          String?    @default("productos") @map("order_type") @db.VarChar(20)
+
+  // Estado
+  status             PoStatus   @default(DRAFT)
+
+  // Texto libre
+  deliveryConditions String?    @map("delivery_conditions") @db.Text
+  considerations     String?    @db.Text
+
+  // Soft delete
+  deletedAt          DateTime?  @map("deleted_at")
+
+  // Timestamps
+  createdAt          DateTime   @default(now()) @map("created_at")
+  updatedAt          DateTime   @updatedAt @map("updated_at")
+
+  // Preparado para multi-tenancy (FK manual a empresas_empresa)
+  empresaId          BigInt?    @map("empresa_id")
+
+  // Relaciones
+  items              PurchaseOrderItem[]
+  files              PurchaseOrderFile[]
+
+  @@map("po_purchase_orders")
+  @@index([status])
+  @@index([empresaId])
+  @@index([issueDate])
+  @@index([supplierRuc])
+  @@schema("po")
+}
+
+// ──────────────────────────────────────────────
+// PURCHASE ORDER ITEM – Detalle
+// ──────────────────────────────────────────────
+
+model PurchaseOrderItem {
+  id              String   @id @default(uuid()) @db.Uuid
+  purchaseOrderId String   @map("purchase_order_id") @db.Uuid
+  description     String
+  quantity        Decimal  @db.Decimal(14, 4)
+  unit            String   @default("UND") @db.VarChar(20)
+  unitPrice       Decimal  @map("unit_price") @db.Decimal(14, 4)
+  total           Decimal  @db.Decimal(14, 2)
+  sortOrder       Int      @default(0) @map("sort_order")
+
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+
+  @@map("po_purchase_order_items")
+  @@index([purchaseOrderId])
+  @@schema("po")
+}
+
+// ──────────────────────────────────────────────
+// PURCHASE ORDER FILE – Adjuntos
+// ──────────────────────────────────────────────
+
+model PurchaseOrderFile {
+  id              String   @id @default(uuid()) @db.Uuid
+  purchaseOrderId String   @map("purchase_order_id") @db.Uuid
+  fileName        String   @map("file_name")
+  fileUrl         String   @map("file_url")
+  fileSize        Int?     @map("file_size")
+  mimeType        String?  @map("mime_type") @db.VarChar(100)
+
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+
+  @@map("po_purchase_order_files")
+  @@index([purchaseOrderId])
+  @@schema("po")
+}
+
+// ──────────────────────────────────────────────
+// SEQUENCE – Correlativo OC-{AÑO}-{NÚMERO}
+// ──────────────────────────────────────────────
+
+model PurchaseOrderSequence {
+  id         Int @id @default(autoincrement())
+  year       Int @unique
+  lastNumber Int @default(0) @map("last_number")
+
+  @@map("po_sequences")
+  @@schema("po")
+}

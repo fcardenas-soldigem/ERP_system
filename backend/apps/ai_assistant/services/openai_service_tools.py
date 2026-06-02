@@ -53,7 +53,6 @@ class OpenAIServiceWithTools:
             }
             
         except Exception as e:
-            print(f"❌ Error creando thread: {str(e)}")
             raise e
     
     def _generate_welcome_message(self, user):
@@ -83,7 +82,6 @@ Soy **Jorge**, tu analista comercial especializado en el ERP de {empresa_name}.
     def send_message_with_tools(self, thread_id, content, user):
         """Enviar mensaje con soporte para function calling"""
         try:
-            print(f"🤖 Jorge recibió: {content}")
             
             # Guardar mensaje del usuario en la base de datos
             self._save_user_message(thread_id, content, user)
@@ -102,14 +100,12 @@ Soy **Jorge**, tu analista comercial especializado en el ERP de {empresa_name}.
                 tools=ANALISTA_TOOLS  # 🔍 Tools solo para análisis
             )
             
-            print(f"🔄 Run creado: {run.id}")
             
             # Esperar completación
             run = self._wait_for_completion(thread_id, run.id)
             
             # Manejar tool calls si los hay
             if run.status == "requires_action":
-                print("🛠️ El asistente requiere ejecutar funciones...")
                 response = self._handle_tool_calls(thread_id, run, user)
             else:
                 # Obtener respuesta normal
@@ -123,7 +119,6 @@ Soy **Jorge**, tu analista comercial especializado en el ERP de {empresa_name}.
             
         except Exception as e:
             error_msg = f"❌ Error procesando mensaje: {str(e)}"
-            print(error_msg)
             return error_msg
     
     def _wait_for_completion(self, thread_id, run_id, max_wait=30):
@@ -136,7 +131,6 @@ Soy **Jorge**, tu analista comercial especializado en el ERP de {empresa_name}.
                 run_id=run_id
             )
             
-            print(f"🔄 Run status: {run.status}")
             
             if run.status in ["completed", "requires_action", "failed", "cancelled", "expired"]:
                 return run
@@ -153,19 +147,15 @@ Soy **Jorge**, tu analista comercial especializado en el ERP de {empresa_name}.
             executor = AnalistaExecutor(user)
             tool_outputs = []
             
-            print(f"🔧 Procesando {len(run.required_action.submit_tool_outputs.tool_calls)} function calls...")
             
             for tool_call in run.required_action.submit_tool_outputs.tool_calls:
                 function_name = tool_call.function.name
                 arguments_str = tool_call.function.arguments
                 
-                print(f"📞 Llamando función: {function_name}")
-                print(f"📋 Argumentos: {arguments_str}")
                 
                 try:
                     arguments = json.loads(arguments_str)
                 except json.JSONDecodeError as e:
-                    print(f"❌ Error parsing JSON: {e}")
                     result = {
                         'success': False,
                         'error': f'Error parsing argumentos: {str(e)}'
@@ -174,7 +164,6 @@ Soy **Jorge**, tu analista comercial especializado en el ERP de {empresa_name}.
                     # Ejecutar función
                     result = executor.execute_function(function_name, arguments)
                 
-                print(f"✅ Resultado: {result}")
                 
                 tool_outputs.append({
                     "tool_call_id": tool_call.id,
@@ -200,7 +189,6 @@ Soy **Jorge**, tu analista comercial especializado en el ERP de {empresa_name}.
             
         except Exception as e:
             error_msg = f"❌ Error ejecutando funciones: {str(e)}"
-            print(error_msg)
             return error_msg
     
     def _save_user_message(self, thread_id, content, user):
@@ -215,17 +203,14 @@ Soy **Jorge**, tu analista comercial especializado en el ERP de {empresa_name}.
                     'empresa': user.empresa
                 }
             )
-            if created:
-                print(f"✅ Conversación creada para thread {thread_id}")
-            
             Message.objects.create(
                 conversation=conversation,
                 role='user',
                 content=content
             )
         except Exception as e:
-            print(f"⚠️ Error guardando mensaje de usuario: {e}")
-    
+            pass
+
     def _save_assistant_message(self, thread_id, content, user):
         """Guardar mensaje del asistente en la base de datos"""
         try:
@@ -238,21 +223,17 @@ Soy **Jorge**, tu analista comercial especializado en el ERP de {empresa_name}.
                     'empresa': user.empresa
                 }
             )
-            if created:
-                print(f"✅ Conversación creada para thread {thread_id}")
-            
             Message.objects.create(
                 conversation=conversation,
                 role='assistant',
                 content=content
             )
         except Exception as e:
-            print(f"⚠️ Error guardando mensaje del asistente: {e}")
-    
+            pass
+
     def get_thread_messages(self, thread_id):
         """Obtener mensajes de un thread"""
         try:
-            print(f"🔍 Obteniendo mensajes del thread: {thread_id}")
             messages = self.client.beta.threads.messages.list(thread_id=thread_id)
             
             formatted_messages = []
@@ -265,19 +246,15 @@ Soy **Jorge**, tu analista comercial especializado en el ERP de {empresa_name}.
                         'created_at': msg.created_at
                     })
                 except Exception as content_error:
-                    print(f"⚠️ Error procesando mensaje: {content_error}")
                     continue
             
-            print(f"✅ {len(formatted_messages)} mensajes obtenidos")
             return formatted_messages
             
         except Exception as e:
             error_msg = str(e)
-            print(f"❌ Error obteniendo mensajes del thread {thread_id}: {error_msg}")
             
             # Si el thread no existe, devolver lista vacía
             if "No thread found" in error_msg or "thread_" not in thread_id:
-                print("⚠️ Thread no encontrado, devolviendo lista vacía")
                 return []
             
             # Para otros errores, re-lanzar la excepción

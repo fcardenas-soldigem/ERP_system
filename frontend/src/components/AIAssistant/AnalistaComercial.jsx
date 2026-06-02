@@ -21,7 +21,7 @@ import {
   useToast,
   Badge
 } from '@chakra-ui/react';
-import { api } from '../../api';
+import { api } from '../../lib/api';
 
 const AnalistaComercial = () => {
   const [loading, setLoading] = useState(false);
