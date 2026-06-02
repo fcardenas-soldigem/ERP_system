@@ -45,6 +45,9 @@ if not ALLOWED_HOSTS or '*' in ALLOWED_HOSTS:
 CSRF_TRUSTED_ORIGINS = [
     'https://erp-backend-25656632090.southamerica-west1.run.app',
     'https://*.run.app',
+    'https://erp.soldigem.com.pe',
+    'https://api.soldigem.com.pe',
+    'http://localhost:3000',
 ]
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 USE_X_FORWARDED_HOST = True
@@ -58,8 +61,8 @@ SESSION_COOKIE_SECURE = not DEBUG  # True en producción
 CSRF_COOKIE_SECURE = not DEBUG     # True en producción
 SESSION_COOKIE_HTTPONLY = True     # Previene acceso desde JavaScript
 CSRF_COOKIE_HTTPONLY = True        # Previene acceso desde JavaScript
-SESSION_COOKIE_SAMESITE = 'Lax'    # Protección CSRF adicional
-CSRF_COOKIE_SAMESITE = 'Lax'
+SESSION_COOKIE_SAMESITE = 'None'   # Cross-domain Vercel→Cloud Run (requiere Secure=True, ya activo en prod)
+CSRF_COOKIE_SAMESITE = 'None'      # Idem — Django mantiene CSRF token-based protection
 
 # HSTS (HTTP Strict Transport Security) - fuerza HTTPS en el navegador
 SECURE_HSTS_SECONDS = 31536000 if not DEBUG else 0  # 1 año en producción
@@ -176,13 +179,12 @@ if REDIS_URL:
         'default': {
             'BACKEND': 'django.core.cache.backends.redis.RedisCache',
             'LOCATION': REDIS_URL,
-            'OPTIONS': {
-                'CLIENT_CLASS': 'django_redis.client.DefaultClient',
-            },
             'KEY_PREFIX': 'erp',
             'TIMEOUT': 300,  # 5 minutos por defecto
         }
     }
+    SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
+    SESSION_CACHE_ALIAS = 'default'
 else:
     # Cache en memoria local (para desarrollo o si no hay Redis)
     CACHES = {

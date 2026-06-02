@@ -1,4 +1,5 @@
 import logging
+from django.core.cache import cache
 from rest_framework import viewsets, status, permissions
 from rest_framework.response import Response
 from rest_framework.decorators import action
@@ -111,21 +112,34 @@ class CompraViewSet(viewsets.ModelViewSet):
 
     def list(self, request, *args, **kwargs):
         try:
+            empresa_id = request.user.empresa_id
+            if not request.query_params:
+                cache_key = f'compras_list_{empresa_id}'
+                cached = cache.get(cache_key)
+                if cached is not None:
+                    return Response(cached)
+
             queryset = self.get_queryset()
-            
+
             # Aplicar paginación
             page = self.paginate_queryset(queryset)
             if page is not None:
                 serializer = self.get_serializer(page, many=True)
-                return self.get_paginated_response(serializer.data)
-            
+                response = self.get_paginated_response(serializer.data)
+                if not request.query_params:
+                    cache.set(f'compras_list_{empresa_id}', response.data, 60)
+                return response
+
             serializer = self.get_serializer(queryset, many=True)
-            return Response({
+            data = {
                 'count': queryset.count(),
                 'next': None,
                 'previous': None,
                 'results': serializer.data
-            })
+            }
+            if not request.query_params:
+                cache.set(f'compras_list_{empresa_id}', data, 60)
+            return Response(data)
         except Exception as e:
             logger.error('Error en list: %s', e, exc_info=True)
             return Response(
@@ -750,6 +764,11 @@ class CompraViewSet(viewsets.ModelViewSet):
                     compra.actualizar_stock()
 
                 # Retornar la compra creada
+                empresa_id = request.user.empresa_id
+                cache.delete(f'compras_list_{empresa_id}')
+                cache.delete(f'dashboard_mes_{empresa_id}')
+                cache.delete(f'dashboard_historico_{empresa_id}')
+                cache.delete(f'dashboard_simple_stats_{empresa_id}')
                 response_serializer = self.get_serializer(compra)
                 return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
@@ -768,8 +787,27 @@ class ProveedorViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         return self.queryset.filter(empresa=self.request.user.empresa)
 
+    def list(self, request, *args, **kwargs):
+        empresa_id = request.user.empresa_id
+        cache_key = f'proveedores_list_{empresa_id}'
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return Response(cached)
+        response = super().list(request, *args, **kwargs)
+        cache.set(cache_key, response.data, 300)
+        return response
+
     def perform_create(self, serializer):
         serializer.save(empresa=self.request.user.empresa)
+        cache.delete(f'proveedores_list_{self.request.user.empresa_id}')
+
+    def perform_update(self, serializer):
+        serializer.save()
+        cache.delete(f'proveedores_list_{self.request.user.empresa_id}')
+
+    def perform_destroy(self, instance):
+        instance.delete()
+        cache.delete(f'proveedores_list_{self.request.user.empresa_id}')
 
     @action(detail=False, methods=['get'])
     def consultar_ruc(self, request):

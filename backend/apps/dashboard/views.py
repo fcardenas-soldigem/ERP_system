@@ -6,6 +6,7 @@ from apps.compras.models import OrdenCompra, Proveedor, Compra
 from apps.inventario.models.producto import Producto
 from apps.inventario.models.stock import Stock
 from apps.core.services.documento_service import DocumentoService
+from django.core.cache import cache
 from django.db.models import Sum, Count, F, Q, ExpressionWrapper, DecimalField
 from django.utils import timezone
 from django.shortcuts import render
@@ -56,16 +57,21 @@ def convertir_a_pen(monto, moneda, tipo_cambio):
 
 class DashboardResumen(APIView):
     permission_classes = [IsAuthenticated]
-    
+
     def get(self, request):
         try:
             # LOG de depuración
             logger.info(f"Usuario autenticado: {request.user} (ID: {request.user.id})")
             empresa = getattr(request.user, 'empresa', None)
             logger.info(f"Empresa del usuario: {empresa} (ID: {getattr(empresa, 'id', None)})")
-            
+
             if not empresa:
                 return Response({"error": "Usuario sin empresa asignada"}, status=400)
+
+            cache_key = f'dashboard_mes_{empresa.id}'
+            cached = cache.get(cache_key)
+            if cached:
+                return Response(cached)
 
             # Obtener el primer y último día del mes actual
             hoy = timezone.now()
@@ -218,6 +224,7 @@ class DashboardResumen(APIView):
             }
 
             logger.info("Respuesta del dashboard generada exitosamente")
+            cache.set(cache_key, response_data, 120)
             return Response(response_data)
 
         except Exception as e:
@@ -238,9 +245,14 @@ class DashboardStatsView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, days=30):
+        empresa = request.user.empresa
+        cache_key = f'dashboard_stats_{empresa.id}_{days}'
+        cached = cache.get(cache_key)
+        if cached:
+            return Response(cached)
+
         fecha_fin = timezone.now()
         fecha_inicio = fecha_fin - timedelta(days=days)
-        empresa = request.user.empresa
 
         # Tipo de cambio: preferir el configurado en empresa, luego API del día
         tipo_cambio = float(getattr(empresa, 'tipo_cambio_usd', None) or obtener_tipo_cambio_venta())
@@ -282,17 +294,24 @@ class DashboardStatsView(APIView):
             ventas_data.append(round(ventas_por_fecha.get(fecha, 0.0), 2))
             compras_data.append(round(compras_por_fecha.get(fecha, 0.0), 2))
 
-        return Response({
+        result = {
             'ventas': {'labels': labels, 'data': ventas_data},
             'compras': {'labels': labels, 'data': compras_data},
             'tipo_cambio': tipo_cambio,
-        })
+        }
+        cache.set(cache_key, result, 120)
+        return Response(result)
 
 class DashboardResumenView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
         empresa = request.user.empresa
+        cache_key = f'dashboard_historico_{empresa.id}'
+        cached = cache.get(cache_key)
+        if cached:
+            return Response(cached)
+
         tipo_cambio = float(getattr(empresa, 'tipo_cambio_usd', None) or obtener_tipo_cambio_venta())
 
         def _sum_con_conversion(qs, campo):
@@ -346,7 +365,7 @@ class DashboardResumenView(APIView):
 
         logger.info('DashboardResumenView — ventas=%s compras=%s tc=%s', total_ventas, total_compras, tipo_cambio)
 
-        return Response({
+        payload = {
             'ventas': {'total': total_ventas, 'cantidad': cantidad_ventas},
             'compras': {'total': total_compras, 'cantidad': cantidad_compras},
             'utilidad': {
@@ -374,16 +393,20 @@ class DashboardResumenView(APIView):
                 'productos_bajo_stock': productos_bajo_stock,
             },
             'tipo_cambio': {'valor': tipo_cambio, 'moneda_base': 'PEN'},
-        })
+        }
+        cache.set(cache_key, payload, 120)
+        return Response(payload)
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_dashboard_stats(request):
-    # Obtener fecha hace 30 días
-    fecha_30_dias = datetime.now() - timedelta(days=30)
     empresa = request.user.empresa
-    
-    # Calcular estadísticas
+    cache_key = f'dashboard_simple_stats_{empresa.id}'
+    cached = cache.get(cache_key)
+    if cached:
+        return Response(cached)
+
+    fecha_30_dias = datetime.now() - timedelta(days=30)
     try:
         total_compras = Compra.objects.filter(
             empresa=empresa,
@@ -395,10 +418,12 @@ def get_dashboard_stats(request):
             fecha_emision__gte=fecha_30_dias
         ).aggregate(total=Sum('total'))['total'] or 0
 
-        return Response({
+        data = {
             'total_compras': float(total_compras),
             'total_ventas': float(total_ventas)
-        })
+        }
+        cache.set(cache_key, data, 120)
+        return Response(data)
     except Exception as e:
         return Response({'error': str(e)}, status=500)
 

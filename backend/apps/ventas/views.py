@@ -1,4 +1,5 @@
 import logging
+from django.core.cache import cache
 from rest_framework import generics
 from .models import Venta, Cliente, Factura, OrdenVenta, DetalleVenta, PagoVenta
 
@@ -468,6 +469,13 @@ class VentaViewSet(viewsets.ModelViewSet):
 
         return queryset.order_by('-fecha_emision')
 
+    def _invalidate_ventas_cache(self):
+        empresa_id = self.request.user.empresa_id
+        cache.delete(f'ventas_list_{empresa_id}')
+        cache.delete(f'dashboard_mes_{empresa_id}')
+        cache.delete(f'dashboard_historico_{empresa_id}')
+        cache.delete(f'dashboard_simple_stats_{empresa_id}')
+
     def perform_create(self, serializer):
         try:
             venta = serializer.save()
@@ -489,16 +497,38 @@ class VentaViewSet(viewsets.ModelViewSet):
             if venta.estado == 'pagado':
                 venta.actualizar_stock()
 
+            self._invalidate_ventas_cache()
+
         except Exception:
             raise
 
+    def perform_update(self, serializer):
+        serializer.save()
+        self._invalidate_ventas_cache()
+
+    def perform_destroy(self, instance):
+        instance.delete()
+        self._invalidate_ventas_cache()
+
     def list(self, request, *args, **kwargs):
+        empresa_id = request.user.empresa_id
+        if not request.query_params:
+            cache_key = f'ventas_list_{empresa_id}'
+            cached = cache.get(cache_key)
+            if cached is not None:
+                return Response(cached)
+
         queryset = self.get_queryset()
         page = self.paginate_queryset(queryset)
         if page is not None:
             serializer = self.get_serializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
+            response = self.get_paginated_response(serializer.data)
+            if not request.query_params:
+                cache.set(f'ventas_list_{empresa_id}', response.data, 60)
+            return response
         serializer = self.get_serializer(queryset, many=True)
+        if not request.query_params:
+            cache.set(f'ventas_list_{empresa_id}', serializer.data, 60)
         return Response(serializer.data)
 
     @action(detail=True, methods=['post'])

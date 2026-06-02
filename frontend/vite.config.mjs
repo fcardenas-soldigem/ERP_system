@@ -30,7 +30,17 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
-    sourcemap: true
+    sourcemap: false,
+    chunkSizeWarningLimit: 1000,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ['react', 'react-dom', 'react-router-dom'],
+          chakra: ['@chakra-ui/react'],
+          charts: ['chart.js', 'react-chartjs-2'],
+        },
+      },
+    },
   },
   preview: {
     port: 8080

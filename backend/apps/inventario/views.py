@@ -73,8 +73,27 @@ class CategoriaViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         return Categoria.objects.filter(empresa=self.request.user.empresa)
 
+    def list(self, request, *args, **kwargs):
+        empresa_id = request.user.empresa_id
+        cache_key = f'categorias_list_{empresa_id}'
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return Response(cached)
+        response = super().list(request, *args, **kwargs)
+        cache.set(cache_key, response.data, get_cache_timeout('categorias'))
+        return response
+
     def perform_create(self, serializer):
         serializer.save(empresa=self.request.user.empresa)
+        cache.delete(f'categorias_list_{self.request.user.empresa_id}')
+
+    def perform_update(self, serializer):
+        serializer.save()
+        cache.delete(f'categorias_list_{self.request.user.empresa_id}')
+
+    def perform_destroy(self, instance):
+        instance.delete()
+        cache.delete(f'categorias_list_{self.request.user.empresa_id}')
 
 class ProductoViewSet(viewsets.ModelViewSet):
     serializer_class = ProductoSerializer

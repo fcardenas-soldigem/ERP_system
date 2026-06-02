@@ -41,5 +41,14 @@ USER appuser
 # Expose app port
 EXPOSE 8080
 
-# Start: gunicorn (los estáticos ya fueron colectados en build)
-CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8080", "--workers", "3", "--timeout", "120"]
+# gthread: 2 workers x 4 threads = 8 slots concurrentes con ~60% menos RAM que 8 workers sync
+# --worker-class gthread es requerido para que --threads tenga efecto (sync worker lo ignora)
+# --max-requests previene memory leaks en workers de larga vida en Cloud Run
+CMD ["gunicorn", "config.wsgi:application", \
+     "--bind", "0.0.0.0:8080", \
+     "--worker-class", "gthread", \
+     "--workers", "2", \
+     "--threads", "4", \
+     "--timeout", "120", \
+     "--max-requests", "1000", \
+     "--max-requests-jitter", "50"]
