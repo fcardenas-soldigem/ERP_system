@@ -6,12 +6,12 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '../../lib/api';
 
 // Dashboard sub-components
-import QuickActions       from '../dashboard/QuickActions';
-import HeroChart          from '../dashboard/HeroChart';
-import StatCardsCarousel  from '../dashboard/StatCardsCarousel';
-import RecentSales        from '../dashboard/RecentSales';
-import TopProducts        from '../dashboard/TopProducts';
-import AlertsBar          from '../dashboard/AlertsBar';
+import QuickActions       from './QuickActions';
+import HeroChart          from './HeroChart';
+import StatCardsCarousel  from './StatCardsCarousel';
+import RecentSales        from './RecentSales';
+import TopProducts        from './TopProducts';
+import AlertsBar          from './AlertsBar';
 import { DashboardSkeleton } from '../common/SkeletonLoaders';
 import ServiciosWidget    from '../Servicios/ServiciosWidget';
 
