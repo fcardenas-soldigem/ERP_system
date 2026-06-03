@@ -59,6 +59,18 @@ ENV DJANGO_SETTINGS_MODULE=config.settings \
     DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1 \
     DJANGO_DEBUG=False
 
+# Valores dummy para satisfacer el raise ValueError de settings.py durante el build.
+# NUNCA se usan en producción — los secretos reales viven en GCP Secret Manager
+# y se inyectan en Cloud Run al arrancar el contenedor, sobreescribiendo estos valores.
+ARG DJANGO_SECRET_KEY=dummy-build-key-not-used-in-prod
+ARG JWT_SIGNING_KEY=dummy-jwt-signing-key-not-used-in-prod
+ARG APIS_NET_PE_TOKEN=dummy-apis-token-not-used-in-prod
+ARG CORS_ALLOWED_ORIGINS=http://localhost:3000
+ENV DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY} \
+    JWT_SIGNING_KEY=${JWT_SIGNING_KEY} \
+    APIS_NET_PE_TOKEN=${APIS_NET_PE_TOKEN} \
+    CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS}
+
 # Recolectar archivos estáticos (WhiteNoise los sirve en producción).
 # Se ejecuta aquí una sola vez durante el build, no en cada arranque.
 RUN python manage.py collectstatic --noinput
