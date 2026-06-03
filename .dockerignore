@@ -1,0 +1,52 @@
+# ── Python bytecode ──────────────────────────────────────────
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/*.pyd
+
+# ── Virtual environments ──────────────────────────────────────
+backend/venv/
+backend/.venv/
+**/.venv/
+
+# ── Tests y QA ───────────────────────────────────────────────
+backend/tests/
+backend/.pytest_cache/
+**/.pytest_cache/
+**/test_*.py
+**/*_test.py
+
+# ── Secretos y configuración local ───────────────────────────
+**/.env
+**/.env.*
+!**/.env.example
+
+# ── Control de versiones ──────────────────────────────────────
+.git/
+.gitignore
+.gitattributes
+
+# ── Frontend (no necesario para el build del backend) ────────
+frontend/
+node_modules/
+
+# ── Documentación ────────────────────────────────────────────
+*.md
+**/*.md
+docs/
+
+# ── IDEs y editores ──────────────────────────────────────────
+.vscode/
+.idea/
+**/*.swp
+**/*.swo
+**/.DS_Store
+
+# ── Docker (evita copiar Dockerfiles dentro del contexto) ─────
+**/Dockerfile*
+**/.dockerignore
+
+# ── Archivos de CI/CD y configuración local ──────────────────
+.github/
+.claude/
+*.log
