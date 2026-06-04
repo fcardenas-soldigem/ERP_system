@@ -11,7 +11,7 @@ from apps.inventario.models.stock import Stock
 from django.core.exceptions import ValidationError
 import os
 from django.utils import timezone
-from datetime import timedelta
+from datetime import date, timedelta
 from django.core.validators import MinValueValidator, MaxValueValidator
 
 logger = logging.getLogger(__name__)
@@ -638,6 +638,7 @@ class OrdenCompra(models.Model):
         null=True
     )
     proveedor_nombre = models.CharField(max_length=200, blank=True, null=True)
+    fecha_emision = models.DateField(default=date.today)
     fecha_entrega = models.DateField()
     estado = models.CharField(
         max_length=20,
@@ -668,6 +669,7 @@ class OrdenCompra(models.Model):
     # Campos adicionales
     notas = models.TextField(blank=True, null=True)
     fecha_creacion = models.DateTimeField(auto_now_add=True)
+    fecha_actualizacion = models.DateTimeField(auto_now=True)
 
     class Meta:
         verbose_name = 'Orden de Compra'
