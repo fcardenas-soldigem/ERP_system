@@ -25,12 +25,16 @@ _REFRESH_COOKIE_MAX_AGE = int(
 
 
 def _set_refresh_cookie(response, refresh_token_str):
+    # SameSite=None requires Secure=True (browsers reject None+Secure=False since Chrome 80).
+    # In dev (DEBUG=True) we use Lax+Secure=False so localhost works without HTTPS.
+    # In prod (DEBUG=False) we use None+Secure=True for cross-domain Vercel→Cloud Run.
+    is_prod = not settings.DEBUG
     response.set_cookie(
         'refresh_token',
         refresh_token_str,
         httponly=True,
-        secure=not settings.DEBUG,
-        samesite='None',  # cross-domain: Vercel → Cloud Run requires SameSite=None + Secure
+        secure=is_prod,
+        samesite='None' if is_prod else 'Lax',
         max_age=_REFRESH_COOKIE_MAX_AGE,
     )
 
