@@ -20,12 +20,12 @@ const api = axios.create({
 // Prevents concurrent 401s from triggering multiple simultaneous refresh attempts.
 let _isRefreshing = false;
 
-const _redirectToLogin = () => {
-  // replace() avoids adding /login to history (prevents back-button loop).
-  // Guard prevents reload loop when already on /login.
-  if (window.location.pathname !== '/login') {
-    window.location.replace('/login');
-  }
+// Dispatches a DOM event instead of calling window.location directly.
+// window.location causes a full page reload → React remounts → AuthContext
+// calls checkAuth() again → loop. The event lets AuthContext handle the
+// redirect via React Router (client-side navigation, no reload).
+const _notifySessionExpired = () => {
+  window.dispatchEvent(new CustomEvent('auth:session-expired'));
 };
 
 api.interceptors.request.use(
@@ -54,7 +54,7 @@ api.interceptors.response.use(
     if (originalRequest.url?.includes('/token')) {
       _isRefreshing = false;
       clearAccessToken();
-      _redirectToLogin();
+      _notifySessionExpired();
       return Promise.reject(error);
     }
 
@@ -70,7 +70,7 @@ api.interceptors.response.use(
       } catch {
         _isRefreshing = false;
         clearAccessToken();
-        _redirectToLogin();
+        _notifySessionExpired();
         return Promise.reject(error);
       }
     }

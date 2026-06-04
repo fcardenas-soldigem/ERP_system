@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
+import React, { createContext, useState, useContext, useEffect, useRef } from 'react';
 import { authService } from '../../services/auth.service';
 import { useToast } from '@chakra-ui/react';
 import { useNavigate } from 'react-router-dom';
@@ -12,6 +12,28 @@ export const AuthProvider = ({ children }) => {
     const [loading, setLoading] = useState(true);
     const toast = useToast();
     const navigate = useNavigate();
+
+    // Ref so the event listener always sees the latest user value
+    // without needing to re-register on every state change.
+    const userRef = useRef(null);
+    useEffect(() => { userRef.current = user; }, [user]);
+
+    // Listen for session-expired events dispatched by the axios interceptor.
+    // Using an event (instead of window.location) avoids full page reloads:
+    // reload → AuthContext remounts → checkAuth() runs again → loop.
+    useEffect(() => {
+        const handleSessionExpired = () => {
+            // Only act if the user was actually logged in.
+            // During checkAuth(), user=null so we skip — checkAuth() handles its own errors.
+            if (userRef.current !== null) {
+                setUser(null);
+                setIsAuthenticated(false);
+                navigate('/login');
+            }
+        };
+        window.addEventListener('auth:session-expired', handleSessionExpired);
+        return () => window.removeEventListener('auth:session-expired', handleSessionExpired);
+    }, [navigate]);
 
     const checkAuth = async () => {
         try {
