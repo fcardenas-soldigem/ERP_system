@@ -17,6 +17,17 @@ const api = axios.create({
   withCredentials: true, // Required so the httpOnly refresh cookie is sent automatically
 });
 
+// Prevents concurrent 401s from triggering multiple simultaneous refresh attempts.
+let _isRefreshing = false;
+
+const _redirectToLogin = () => {
+  // replace() avoids adding /login to history (prevents back-button loop).
+  // Guard prevents reload loop when already on /login.
+  if (window.location.pathname !== '/login') {
+    window.location.replace('/login');
+  }
+};
+
 api.interceptors.request.use(
   (config) => {
     if (_accessToken) {
@@ -39,23 +50,27 @@ api.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
 
-    // If the refresh request itself failed, bail immediately — no retry loop.
-    if (originalRequest.url?.includes('/token/refresh/')) {
+    // Any /token endpoint failure means the session is dead — bail immediately.
+    if (originalRequest.url?.includes('/token')) {
+      _isRefreshing = false;
       clearAccessToken();
-      window.location.href = '/login';
+      _redirectToLogin();
       return Promise.reject(error);
     }
 
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    if (error.response?.status === 401 && !originalRequest._retry && !_isRefreshing) {
       originalRequest._retry = true;
+      _isRefreshing = true;
 
       try {
         // Cookie is sent automatically via withCredentials — no token in request body
         await authAPI.refreshToken();
+        _isRefreshing = false;
         return api(originalRequest);
       } catch {
+        _isRefreshing = false;
         clearAccessToken();
-        window.location.href = '/login';
+        _redirectToLogin();
         return Promise.reject(error);
       }
     }
