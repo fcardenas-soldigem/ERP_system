@@ -966,168 +966,18 @@ class OrdenCompraViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['get'], url_path='exportar-pdf')
     def exportar_pdf(self, request, pk=None):
-        from reportlab.lib import colors
-        from reportlab.lib.pagesizes import A4
-        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-        from reportlab.lib.enums import TA_LEFT, TA_RIGHT, TA_CENTER
-        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, HRFlowable
-        from datetime import datetime
+        from .utils.pdf_generator import PurchaseOrderPDFGenerator
 
         orden = self.get_object()
-        empresa = orden.empresa
-        buffer = BytesIO()
+        generator = PurchaseOrderPDFGenerator(orden, usuario=request.user)
+        buffer = generator.generar_pdf()
 
-        PRIMARY = colors.HexColor('#2B6CB0')
-        LIGHT = colors.HexColor('#EBF8FF')
-        DARK = colors.HexColor('#1a1a1a')
-        GRAY = colors.HexColor('#666666')
-        BORDER = colors.HexColor('#cccccc')
-        WHITE = colors.white
-        PAGE_W, _ = A4
-        MARGIN = 40
-
-        styles = getSampleStyleSheet()
-        lbl = ParagraphStyle('lbl', fontSize=8, textColor=GRAY)
-        val = ParagraphStyle('val', fontSize=10, fontName='Helvetica-Bold', textColor=DARK)
-        bar_s = ParagraphStyle('bar', fontSize=9, fontName='Helvetica-Bold', textColor=WHITE, leading=12)
-        cell_s = ParagraphStyle('cell', fontSize=9, textColor=DARK)
-        cell_r = ParagraphStyle('cellr', fontSize=9, textColor=DARK, alignment=TA_RIGHT)
-
-        def section_bar(text):
-            t = Table([[Paragraph(text, bar_s)]], colWidths=[PAGE_W - 2 * MARGIN])
-            t.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, -1), PRIMARY),
-                ('TOPPADDING', (0, 0), (-1, -1), 5),
-                ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
-                ('LEFTPADDING', (0, 0), (-1, -1), 8),
-            ]))
-            return t
-
-        def lv(label, value):
-            return Table(
-                [[Paragraph(label, lbl)], [Paragraph(str(value) if value else '—', val)]],
-                colWidths=[(PAGE_W - 2 * MARGIN) / 2],
-            )
-
-        doc = SimpleDocTemplate(
-            buffer, pagesize=A4,
-            leftMargin=MARGIN, rightMargin=MARGIN,
-            topMargin=MARGIN, bottomMargin=MARGIN + 10,
-        )
-
-        def page_decor(c, d):
-            c.saveState()
-            c.setFont('Helvetica', 7)
-            c.setFillColor(GRAY)
-            c.drawString(MARGIN, 20, f'OC-{orden.numero or "---"}')
-            c.drawRightString(PAGE_W - MARGIN, 20, datetime.now().strftime('%d/%m/%Y %H:%M'))
-            c.drawCentredString(PAGE_W / 2, 20, f'Página {c.getPageNumber()}')
-            c.restoreState()
-
-        W = PAGE_W - 2 * MARGIN
-
-        # Header
-        right_data = [
-            [Paragraph(f'Fecha: {orden.fecha_creacion.strftime("%d/%m/%Y")}',
-                       ParagraphStyle('h', fontSize=8, textColor=GRAY, alignment=TA_RIGHT))],
-            [Paragraph('ORDEN DE COMPRA', ParagraphStyle('h2', fontSize=10, fontName='Helvetica-Bold',
-                                                          textColor=DARK, alignment=TA_RIGHT, spaceBefore=4))],
-            [Paragraph(f'<b>OC-{orden.numero or "---"}</b>',
-                       ParagraphStyle('h3', fontSize=16, fontName='Helvetica-Bold',
-                                      textColor=PRIMARY, alignment=TA_RIGHT))],
-        ]
-        right_t = Table(right_data, colWidths=[W * 0.45])
-        logo_cell = ''
-        if empresa.logo:
-            try:
-                import os as _os
-                from reportlab.platypus import Image as _Img
-                logo_path = empresa.logo.path
-                if _os.path.exists(logo_path):
-                    logo_cell = _Img(logo_path, width=130, height=60, kind='proportional')
-            except Exception:
-                pass
-        if not logo_cell:
-            logo_cell = Paragraph(f'<b>{empresa.nombre}</b>',
-                                  ParagraphStyle('en', fontSize=14, fontName='Helvetica-Bold',
-                                                 textColor=PRIMARY))
-        header_t = Table([[logo_cell, right_t]], colWidths=[W * 0.55, W * 0.45])
-        header_t.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'MIDDLE')]))
-
-        # Info empresa + proveedor
-        emp_rows = [
-            [lv('Empresa', empresa.nombre), lv('RUC', empresa.ruc or '—')],
-            [lv('Dirección', empresa.direccion or '—'), ''],
-        ]
-        emp_t = Table(emp_rows, colWidths=[W / 2, W / 2])
-        emp_t.setStyle(TableStyle([
-            ('GRID', (0, 0), (-1, -1), 0.3, BORDER),
-            ('TOPPADDING', (0, 0), (-1, -1), 4),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-            ('LEFTPADDING', (0, 0), (-1, -1), 6),
-        ]))
-
-        prov_rows = [
-            [lv('Proveedor', orden.proveedor_nombre or '—'), lv('Fecha Entrega', orden.fecha_entrega.strftime('%d/%m/%Y'))],
-            [lv('Estado', orden.get_estado_display()), ''],
-        ]
-        prov_t = Table(prov_rows, colWidths=[W / 2, W / 2])
-        prov_t.setStyle(TableStyle([
-            ('GRID', (0, 0), (-1, -1), 0.3, BORDER),
-            ('TOPPADDING', (0, 0), (-1, -1), 4),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-            ('LEFTPADDING', (0, 0), (-1, -1), 6),
-        ]))
-
-        # Totals
-        s_lbl = ParagraphStyle('tl', fontSize=9, textColor=DARK)
-        s_val = ParagraphStyle('tv', fontSize=9, textColor=DARK, alignment=TA_RIGHT)
-        s_lbl_b = ParagraphStyle('tlb', fontSize=10, fontName='Helvetica-Bold', textColor=DARK)
-        s_val_b = ParagraphStyle('tvb', fontSize=10, fontName='Helvetica-Bold', textColor=PRIMARY, alignment=TA_RIGHT)
-        sym = 'S/'
-        tot_rows = [
-            [Paragraph('Subtotal:', s_lbl), Paragraph(f'{sym} {float(orden.subtotal):,.2f}', s_val)],
-            [Paragraph('IGV (18%):', s_lbl), Paragraph(f'{sym} {float(orden.igv):,.2f}', s_val)],
-            [Paragraph('<b>TOTAL:</b>', s_lbl_b), Paragraph(f'<b>{sym} {float(orden.total):,.2f}</b>', s_val_b)],
-        ]
-        tot_col = W - 180
-        tot_t = Table(
-            [[Paragraph('', styles['Normal']), Table(tot_rows, colWidths=[90, 90])]],
-            colWidths=[tot_col, 180],
-        )
-        tot_t.setStyle(TableStyle([
-            ('TOPPADDING', (0, 0), (-1, -1), 0),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
-            ('ALIGN', (1, 0), (1, 0), 'RIGHT'),
-        ]))
-
-        story = [
-            header_t, Spacer(1, 8),
-            section_bar('EMPRESA EMISORA'), emp_t, Spacer(1, 4),
-            section_bar('DATOS DEL PROVEEDOR Y ENTREGA'), prov_t, Spacer(1, 8),
-        ]
-        if orden.notas:
-            story += [section_bar('NOTAS / OBSERVACIONES'),
-                      Paragraph(orden.notas, ParagraphStyle('nn', fontSize=9, textColor=DARK)),
-                      Spacer(1, 8)]
-        story += [section_bar('RESUMEN ECONÓMICO'), Spacer(1, 4), tot_t, Spacer(1, 30)]
-
-        # Signature area
-        sig_t = Table(
-            [[Paragraph('_______________________', styles['Normal']),
-              Paragraph('_______________________', styles['Normal'])],
-             [Paragraph('Firma autorizada', ParagraphStyle('sig', fontSize=8, textColor=GRAY)),
-              Paragraph('Visto bueno proveedor', ParagraphStyle('sig2', fontSize=8, textColor=GRAY, alignment=TA_RIGHT))]],
-            colWidths=[W / 2, W / 2],
-        )
-        story.append(sig_t)
-
-        doc.build(story, onFirstPage=page_decor, onLaterPages=page_decor)
-        buffer.seek(0)
-
+        year = getattr(orden.fecha_emision, 'year', '')
+        oc_num = f'OC-{year}-{orden.numero or "000001"}'
         prov_slug = (orden.proveedor_nombre or 'PROVEEDOR').replace(' ', '_')[:30]
         fecha_str = orden.fecha_creacion.strftime('%Y-%m-%d')
-        filename = f'OC-{orden.numero or "---"}_{prov_slug}_{fecha_str}.pdf'
+        filename = f'{oc_num}_{prov_slug}_{fecha_str}.pdf'
+
         response = HttpResponse(buffer.getvalue(), content_type='application/pdf')
         response['Content-Disposition'] = f'attachment; filename="{filename}"'
         return response

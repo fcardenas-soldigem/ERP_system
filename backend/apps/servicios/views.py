@@ -212,13 +212,13 @@ class OrdenServicioViewSet(viewsets.ModelViewSet):
 
         por_proveedor = []
         proveedores = (
-            qs_activas.values('proveedor_reparacion__id', 'proveedor_reparacion__nombre')
+            qs_activas.values('proveedor_reparacion__id', 'proveedor_reparacion__razon_social')
             .annotate(total=Count('id'))
             .order_by('-total')
         )
         for p in proveedores:
             prov_id = p['proveedor_reparacion__id']
-            prov_nombre = p['proveedor_reparacion__nombre'] or str(prov_id)
+            prov_nombre = p['proveedor_reparacion__razon_social'] or str(prov_id)
             qs_prov = qs_activas.filter(proveedor_reparacion_id=prov_id)
             en_riesgo_prov = qs_prov.filter(fecha_entrega_estimada__lte=limite_critico).count()
 

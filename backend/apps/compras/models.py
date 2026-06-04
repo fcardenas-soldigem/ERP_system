@@ -637,6 +637,13 @@ class OrdenCompra(models.Model):
         blank=True,
         null=True
     )
+    proveedor = models.ForeignKey(
+        'Proveedor',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='ordenes_compra',
+    )
     proveedor_nombre = models.CharField(max_length=200, blank=True, null=True)
     fecha_emision = models.DateField(default=date.today)
     fecha_entrega = models.DateField()
@@ -716,9 +723,42 @@ class OrdenCompra(models.Model):
         # Por ahora deshabilitamos esta funcionalidad hasta arreglar la estructura
         raise ValidationError('Funcionalidad temporalmente deshabilitada')
 
-# class OrdenCompraDetalle(models.Model):
-#     # Temporalmente comentado porque la tabla no existe
-#     pass
+class OrdenCompraDetalle(models.Model):
+    """
+    Detalle de línea de una OrdenCompra.
+    managed=False: la tabla compras_ordencompradetalle ya existe en BD
+    (creada en 0001_initial, la migración 0007 la eliminó del estado Django
+    pero la tabla persiste). No se genera migración.
+    """
+    orden = models.ForeignKey(
+        OrdenCompra,
+        on_delete=models.CASCADE,
+        related_name='detalles',
+    )
+    producto = models.ForeignKey(
+        'inventario.Producto',
+        on_delete=models.PROTECT,
+        null=True, blank=True,
+    )
+    cantidad = models.DecimalField(
+        max_digits=10, decimal_places=2,
+        validators=[MinValueValidator(Decimal('0.01'))],
+    )
+    precio_unitario = models.DecimalField(
+        max_digits=10, decimal_places=2,
+        validators=[MinValueValidator(Decimal('0.01'))],
+    )
+
+    class Meta:
+        managed = False          # tabla ya existe; Django no la toca
+        db_table = 'compras_ordencompradetalle'
+        verbose_name = 'Detalle de Orden de Compra'
+        verbose_name_plural = 'Detalles de Orden de Compra'
+        ordering = ['id']
+
+    def __str__(self):
+        nombre = self.producto.nombre if self.producto_id else '—'
+        return f'{nombre} × {self.cantidad}'
 
 class RecepcionCompra(models.Model):
     orden = models.ForeignKey(

@@ -4,6 +4,7 @@ from .models import (
     CompraDetalle,
     Proveedor,
     OrdenCompra,
+    OrdenCompraDetalle,
     RecepcionCompra,
     PagoCompra,
     CompraRecurrente,
@@ -251,14 +252,64 @@ class PagoCompraSerializer(serializers.ModelSerializer):
         
         return data
 
+class OrdenCompraDetalleSerializer(serializers.ModelSerializer):
+    producto_nombre = serializers.CharField(source='producto.nombre', read_only=True)
+    producto_sku    = serializers.CharField(source='producto.sku',    read_only=True)
+    unidad_medida   = serializers.CharField(source='producto.unidad_medida', read_only=True)
+    importe         = serializers.SerializerMethodField()
+
+    class Meta:
+        model  = OrdenCompraDetalle
+        fields = ['id', 'producto', 'producto_nombre', 'producto_sku',
+                  'unidad_medida', 'cantidad', 'precio_unitario', 'importe']
+
+    def get_importe(self, obj):
+        return float(obj.cantidad) * float(obj.precio_unitario)
+
+
 class OrdenCompraSerializer(serializers.ModelSerializer):
+    detalles = OrdenCompraDetalleSerializer(many=True, required=False)
+    proveedor_info = serializers.SerializerMethodField()
+
     class Meta:
         model = OrdenCompra
         fields = [
-            'id', 'numero', 'empresa', 'proveedor_nombre', 'fecha_creacion',
-            'fecha_entrega', 'subtotal', 'igv', 'total', 'estado', 'notas',
+            'id', 'numero', 'empresa', 'proveedor', 'proveedor_nombre',
+            'fecha_emision', 'fecha_creacion', 'fecha_entrega',
+            'subtotal', 'igv', 'total', 'estado', 'notas', 'detalles',
+            'proveedor_info',
         ]
-        read_only_fields = ['id', 'numero', 'fecha_creacion']
+        read_only_fields = ['id', 'numero', 'empresa', 'fecha_creacion']
+
+    def get_proveedor_info(self, obj):
+        p = obj.proveedor
+        if p is None and obj.proveedor_nombre:
+            p = Proveedor.objects.filter(
+                empresa=obj.empresa,
+                razon_social__iexact=obj.proveedor_nombre,
+            ).first()
+        if p:
+            return {'ruc': p.ruc, 'direccion': p.direccion,
+                    'email': p.email, 'telefono': p.telefono}
+        return None
+
+    def create(self, validated_data):
+        detalles_data = validated_data.pop('detalles', [])
+        orden = OrdenCompra.objects.create(**validated_data)
+        for d in detalles_data:
+            OrdenCompraDetalle.objects.create(orden=orden, **d)
+        return orden
+
+    def update(self, instance, validated_data):
+        detalles_data = validated_data.pop('detalles', None)
+        for attr, val in validated_data.items():
+            setattr(instance, attr, val)
+        instance.save()
+        if detalles_data is not None:
+            instance.detalles.all().delete()
+            for d in detalles_data:
+                OrdenCompraDetalle.objects.create(orden=instance, **d)
+        return instance
 
 class RecepcionCompraSerializer(serializers.ModelSerializer):
     class Meta:

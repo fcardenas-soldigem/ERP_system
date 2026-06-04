@@ -61,7 +61,7 @@ class AlmacenViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, HasEmpresaPermission]
 
     def get_queryset(self):
-        return Almacen.objects.filter(empresa=self.request.user.empresa)
+        return Almacen.objects.filter(empresa=self.request.user.empresa).order_by('id')
 
     def perform_create(self, serializer):
         serializer.save(empresa=self.request.user.empresa)
@@ -203,7 +203,7 @@ class StockViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, HasEmpresaPermission]
 
     def get_queryset(self):
-        return Stock.objects.filter(empresa=self.request.user.empresa)
+        return Stock.objects.filter(empresa=self.request.user.empresa).order_by('id')
 
     def perform_create(self, serializer):
         serializer.save(empresa=self.request.user.empresa)
@@ -213,7 +213,7 @@ class AjusteInventarioViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, HasEmpresaPermission]
 
     def get_queryset(self):
-        return AjusteInventario.objects.filter(empresa=self.request.user.empresa)
+        return AjusteInventario.objects.filter(empresa=self.request.user.empresa).order_by('id')
 
     def perform_create(self, serializer):
         serializer.save(empresa=self.request.user.empresa)
