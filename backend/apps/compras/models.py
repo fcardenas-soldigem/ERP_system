@@ -668,6 +668,15 @@ class OrdenCompra(models.Model):
 
     # Campos adicionales
     notas = models.TextField(blank=True, null=True)
+    # almacen era NOT NULL en 0001_initial pero fue removido del modelo sin migración.
+    # Se restaura como nullable para que INSERTs sin almacen no violen la constraint.
+    almacen = models.ForeignKey(
+        'inventario.Almacen',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='ordenes_compra',
+    )
     fecha_creacion = models.DateTimeField(auto_now_add=True)
     fecha_actualizacion = models.DateTimeField(auto_now=True)
 
