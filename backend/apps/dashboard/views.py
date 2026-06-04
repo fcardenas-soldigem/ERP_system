@@ -431,103 +431,108 @@ class UtilityDashboardView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        # Obtener año y mes de los parámetros de consulta
-        year = int(request.GET.get('year', datetime.now().year))
-        month = int(request.GET.get('month', datetime.now().month))
-        empresa = request.user.empresa
-        
-        # Calcular el primer y último día del mes
-        _, last_day = monthrange(year, month)
-        start_date = datetime(year, month, 1)
-        end_date = datetime(year, month, last_day, 23, 59, 59)
-        
-        # Calcular el primer y último día del mes anterior
-        if month == 1:
-            prev_month = 12
-            prev_year = year - 1
-        else:
-            prev_month = month - 1
-            prev_year = year
-        
-        _, prev_last_day = monthrange(prev_year, prev_month)
-        prev_start_date = datetime(prev_year, prev_month, 1)
-        prev_end_date = datetime(prev_year, prev_month, prev_last_day, 23, 59, 59)
+        empresa = getattr(request.user, 'empresa', None)
+        if not empresa:
+            return Response({'error': 'Usuario sin empresa asignada'}, status=400)
 
-        # Tipo de cambio configurable (empresa) con fallback a API del día
-        tipo_cambio = float(getattr(empresa, 'tipo_cambio_usd', None) or obtener_tipo_cambio_venta())
+        try:
+            # Obtener año y mes de los parámetros de consulta
+            year = int(request.GET.get('year', datetime.now().year))
+            month = int(request.GET.get('month', datetime.now().month))
 
-        def _total_pen(qs_class, filters, tc):
-            """Suma total convirtiendo USD a PEN."""
-            pen = float(qs_class.filter(**filters, moneda='PEN').aggregate(t=Sum('total', output_field=FloatField()))['t'] or 0)
-            usd = float(qs_class.filter(**filters, moneda='USD').aggregate(t=Sum('total', output_field=FloatField()))['t'] or 0)
-            return pen + usd * tc
+            # Calcular el primer y último día del mes
+            _, last_day = monthrange(year, month)
+            start_date = datetime(year, month, 1)
+            end_date = datetime(year, month, last_day, 23, 59, 59)
 
-        ventas_mes = _total_pen(Venta, {'empresa': empresa, 'fecha_emision__range': (start_date, end_date), 'estado': 'pagado'}, tipo_cambio)
-        ventas_mes_anterior = _total_pen(Venta, {'empresa': empresa, 'fecha_emision__range': (prev_start_date, prev_end_date), 'estado': 'pagado'}, tipo_cambio)
-        compras_mes = _total_pen(Compra, {'empresa': empresa, 'fecha_emision__range': (start_date, end_date), 'estado': 'pagada'}, tipo_cambio)
-        compras_mes_anterior = _total_pen(Compra, {'empresa': empresa, 'fecha_emision__range': (prev_start_date, prev_end_date), 'estado': 'pagada'}, tipo_cambio)
+            # Calcular el primer y último día del mes anterior
+            if month == 1:
+                prev_month = 12
+                prev_year = year - 1
+            else:
+                prev_month = month - 1
+                prev_year = year
 
-        # Calcular utilidad (ventas - compras antes de IGV)
-        utilidad_mes = (ventas_mes / 1.18) - (compras_mes / 1.18)
-        utilidad_mes_anterior = (ventas_mes_anterior / 1.18) - (compras_mes_anterior / 1.18)
+            _, prev_last_day = monthrange(prev_year, prev_month)
+            prev_start_date = datetime(prev_year, prev_month, 1)
+            prev_end_date = datetime(prev_year, prev_month, prev_last_day, 23, 59, 59)
 
-        # Calcular porcentajes de crecimiento
-        def calcular_crecimiento(actual, anterior):
-            if anterior == 0:
-                return 0 if actual == 0 else 100
-            return ((actual - anterior) / anterior) * 100
+            # Tipo de cambio configurable (empresa) con fallback a API del día
+            tipo_cambio = float(getattr(empresa, 'tipo_cambio_usd', None) or obtener_tipo_cambio_venta())
 
-        # Obtener datos diarios para el gráfico
-        dias_mes = []
-        ventas_diarias = []
-        compras_diarias = []
-        utilidades_diarias = []
-        
-        # Pre-fetch all ventas/compras del mes para evitar N queries en el loop
-        todas_ventas_mes = Venta.objects.filter(
-            empresa=empresa,
-            fecha_emision__range=(start_date, end_date),
-            estado='pagado',
-        ).values('fecha_emision', 'moneda', 'total')
+            def _total_pen(qs_class, filters, tc):
+                """Suma total convirtiendo USD a PEN."""
+                pen = float(qs_class.objects.filter(**filters, moneda='PEN').aggregate(t=Sum('total', output_field=FloatField()))['t'] or 0)
+                usd = float(qs_class.objects.filter(**filters, moneda='USD').aggregate(t=Sum('total', output_field=FloatField()))['t'] or 0)
+                return pen + usd * tc
 
-        todas_compras_mes = Compra.objects.filter(
-            empresa=empresa,
-            fecha_emision__range=(start_date, end_date),
-            estado='pagada',
-        ).values('fecha_emision', 'moneda', 'total')
+            ventas_mes = _total_pen(Venta, {'empresa': empresa, 'fecha_emision__range': (start_date, end_date), 'estado': 'pagado'}, tipo_cambio)
+            ventas_mes_anterior = _total_pen(Venta, {'empresa': empresa, 'fecha_emision__range': (prev_start_date, prev_end_date), 'estado': 'pagado'}, tipo_cambio)
+            compras_mes = _total_pen(Compra, {'empresa': empresa, 'fecha_emision__range': (start_date, end_date), 'estado': 'pagada'}, tipo_cambio)
+            compras_mes_anterior = _total_pen(Compra, {'empresa': empresa, 'fecha_emision__range': (prev_start_date, prev_end_date), 'estado': 'pagada'}, tipo_cambio)
 
-        ventas_por_dia = {}
-        for v in todas_ventas_mes:
-            d = v['fecha_emision'].day if hasattr(v['fecha_emision'], 'day') else v['fecha_emision']
-            ventas_por_dia[d] = ventas_por_dia.get(d, 0.0) + convertir_a_pen(v['total'], v['moneda'], tipo_cambio)
+            # Calcular utilidad (ventas - compras antes de IGV)
+            utilidad_mes = (ventas_mes / 1.18) - (compras_mes / 1.18)
+            utilidad_mes_anterior = (ventas_mes_anterior / 1.18) - (compras_mes_anterior / 1.18)
 
-        compras_por_dia = {}
-        for c in todas_compras_mes:
-            d = c['fecha_emision'].day if hasattr(c['fecha_emision'], 'day') else c['fecha_emision']
-            compras_por_dia[d] = compras_por_dia.get(d, 0.0) + convertir_a_pen(c['total'], c['moneda'], tipo_cambio)
+            # Calcular porcentajes de crecimiento
+            def calcular_crecimiento(actual, anterior):
+                if anterior == 0:
+                    return 0 if actual == 0 else 100
+                return ((actual - anterior) / anterior) * 100
 
-        for dia in range(1, last_day + 1):
-            dias_mes.append(dia)
-            v_dia = ventas_por_dia.get(dia, 0.0)
-            c_dia = compras_por_dia.get(dia, 0.0)
-            ventas_diarias.append(round(v_dia, 2))
-            compras_diarias.append(round(c_dia, 2))
-            utilidades_diarias.append(round((v_dia / 1.18) - (c_dia / 1.18), 2))
+            # Obtener datos diarios para el gráfico
+            dias_mes = []
+            ventas_diarias = []
+            compras_diarias = []
+            utilidades_diarias = []
 
-        # Imprimir para debug
-        logger.info(f"Ventas mes: {ventas_mes}")
-        logger.info(f"Compras mes: {compras_mes}")
-        logger.info(f"Utilidad mes: {utilidad_mes}")
-        logger.info(f"Ventas diarias: {ventas_diarias}")
-        logger.info(f"Compras diarias: {compras_diarias}")
-        logger.info(f"Utilidades diarias: {utilidades_diarias}")
+            # Pre-fetch all ventas/compras del mes para evitar N queries en el loop
+            todas_ventas_mes = Venta.objects.filter(
+                empresa=empresa,
+                fecha_emision__range=(start_date, end_date),
+                estado='pagado',
+            ).values('fecha_emision', 'moneda', 'total')
 
-        return Response({
-            'labels': dias_mes,
-            'utilidades': utilidades_diarias,
-            'ventas': ventas_diarias,
-            'compras': compras_diarias
-        })
+            todas_compras_mes = Compra.objects.filter(
+                empresa=empresa,
+                fecha_emision__range=(start_date, end_date),
+                estado='pagada',
+            ).values('fecha_emision', 'moneda', 'total')
+
+            ventas_por_dia = {}
+            for v in todas_ventas_mes:
+                d = v['fecha_emision'].day if hasattr(v['fecha_emision'], 'day') else v['fecha_emision']
+                ventas_por_dia[d] = ventas_por_dia.get(d, 0.0) + convertir_a_pen(v['total'], v['moneda'], tipo_cambio)
+
+            compras_por_dia = {}
+            for c in todas_compras_mes:
+                d = c['fecha_emision'].day if hasattr(c['fecha_emision'], 'day') else c['fecha_emision']
+                compras_por_dia[d] = compras_por_dia.get(d, 0.0) + convertir_a_pen(c['total'], c['moneda'], tipo_cambio)
+
+            for dia in range(1, last_day + 1):
+                dias_mes.append(dia)
+                v_dia = ventas_por_dia.get(dia, 0.0)
+                c_dia = compras_por_dia.get(dia, 0.0)
+                ventas_diarias.append(round(v_dia, 2))
+                compras_diarias.append(round(c_dia, 2))
+                utilidades_diarias.append(round((v_dia / 1.18) - (c_dia / 1.18), 2))
+
+            logger.info('UtilityDashboardView — ventas=%s compras=%s utilidad=%s', ventas_mes, compras_mes, utilidad_mes)
+
+            return Response({
+                'labels': dias_mes,
+                'utilidades': utilidades_diarias,
+                'ventas': ventas_diarias,
+                'compras': compras_diarias,
+            })
+
+        except Exception as e:
+            logger.error('Error en UtilityDashboardView: %s', e, exc_info=True)
+            return Response(
+                {'error': 'Error al generar el dashboard de utilidad', 'detail': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
 class IGVDashboardView(APIView):
     permission_classes = [IsAuthenticated]

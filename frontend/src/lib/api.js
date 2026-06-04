@@ -37,38 +37,26 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
-    const requestUrl = error.config?.url || '';
-    const isAuthEndpoint =
-      requestUrl.includes('/api/token/') || requestUrl.includes('/api/auth/login');
+    const originalRequest = error.config;
 
-    if (
-      error.response?.status === 401 &&
-      !isAuthEndpoint &&
-      !error.config._retry
-    ) {
-      error.config._retry = true;
+    // If the refresh request itself failed, bail immediately — no retry loop.
+    if (originalRequest.url?.includes('/token/refresh/')) {
+      clearAccessToken();
+      window.location.href = '/login';
+      return Promise.reject(error);
+    }
+
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      originalRequest._retry = true;
 
       try {
         // Cookie is sent automatically via withCredentials — no token in request body
-        const response = await axios.post(
-          `${api.defaults.baseURL}/api/token/refresh/`,
-          {},
-          { withCredentials: true }
-        );
-        if (response.data.access) {
-          setAccessToken(response.data.access);
-          error.config.headers.Authorization = `Bearer ${response.data.access}`;
-          return api(error.config);
-        }
-      } catch (refreshError) {
+        await authAPI.refreshToken();
+        return api(originalRequest);
+      } catch {
         clearAccessToken();
-        if (
-          window.location.pathname !== '/login' &&
-          window.location.pathname !== '/'
-        ) {
-          window.location.href = '/login';
-        }
-        return Promise.reject(refreshError);
+        window.location.href = '/login';
+        return Promise.reject(error);
       }
     }
 

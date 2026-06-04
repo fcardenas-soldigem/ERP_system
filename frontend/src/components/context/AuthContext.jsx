@@ -28,7 +28,8 @@ export const AuthProvider = ({ children }) => {
                 }
             }
         } catch {
-            // No valid cookie — user is not authenticated, stay on current page
+            setUser(null);
+            setIsAuthenticated(false);
         } finally {
             setLoading(false);
         }

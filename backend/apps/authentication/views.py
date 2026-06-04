@@ -30,7 +30,7 @@ def _set_refresh_cookie(response, refresh_token_str):
         refresh_token_str,
         httponly=True,
         secure=not settings.DEBUG,
-        samesite='Lax',
+        samesite='None',  # cross-domain: Vercel → Cloud Run requires SameSite=None + Secure
         max_age=_REFRESH_COOKIE_MAX_AGE,
     )
 
