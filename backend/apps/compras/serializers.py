@@ -266,6 +266,15 @@ class OrdenCompraDetalleSerializer(serializers.ModelSerializer):
     def get_importe(self, obj):
         return float(obj.cantidad) * float(obj.precio_unitario)
 
+    def validate(self, data):
+        if not data.get('descripcion') and not data.get('producto'):
+            raise serializers.ValidationError(
+                'Debe proporcionar una descripción o seleccionar un producto'
+            )
+        if data.get('producto') and not data.get('descripcion'):
+            data['descripcion'] = data['producto'].nombre
+        return data
+
 
 class OrdenCompraSerializer(serializers.ModelSerializer):
     detalles = OrdenCompraDetalleSerializer(many=True, required=False)
