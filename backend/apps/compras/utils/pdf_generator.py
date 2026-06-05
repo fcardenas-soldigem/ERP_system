@@ -30,7 +30,7 @@ _BORDER      = colors.HexColor('#cccccc')
 _WHITE       = colors.white
 
 # paleta OC (diseño profesional)
-OC_DARK_HDR  = colors.HexColor('#1E3A5F')   # fondo barras de sección
+OC_DARK_HDR  = colors.HexColor('#2B5EA7')   # fondo barras de sección
 OC_BLUE      = colors.HexColor('#2B5EA7')   # fondo header tabla + número OC
 OC_ROW_ALT   = colors.HexColor('#EBF0F8')   # filas alternas
 
