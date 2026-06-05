@@ -261,7 +261,7 @@ class OrdenCompraDetalleSerializer(serializers.ModelSerializer):
     class Meta:
         model  = OrdenCompraDetalle
         fields = ['id', 'producto', 'producto_nombre', 'producto_sku',
-                  'unidad_medida', 'cantidad', 'precio_unitario', 'importe']
+                  'unidad_medida', 'descripcion', 'cantidad', 'precio_unitario', 'importe']
 
     def get_importe(self, obj):
         return float(obj.cantidad) * float(obj.precio_unitario)
@@ -276,6 +276,7 @@ class OrdenCompraSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'numero', 'empresa', 'proveedor', 'proveedor_nombre',
             'fecha_emision', 'fecha_creacion', 'fecha_entrega',
+            'moneda', 'forma_pago',
             'subtotal', 'igv', 'total', 'estado', 'notas', 'detalles',
             'proveedor_info',
         ]

@@ -245,19 +245,22 @@ const OrdenCompraForm = () => {
     try {
       setLoading(true);
       await api.post('/api/compras/ordenes/', {
+        proveedor: formData.proveedor_id ? parseInt(formData.proveedor_id) : null,
         proveedor_nombre: formData.proveedor_nombre,
         fecha_entrega: formData.fecha_entrega,
         estado: formData.estado,
         moneda: formData.moneda,
-        notas: formData.notas,
-        referencia: formData.referencia,
         forma_pago: formData.forma_pago,
-        tiempo_entrega: formData.tiempo_entrega,
-        lugar_entrega: formData.lugar_entrega,
-        terminos_condiciones: formData.terminos_condiciones,
+        notas: formData.notas,
         subtotal: totales.subtotal,
         igv: totales.igv,
         total: totales.total,
+        detalles: formData.detalles.map(d => ({
+          producto: d.producto_id ? parseInt(d.producto_id) : null,
+          descripcion: d.descripcion,
+          cantidad: parseFloat(d.cantidad) || 1,
+          precio_unitario: parseFloat(d.precio_unitario) || 0,
+        })),
       });
       toast({ title: 'Orden de Compra creada', status: 'success', duration: 3000 });
       navigate('/app/compras');

@@ -653,6 +653,24 @@ class OrdenCompra(models.Model):
         default='borrador'
     )
 
+    MONEDA_CHOICES = [
+        ('PEN', 'Sol Peruano (S/)'),
+        ('USD', 'Dólar Americano ($)'),
+    ]
+
+    moneda = models.CharField(
+        max_length=3,
+        choices=MONEDA_CHOICES,
+        default='USD',
+        verbose_name='Moneda'
+    )
+    forma_pago = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        verbose_name='Forma de Pago'
+    )
+
     # Montos
     subtotal = models.DecimalField(
         max_digits=10,
@@ -740,6 +758,7 @@ class OrdenCompraDetalle(models.Model):
         on_delete=models.PROTECT,
         null=True, blank=True,
     )
+    descripcion = models.CharField(max_length=500, blank=True, null=True)
     cantidad = models.DecimalField(
         max_digits=10, decimal_places=2,
         validators=[MinValueValidator(Decimal('0.01'))],

@@ -400,12 +400,13 @@ class PurchaseOrderPDFGenerator:
         year = getattr(self.orden.fecha_emision, 'year', datetime.now().year)
         return f'OC-{year}-{self.orden.numero or "000001"}'
 
-    # ── moneda y símbolo — OrdenCompra no tiene campo moneda ──
     def _moneda_texto(self):
-        return 'Sol Peruano'
+        moneda = getattr(self.orden, 'moneda', 'USD') or 'USD'
+        return 'Sol Peruano' if moneda == 'PEN' else 'Dólar Estadounidense'
 
     def _sym(self):
-        return 'S/'
+        moneda = getattr(self.orden, 'moneda', 'USD') or 'USD'
+        return 'S/' if moneda == 'PEN' else '$'
 
     # ── nombre para la firma ──
     def _nombre_firma(self):
@@ -567,7 +568,7 @@ class PurchaseOrderPDFGenerator:
 
         rows = [
             [self._lv('Razón Social', nombre), self._lv('RUC', ruc)],
-            [self._lv('Dirección', direccion), self._lv('Forma de Pago', '—')],
+            [self._lv('Dirección', direccion), self._lv('Forma de Pago', self._get_forma_pago())],
             [self._lv('Contacto', contacto), self._lv('Mail', email)],
         ]
         t = Table(rows, colWidths=[half, half])
@@ -595,7 +596,7 @@ class PurchaseOrderPDFGenerator:
 
         rows = [[
             self._lv('Moneda', self._moneda_texto()),
-            self._lv('Término de Pago', '—'),
+            self._lv('Término de Pago', self._get_forma_pago()),
         ]]
         t = Table(rows, colWidths=[half, half])
         t.setStyle(self._box_style())
@@ -618,7 +619,7 @@ class PurchaseOrderPDFGenerator:
         if detalles:
             for idx, d in enumerate(detalles, 1):
                 producto = getattr(d, 'producto', None)
-                desc = producto.nombre if producto else 'Producto'
+                desc = producto.nombre if producto else (getattr(d, 'descripcion', None) or 'Producto')
                 if producto and getattr(producto, 'sku', None):
                     desc = (f'<b>{desc}</b>'
                             f'<br/><font size="6.5" color="#666666">SKU: {producto.sku}</font>')
@@ -803,6 +804,9 @@ class PurchaseOrderPDFGenerator:
             except Exception:
                 pass
         return None
+
+    def _get_forma_pago(self):
+        return getattr(self.orden, 'forma_pago', None) or '—'
 
     def _lv(self, label, value):
         return Paragraph(
