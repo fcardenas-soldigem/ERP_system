@@ -78,6 +78,7 @@ class CotizacionSerializer(serializers.ModelSerializer):
             'moneda', 'moneda_display', 'subtotal', 'descuento', 'igv', 'total',
             'incluye_igv', 'precios_incluyen_igv', 'porcentaje_igv', 'forma_pago', 'pago_facturas', 'tiempo_entrega',
             'lugar_entrega', 'validez_oferta', 'notas', 'terminos_condiciones',
+            'contacto_nombre', 'contacto_email',
             'venta', 'venta_info', 'detalles', 'fecha_creacion', 'fecha_modificacion'
         ]
         read_only_fields = [
@@ -197,7 +198,7 @@ class CotizacionCreateSerializer(serializers.ModelSerializer):
             'moneda', 'incluye_igv', 'precios_incluyen_igv', 'porcentaje_igv', 'descuento',
             'forma_pago', 'pago_facturas',
             'tiempo_entrega', 'lugar_entrega', 'validez_oferta',
-            'notas', 'terminos_condiciones', 'detalles'
+            'notas', 'terminos_condiciones', 'contacto_nombre', 'contacto_email', 'detalles'
         ]
         read_only_fields = ['id', 'numero']
         extra_kwargs = {

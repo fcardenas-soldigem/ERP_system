@@ -670,6 +670,14 @@ class OrdenCompra(models.Model):
         null=True,
         verbose_name='Forma de Pago'
     )
+    contacto_nombre = models.CharField(
+        max_length=200, null=True, blank=True,
+        verbose_name='Nombre del contacto'
+    )
+    contacto_email = models.EmailField(
+        null=True, blank=True,
+        verbose_name='Email del contacto'
+    )
 
     # Montos
     subtotal = models.DecimalField(

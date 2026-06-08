@@ -45,6 +45,8 @@ const OrdenCompraForm = () => {
   const [formData, setFormData] = useState({
     proveedor_nombre: '',
     proveedor_id: '',
+    contacto_nombre: '',
+    contacto_email: '',
     fecha_entrega: (() => {
       const d = new Date();
       d.setDate(d.getDate() + 7);
@@ -133,6 +135,8 @@ const OrdenCompraForm = () => {
       ...prev,
       proveedor_id: p.id,
       proveedor_nombre: p.nombre || p.razon_social || '',
+      contacto_nombre: prev.contacto_nombre || p.telefono || '',
+      contacto_email: prev.contacto_email || p.email || '',
     }));
     setBusquedaProveedor('');
     setMostrarResultados(false);
@@ -247,6 +251,8 @@ const OrdenCompraForm = () => {
       await api.post('/api/compras/ordenes/', {
         proveedor: formData.proveedor_id ? parseInt(formData.proveedor_id) : null,
         proveedor_nombre: formData.proveedor_nombre,
+        contacto_nombre: formData.contacto_nombre || null,
+        contacto_email: formData.contacto_email || null,
         fecha_entrega: formData.fecha_entrega,
         estado: formData.estado,
         moneda: formData.moneda,
@@ -364,6 +370,8 @@ const OrdenCompraForm = () => {
                           ...prev,
                           proveedor_id: e.target.value,
                           proveedor_nombre: prov ? (prov.nombre || prov.razon_social) : prev.proveedor_nombre,
+                          contacto_nombre: prev.contacto_nombre || (prov ? prov.telefono || '' : ''),
+                          contacto_email: prev.contacto_email || (prov ? prov.email || '' : ''),
                         }));
                       }}
                       placeholder="Seleccione un proveedor"
@@ -384,6 +392,27 @@ const OrdenCompraForm = () => {
                   )}
                 </FormControl>
               </GridItem>
+
+              <FormControl>
+                <FormLabel>Contacto</FormLabel>
+                <Input
+                  name="contacto_nombre"
+                  value={formData.contacto_nombre}
+                  onChange={handleChange}
+                  placeholder="Nombre del contacto"
+                />
+              </FormControl>
+
+              <FormControl>
+                <FormLabel>Email contacto</FormLabel>
+                <Input
+                  type="email"
+                  name="contacto_email"
+                  value={formData.contacto_email}
+                  onChange={handleChange}
+                  placeholder="email@proveedor.com"
+                />
+              </FormControl>
 
               <GridItem colSpan={2}>
                 <FormControl>

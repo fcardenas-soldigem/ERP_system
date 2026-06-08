@@ -101,6 +101,16 @@ class Cotizacion(models.Model):
         help_text="Porcentaje de IGV (por defecto 18%)"
     )
     
+    # Contacto de la cotización (editable, independiente del cliente)
+    contacto_nombre = models.CharField(
+        max_length=200, null=True, blank=True,
+        verbose_name='Nombre del contacto'
+    )
+    contacto_email = models.EmailField(
+        null=True, blank=True,
+        verbose_name='Email del contacto'
+    )
+
     # Condiciones comerciales
     forma_pago = models.CharField(max_length=100, default='Contado')
     pago_facturas = models.CharField(max_length=200, blank=True, null=True, help_text="Horario de pago de facturas")

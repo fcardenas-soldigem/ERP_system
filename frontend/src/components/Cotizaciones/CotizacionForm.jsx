@@ -45,6 +45,8 @@ const CotizacionForm = () => {
 
   const [formData, setFormData] = useState({
     cliente: '',
+    contacto_nombre: '',
+    contacto_email: '',
     asunto: '',
     descripcion: '',
     fecha_vencimiento: '',
@@ -175,7 +177,12 @@ const CotizacionForm = () => {
   }, []);
 
   const seleccionarCliente = (c) => {
-    setFormData(prev => ({ ...prev, cliente: c.id }));
+    setFormData(prev => ({
+      ...prev,
+      cliente: c.id,
+      contacto_nombre: prev.contacto_nombre || c.telefono || '',
+      contacto_email: prev.contacto_email || c.email || '',
+    }));
     setBusquedaCliente('');
     setMostrarResultados(false);
   };
@@ -403,7 +410,15 @@ const CotizacionForm = () => {
                   <Select
                     name="cliente"
                     value={formData.cliente}
-                    onChange={handleChange}
+                    onChange={(e) => {
+                      const cli = clientes.find(c => c.id === parseInt(e.target.value));
+                      setFormData(prev => ({
+                        ...prev,
+                        cliente: e.target.value,
+                        contacto_nombre: prev.contacto_nombre || (cli ? cli.telefono || '' : ''),
+                        contacto_email: prev.contacto_email || (cli ? cli.email || '' : ''),
+                      }));
+                    }}
                     placeholder="Seleccione un cliente"
                   >
                     {clientes.map(cliente => (
@@ -414,6 +429,27 @@ const CotizacionForm = () => {
                   </Select>
                 </FormControl>
               </GridItem>
+
+              <FormControl>
+                <FormLabel>Contacto</FormLabel>
+                <Input
+                  name="contacto_nombre"
+                  value={formData.contacto_nombre}
+                  onChange={handleChange}
+                  placeholder="Nombre del contacto"
+                />
+              </FormControl>
+
+              <FormControl>
+                <FormLabel>Email contacto</FormLabel>
+                <Input
+                  type="email"
+                  name="contacto_email"
+                  value={formData.contacto_email}
+                  onChange={handleChange}
+                  placeholder="email@cliente.com"
+                />
+              </FormControl>
 
               <GridItem colSpan={2}>
                 <FormControl isRequired>

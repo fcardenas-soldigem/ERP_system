@@ -560,11 +560,13 @@ class PurchaseOrderPDFGenerator:
             nombre    = p.razon_social or '—'
             ruc       = p.ruc or '—'
             direccion = p.direccion or '—'
-            contacto  = p.telefono or '—'
-            email     = p.email or '—'
+            contacto  = self.orden.contacto_nombre or p.telefono or '—'
+            email     = self.orden.contacto_email or p.email or '—'
         else:
-            nombre = self.orden.proveedor_nombre or '—'
-            ruc = direccion = contacto = email = '—'
+            nombre    = self.orden.proveedor_nombre or '—'
+            ruc       = direccion = '—'
+            contacto  = self.orden.contacto_nombre or '—'
+            email     = self.orden.contacto_email or '—'
 
         rows = [
             [self._lv('Razón Social', nombre), self._lv('RUC', ruc)],

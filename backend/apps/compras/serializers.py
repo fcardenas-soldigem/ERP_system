@@ -285,7 +285,7 @@ class OrdenCompraSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'numero', 'empresa', 'proveedor', 'proveedor_nombre',
             'fecha_emision', 'fecha_creacion', 'fecha_entrega',
-            'moneda', 'forma_pago',
+            'moneda', 'forma_pago', 'contacto_nombre', 'contacto_email',
             'subtotal', 'igv', 'total', 'estado', 'notas', 'detalles',
             'proveedor_info',
         ]

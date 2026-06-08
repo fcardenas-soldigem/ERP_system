@@ -156,11 +156,15 @@ class CotizacionPDFGenerator:
         W = PAGE_W - 2 * MARGIN
         half = W / 2
         c = self.cliente
+        cot = self.cotizacion
+
+        contacto = cot.contacto_nombre or c.telefono or '—'
+        email    = cot.contacto_email or c.email or '—'
 
         rows = [
             [self._lv('Razón Social', c.nombre), self._lv('RUC / Doc.', c.documento)],
-            [self._lv('Dirección', c.direccion or '—'), self._lv('Contacto', c.telefono or '—')],
-            [self._lv('Email', c.email or '—'), ''],
+            [self._lv('Dirección', c.direccion or '—'), self._lv('Contacto', contacto)],
+            [self._lv('Email', email), ''],
         ]
         t = Table(rows, colWidths=[half, half])
         t.setStyle(self._box_style())
