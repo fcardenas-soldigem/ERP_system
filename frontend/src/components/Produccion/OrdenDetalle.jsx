@@ -64,6 +64,7 @@ import {
   TimeIcon
 } from '@chakra-ui/icons';
 import { FiPackage, FiBox, FiClock, FiCheckCircle, FiTarget, FiDollarSign, FiCalendar, FiUser, FiPlay, FiPause, FiActivity } from 'react-icons/fi';
+import RadialOrbitalTimeline from '../common/RadialOrbitalTimeline';
 
 const OrdenDetalle = () => {
   const { id } = useParams();
@@ -219,6 +220,70 @@ const OrdenDetalle = () => {
     ? Math.round((orden.cantidad_producida || 0) / orden.cantidad_planificada * 100)
     : 0;
 
+  // Datos para la línea de tiempo orbital según el estado real de la orden
+  const buildOrbitalData = () => {
+    const iniciada = ['en_proceso', 'pausada', 'finalizada', 'completada'].includes(orden.estado);
+    const completada = ['finalizada', 'completada'].includes(orden.estado);
+
+    const detalles = orden.detalles || [];
+    const materialesProgreso = detalles.length > 0
+      ? Math.round(
+          detalles.reduce((acc, d) => {
+            const requerido = d.cantidad_requerida || d.cantidad || 0;
+            const usado = d.cantidad_usada || 0;
+            return acc + (requerido > 0 ? Math.min(usado / requerido, 1) : 0);
+          }, 0) / detalles.length * 100
+        )
+      : (iniciada ? 100 : 0);
+
+    return [
+      {
+        id: 1,
+        title: 'Creación',
+        date: formatDateShort(orden.fecha_creacion || orden.created_at),
+        content: `Orden registrada para ${orden.producto_nombre || 'producto'} (${orden.cantidad_planificada} unidades planificadas).`,
+        icon: FiCalendar,
+        relatedIds: [2],
+        status: 'completed',
+        energy: 100
+      },
+      {
+        id: 2,
+        title: 'Materiales',
+        date: formatDateShort(orden.fecha_inicio),
+        content: detalles.length > 0
+          ? `Consumo de ${detalles.length} materiales según receta ${orden.receta_nombre || ''}.`
+          : 'Materiales según receta asignada.',
+        icon: FiBox,
+        relatedIds: [1, 3],
+        status: completada ? 'completed' : iniciada ? 'in-progress' : 'pending',
+        energy: materialesProgreso
+      },
+      {
+        id: 3,
+        title: 'Producción',
+        date: formatDateShort(orden.fecha_inicio),
+        content: `${orden.cantidad_producida || 0} de ${orden.cantidad_planificada} unidades producidas.`,
+        icon: FiActivity,
+        relatedIds: [2, 4],
+        status: completada ? 'completed' : orden.estado === 'en_proceso' ? 'in-progress' : 'pending',
+        energy: progreso
+      },
+      {
+        id: 4,
+        title: 'Cierre',
+        date: formatDateShort(orden.fecha_fin),
+        content: completada
+          ? 'Orden completada y costos registrados.'
+          : 'Pendiente de completar la producción.',
+        icon: FiCheckCircle,
+        relatedIds: [3],
+        status: completada ? 'completed' : 'pending',
+        energy: completada ? 100 : 0
+      }
+    ];
+  };
+
   return (
     <Box p={6}>
       {/* Header con navegación */}
@@ -339,6 +404,25 @@ const OrdenDetalle = () => {
               </Flex>
             </Box>
           </Flex>
+        </CardBody>
+      </Card>
+
+      {/* Línea de tiempo orbital del ciclo de producción */}
+      <Card bg={cardBg} borderWidth="1px" borderColor={borderColor} borderRadius="xl" mb={6} overflow="hidden">
+        <CardHeader pb={2}>
+          <HStack>
+            <Icon as={FiTarget} color="purple.500" />
+            <Heading size="md">Ciclo de Producción</Heading>
+            <Text fontSize="sm" color="gray.500">— haz clic en una etapa para ver el detalle</Text>
+          </HStack>
+        </CardHeader>
+        <CardBody pt={0}>
+          <RadialOrbitalTimeline
+            timelineData={buildOrbitalData()}
+            height="480px"
+            radius={150}
+            energyLabel="Avance"
+          />
         </CardBody>
       </Card>
 
