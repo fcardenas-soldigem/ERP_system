@@ -623,10 +623,10 @@ class PurchaseOrderPDFGenerator:
                 producto = getattr(d, 'producto', None)
                 desc = producto.nombre if producto else (getattr(d, 'descripcion', None) or 'Producto')
                 if producto and getattr(producto, 'sku', None):
-                    desc = (f'<b>{desc}</b>'
+                    desc = (f'{desc}'
                             f'<br/><font size="6.5" color="#666666">SKU: {producto.sku}</font>')
                 else:
-                    desc = f'<b>{desc}</b>'
+                    desc = desc
 
                 qty = f'{d.cantidad:.0f}' if d.cantidad == int(d.cantidad) else f'{d.cantidad:.2f}'
                 um  = (getattr(producto, 'unidad_medida', None) or 'UND') if producto else 'UND'

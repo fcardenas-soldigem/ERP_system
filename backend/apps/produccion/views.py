@@ -3,7 +3,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
-from django.db.models import Q, Sum, Count, Avg, F
+from django.db.models import Q, Sum, Count, Avg, F, ExpressionWrapper, FloatField
 from django.utils import timezone
 from datetime import timedelta
 from decimal import Decimal
@@ -196,7 +196,12 @@ class OrdenProduccionViewSet(viewsets.ModelViewSet):
         """Override create para devolver el serializer correcto en la respuesta"""
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        orden = serializer.save()
+        try:
+            orden = serializer.save()
+        except DjangoValidationError as e:
+            # Errores de negocio del servicio (stock insuficiente, receta inactiva, etc.)
+            mensaje = '\n'.join(e.messages) if hasattr(e, 'messages') else str(e)
+            return Response({'error': mensaje}, status=status.HTTP_400_BAD_REQUEST)
         # Usar OrdenProduccionSerializer para la respuesta
         response_serializer = OrdenProduccionSerializer(orden)
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
@@ -416,7 +421,10 @@ class DashboardProduccionView(APIView):
         # Eficiencia de producción promedio
         eficiencia_produccion = ordenes_finalizadas_qs.aggregate(
             promedio=Avg(
-                F('cantidad_producida') * 100.0 / F('cantidad_planificada')
+                ExpressionWrapper(
+                    F('cantidad_producida') * 100.0 / F('cantidad_planificada'),
+                    output_field=FloatField()
+                )
             )
         )['promedio'] or 0
         
@@ -428,6 +436,8 @@ class DashboardProduccionView(APIView):
         ).annotate(
             total_teorico=Sum('cantidad_teorica'),
             total_real=Sum('cantidad_real')
+        ).filter(
+            total_teorico__gt=0  # Evita división por cero en la BD
         ).annotate(
             variacion=((F('total_real') - F('total_teorico')) / F('total_teorico') * 100)
         ).order_by('-variacion')[:10]
@@ -457,7 +467,10 @@ class DashboardProduccionView(APIView):
             receta__tiempo_estimado__gt=0
         ).aggregate(
             promedio=Avg(
-                F('receta__tiempo_estimado') * 100.0 / F('tiempo_real')
+                ExpressionWrapper(
+                    F('receta__tiempo_estimado') * 100.0 / F('tiempo_real'),
+                    output_field=FloatField()
+                )
             )
         )['promedio'] or 0
         
