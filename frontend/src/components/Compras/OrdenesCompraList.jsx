@@ -10,7 +10,7 @@ import {
 } from '@chakra-ui/react';
 import {
   FaPlus, FaEllipsisV, FaEye, FaEdit, FaFilePdf, FaTrash,
-  FaChevronLeft, FaChevronRight, FaExchangeAlt,
+  FaChevronLeft, FaChevronRight, FaExchangeAlt, FaTools,
 } from 'react-icons/fa';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -41,9 +41,9 @@ const TRANSICIONES = {
   completada: [],
 };
 
-const formatCurrency = (amount) => {
+const formatCurrency = (amount, moneda = 'PEN') => {
   const n = parseFloat(amount) || 0;
-  return new Intl.NumberFormat('es-PE', { style: 'currency', currency: 'PEN' }).format(n);
+  return new Intl.NumberFormat('es-PE', { style: 'currency', currency: moneda }).format(n);
 };
 
 const formatDate = (d) => {
@@ -150,13 +150,23 @@ const OrdenesCompraList = () => {
             Gestiona tus órdenes de compra a proveedores
           </Text>
         </Box>
-        <Button
-          leftIcon={<FaPlus />}
-          colorScheme="blue"
-          onClick={() => navigate('/app/compras/orden-compra/nueva')}
-        >
-          Nueva Orden
-        </Button>
+        <HStack spacing={3}>
+          <Button
+            leftIcon={<FaTools />}
+            colorScheme="purple"
+            variant="outline"
+            onClick={() => navigate('/app/compras/orden-servicio/nueva')}
+          >
+            Orden de Reparación
+          </Button>
+          <Button
+            leftIcon={<FaPlus />}
+            colorScheme="blue"
+            onClick={() => navigate('/app/compras/orden-compra/nueva')}
+          >
+            Nueva Orden
+          </Button>
+        </HStack>
       </Flex>
 
       {/* Filtros */}
@@ -252,7 +262,7 @@ const OrdenesCompraList = () => {
                     </Td>
                     <Td isNumeric fontWeight="semibold" whiteSpace="nowrap"
                       onClick={() => navigate(`/app/compras/ordenes/${orden.id}`)}>
-                      {formatCurrency(orden.total)}
+                      {formatCurrency(orden.total, orden.moneda)}
                     </Td>
                     <Td>
                       <HStack spacing={1}>

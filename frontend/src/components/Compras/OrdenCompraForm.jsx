@@ -269,7 +269,7 @@ const OrdenCompraForm = () => {
         })),
       });
       toast({ title: 'Orden de Compra creada', status: 'success', duration: 3000 });
-      navigate('/app/compras');
+      navigate('/app/compras/ordenes');
     } catch (error) {
       toast({
         title: 'Error al guardar',
@@ -291,7 +291,7 @@ const OrdenCompraForm = () => {
     <Box p={6}>
       <Flex justify="space-between" align="center" mb={6}>
         <Heading size="lg">Nueva Orden de Compra</Heading>
-        <Button leftIcon={<FaArrowLeft />} variant="ghost" onClick={() => navigate('/app/compras')}>
+        <Button leftIcon={<FaArrowLeft />} variant="ghost" onClick={() => navigate('/app/compras/ordenes')}>
           Volver
         </Button>
       </Flex>
@@ -746,7 +746,7 @@ const OrdenCompraForm = () => {
 
           {/* ── Botones ── */}
           <Flex justify="flex-end" gap={4}>
-            <Button variant="outline" onClick={() => navigate('/app/compras')}>
+            <Button variant="outline" onClick={() => navigate('/app/compras/ordenes')}>
               Cancelar
             </Button>
             <Button
