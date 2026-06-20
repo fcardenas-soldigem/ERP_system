@@ -10,11 +10,12 @@ import {
 } from '@chakra-ui/react';
 import {
   FaPlus, FaEllipsisV, FaEye, FaEdit, FaFilePdf, FaTrash,
-  FaChevronLeft, FaChevronRight, FaExchangeAlt, FaTools,
+  FaChevronLeft, FaChevronRight, FaExchangeAlt,
 } from 'react-icons/fa';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { comprasService } from '../../services/compras.service';
+import OrdenesCompraNavTabs from './OrdenesCompraNavTabs';
 
 const PAGE_SIZE = 20;
 
@@ -142,31 +143,23 @@ const OrdenesCompraList = () => {
 
   return (
     <Box p={6}>
+      <OrdenesCompraNavTabs />
+
       {/* Header */}
       <Flex justify="space-between" align="center" mb={6}>
         <Box>
           <Heading size="lg">Órdenes de Compra</Heading>
           <Text color="gray.500" fontSize="sm" mt={0.5}>
-            Gestiona tus órdenes de compra a proveedores
+            Productos y materiales a proveedores
           </Text>
         </Box>
-        <HStack spacing={3}>
-          <Button
-            leftIcon={<FaTools />}
-            colorScheme="purple"
-            variant="outline"
-            onClick={() => navigate('/app/compras/ordenes-servicio')}
-          >
-            OC de Servicio
-          </Button>
-          <Button
-            leftIcon={<FaPlus />}
-            colorScheme="blue"
-            onClick={() => navigate('/app/compras/orden-compra/nueva')}
-          >
-            Nueva Orden
-          </Button>
-        </HStack>
+        <Button
+          leftIcon={<FaPlus />}
+          colorScheme="blue"
+          onClick={() => navigate('/app/compras/orden-compra/nueva')}
+        >
+          Nueva Orden
+        </Button>
       </Flex>
 
       {/* Filtros */}

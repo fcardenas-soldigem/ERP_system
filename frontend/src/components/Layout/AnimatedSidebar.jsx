@@ -42,6 +42,7 @@ const MENU_SECTIONS = [
           { name: 'Facturas de Compra', path: '/app/compras' },
           { name: 'Nueva Compra',       path: '/app/compras/nueva' },
           { name: 'Órdenes de Compra',  path: '/app/compras/ordenes' },
+          { name: 'OC de Servicio',     path: '/app/compras/ordenes-servicio', badge: 'Nuevo' },
         ],
       },
       {
