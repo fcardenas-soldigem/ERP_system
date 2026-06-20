@@ -14,7 +14,7 @@ from django.http import HttpResponse
 from openpyxl import Workbook
 from openpyxl.utils import get_column_letter
 from apps.core.permissions import HasEmpresaPermission
-from .models import Compra, CompraDetalle, Proveedor, OrdenCompra, RecepcionCompra, PagoCompra
+from .models import Compra, CompraDetalle, Proveedor, OrdenCompra, RecepcionCompra, PagoCompra, OrdenServicioCompra
 from apps.inventario.models import Producto, Almacen
 
 logger = logging.getLogger(__name__)
@@ -24,7 +24,9 @@ from .serializers import (
     ProveedorSerializer,
     OrdenCompraSerializer,
     RecepcionCompraSerializer,
-    PagoCompraSerializer
+    PagoCompraSerializer,
+    OrdenServicioCompraSerializer,
+    OrdenServicioCompraListSerializer,
 )
 from rest_framework.views import APIView
 import os
@@ -981,6 +983,67 @@ class OrdenCompraViewSet(viewsets.ModelViewSet):
         response = HttpResponse(buffer.getvalue(), content_type='application/pdf')
         response['Content-Disposition'] = f'attachment; filename="{filename}"'
         return response
+
+class OrdenServicioCompraViewSet(viewsets.ModelViewSet):
+    """Órdenes de Compra de Servicio (reparaciones) emitidas al proveedor."""
+    queryset = OrdenServicioCompra.objects.all()
+    serializer_class = OrdenServicioCompraSerializer
+    permission_classes = [IsAuthenticated, HasEmpresaPermission]
+    pagination_class = CompraPagination
+
+    def get_serializer_class(self):
+        if self.action == 'list':
+            return OrdenServicioCompraListSerializer
+        return OrdenServicioCompraSerializer
+
+    def get_queryset(self):
+        qs = self.queryset.filter(empresa=self.request.user.empresa).prefetch_related('items')
+        params = self.request.query_params
+        estado = params.get('estado')
+        if estado:
+            qs = qs.filter(estado=estado)
+        search = params.get('search')
+        if search:
+            qs = qs.filter(
+                Q(numero__icontains=search) |
+                Q(proveedor_nombre__icontains=search) |
+                Q(items__numero_serie__icontains=search) |
+                Q(items__modelo__icontains=search) |
+                Q(items__marca__icontains=search)
+            ).distinct()
+        return qs
+
+    def perform_create(self, serializer):
+        if not hasattr(self.request.user, 'empresa') or not self.request.user.empresa:
+            raise PermissionDenied('Usuario no tiene empresa asignada')
+        serializer.save(empresa=self.request.user.empresa)
+
+    @action(detail=True, methods=['post'], url_path='cambiar-estado')
+    def cambiar_estado(self, request, pk=None):
+        orden = self.get_object()
+        nuevo_estado = request.data.get('estado')
+        estados_validos = [s[0] for s in OrdenServicioCompra.ESTADO_CHOICES]
+        if nuevo_estado not in estados_validos:
+            return Response(
+                {'error': f'Estado inválido. Opciones: {estados_validos}'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        orden.estado = nuevo_estado
+        orden.save(update_fields=['estado', 'fecha_actualizacion'])
+        return Response(OrdenServicioCompraSerializer(orden).data)
+
+    @action(detail=True, methods=['get'], url_path='exportar-pdf')
+    def exportar_pdf(self, request, pk=None):
+        from .utils.pdf_generator import OrdenServicioCompraPDFGenerator
+        orden = self.get_object()
+        generator = OrdenServicioCompraPDFGenerator(orden, usuario=request.user)
+        buffer = generator.generar_pdf()
+        prov_slug = (orden.proveedor_nombre or 'PROVEEDOR').replace(' ', '_')[:30]
+        filename = f'OCS-{orden.numero or "000001"}_{prov_slug}.pdf'
+        response = HttpResponse(buffer.getvalue(), content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
+
 
 class RecepcionCompraViewSet(viewsets.ModelViewSet):
     queryset = RecepcionCompra.objects.all()

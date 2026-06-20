@@ -32,6 +32,8 @@ const Compras             = lazy(() => import('./components/Compras/Compras'));
 const CompraForm          = lazy(() => import('./components/Compras/CompraForm'));
 const OrdenCompraForm     = lazy(() => import('./components/Compras/OrdenCompraForm'));
 const OrdenCompraServicioForm = lazy(() => import('./components/Compras/OrdenCompraServicioForm'));
+const OrdenesServicioCompraList = lazy(() => import('./components/Compras/OrdenesServicioCompraList'));
+const OrdenServicioCompraDetalle = lazy(() => import('./components/Compras/OrdenServicioCompraDetalle'));
 const OrdenesCompraList   = lazy(() => import('./components/Compras/OrdenesCompraList'));
 const OrdenCompraDetalle  = lazy(() => import('./components/Compras/OrdenCompraDetalle'));
 const CompraDetalle = lazy(() => import('./components/Compras/CompraDetalle'));
@@ -123,7 +125,10 @@ function App() {
                                 <Route path="compras" element={<Compras />} />
                                 <Route path="compras/nueva" element={<CompraForm />} />
                                 <Route path="compras/orden-compra/nueva" element={<OrdenCompraForm />} />
+                                <Route path="compras/ordenes-servicio" element={<OrdenesServicioCompraList />} />
                                 <Route path="compras/orden-servicio/nueva" element={<OrdenCompraServicioForm />} />
+                                <Route path="compras/ordenes-servicio/:id" element={<OrdenServicioCompraDetalle />} />
+                                <Route path="compras/ordenes-servicio/:id/editar" element={<OrdenCompraServicioForm />} />
                                 <Route path="compras/ordenes" element={<OrdenesCompraList />} />
                                 <Route path="compras/ordenes/:id" element={<OrdenCompraDetalle />} />
                                 <Route path="compras/:id" element={<CompraDetalle />} />

@@ -46,21 +46,20 @@ import {
   FaPlus, FaTrash, FaSave, FaArrowLeft, FaSearch, FaTools,
   FaFileExcel, FaClipboardList, FaDownload,
 } from 'react-icons/fa';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { proveedoresService } from '../../services/proveedores.service';
-import { api } from '../../lib/api';
+import comprasService from '../../services/compras.service';
 
 const EQUIPO_VACIO = {
-  descripcion: '',
   numero_serie: '',
-  marca: '',
   modelo: '',
-  falla: '',
+  marca: '',
+  trabajo: '',
   cantidad: 1,
   costo_unitario: 0,
 };
 
-// ── Parsers de importación (compatibles con la plantilla de equipos) ──────────
+// ── Parsers de importación: SERIE · MODELO · MARCA · TRABAJO · COSTO ──────────
 const parseExcel = (file) => new Promise((resolve) => {
   const reader = new FileReader();
   reader.onload = (e) => {
@@ -69,21 +68,20 @@ const parseExcel = (file) => new Promise((resolve) => {
       const ws = wb.Sheets[wb.SheetNames[0]];
       const data = XLSX.utils.sheet_to_json(ws, { defval: '' });
       const equipos = data.map((row, idx) => {
-        const serie = row.SERIE || row.serie || row.N_SERIE || row['S/N'] || '';
+        const serie = row.SERIE || row.serie || row.N_SERIE || row['N° SERIE'] || row['S/N'] || '';
         const modelo = row.MODELO || row.modelo || row.MODEL || '';
-        const marca = row.MARCA || row.marca || '';
-        const falla = row.FALLA || row.ESTADO_INGRESO || row.Estado || row.falla || '';
+        const marca = row.MARCA || row.marca || row.BRAND || '';
+        const trabajo = row.TRABAJO || row.trabajo || row.FALLA || row.falla || row.SERVICIO || row.servicio || '';
         const costo = row.COSTO || row.costo || row.PRECIO || row.precio || 0;
         return {
           id_temp: idx,
-          descripcion: String(modelo || serie || 'Equipo').trim(),
           numero_serie: String(serie).trim(),
           modelo: String(modelo).trim(),
           marca: String(marca).trim(),
-          falla: String(falla).trim(),
+          trabajo: String(trabajo).trim(),
           cantidad: 1,
           costo_unitario: parseFloat(String(costo).replace(/[^0-9.]/g, '')) || 0,
-          valido: serie !== '' || modelo !== '',
+          valido: serie !== '' || modelo !== '' || trabajo !== '',
           seleccionado: true,
         };
       }).filter(r => r.valido);
@@ -98,10 +96,10 @@ const parseTSV = (text) => {
   if (lines.length < 2) return [];
   const headers = lines[0].split('\t').map(h => h.trim().toUpperCase());
   const idx = {
-    serie: headers.findIndex(h => ['SERIE', 'N_SERIE', 'S/N', 'SN'].includes(h)),
+    serie: headers.findIndex(h => ['SERIE', 'N_SERIE', 'N° SERIE', 'S/N', 'SN'].includes(h)),
     modelo: headers.findIndex(h => ['MODELO', 'MODEL'].includes(h)),
     marca: headers.findIndex(h => ['MARCA', 'BRAND'].includes(h)),
-    falla: headers.findIndex(h => ['FALLA', 'ESTADO_INGRESO', 'ESTADO'].includes(h)),
+    trabajo: headers.findIndex(h => ['TRABAJO', 'FALLA', 'SERVICIO', 'ESTADO'].includes(h)),
     costo: headers.findIndex(h => ['COSTO', 'PRECIO', 'COST'].includes(h)),
   };
   return lines.slice(1).filter(l => l.trim()).map((line, i) => {
@@ -110,11 +108,10 @@ const parseTSV = (text) => {
     const modelo = idx.modelo >= 0 ? cols[idx.modelo] : cols[1] || '';
     return {
       id_temp: i,
-      descripcion: String(modelo || serie || 'Equipo').trim(),
       numero_serie: serie,
       modelo,
       marca: idx.marca >= 0 ? cols[idx.marca] : '',
-      falla: idx.falla >= 0 ? cols[idx.falla] : '',
+      trabajo: idx.trabajo >= 0 ? cols[idx.trabajo] : '',
       cantidad: 1,
       costo_unitario: idx.costo >= 0 ? (parseFloat(String(cols[idx.costo]).replace(/[^0-9.]/g, '')) || 0) : 0,
       valido: true,
@@ -124,30 +121,24 @@ const parseTSV = (text) => {
 };
 
 const descargarPlantilla = () => {
-  const header = [['SERIE', 'MODELO', 'MARCA', 'FALLA', 'COSTO']];
+  const header = [['SERIE', 'MODELO', 'MARCA', 'TRABAJO', 'COSTO']];
   const ejemplo = [
-    ['SN-001', 'Laptop HP ProBook 450', 'HP', 'No enciende', 120],
-    ['SN-002', 'MacBook Air M2', 'Apple', 'Pantalla dañada', 250],
+    ['SN-001', 'Laptop HP ProBook 450', 'HP', 'Cambio de pantalla', 120],
+    ['SN-002', 'MacBook Air M2', 'Apple', 'Reparación de placa', 250],
   ];
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet([...header, ...ejemplo]);
-  XLSX.utils.book_append_sheet(wb, ws, 'Equipos');
-  XLSX.writeFile(wb, 'plantilla_reparaciones.xlsx');
-};
-
-// ── Componer la descripción de cada ítem para la OC y su PDF ──────────────────
-const componerDescripcion = (eq) => {
-  const titulo = `Reparación: ${eq.modelo || eq.descripcion || 'Equipo'}${eq.marca ? ` (${eq.marca})` : ''}`;
-  const detalles = [];
-  if (eq.numero_serie) detalles.push(`Serie: ${eq.numero_serie}`);
-  if (eq.falla) detalles.push(`Falla: ${eq.falla}`);
-  return detalles.length ? `${titulo} — ${detalles.join(' · ')}` : titulo;
+  XLSX.utils.book_append_sheet(wb, ws, 'Reparaciones');
+  XLSX.writeFile(wb, 'plantilla_oc_servicio.xlsx');
 };
 
 const OrdenCompraServicioForm = () => {
   const navigate = useNavigate();
+  const { id } = useParams();
+  const esEdicion = Boolean(id);
   const toast = useToast();
   const [loading, setLoading] = useState(false);
+  const [cargandoOrden, setCargandoOrden] = useState(esEdicion);
 
   const [formData, setFormData] = useState({
     proveedor_nombre: '',
@@ -161,7 +152,7 @@ const OrdenCompraServicioForm = () => {
     })(),
     estado: 'borrador',
     moneda: 'USD',
-    incluye_igv: false,
+    igv_incluido: false,
     porcentaje_igv: 18,
     referencia: '',
     forma_pago: 'Contado',
@@ -197,6 +188,49 @@ const OrdenCompraServicioForm = () => {
     };
     cargarProveedores();
   }, []);
+
+  // Cargar orden existente en modo edición
+  useEffect(() => {
+    if (!esEdicion) return;
+    const cargar = async () => {
+      try {
+        setCargandoOrden(true);
+        const orden = await comprasService.getOrdenServicio(id);
+        setFormData({
+          proveedor_nombre: orden.proveedor_nombre || '',
+          proveedor_id: orden.proveedor || '',
+          contacto_nombre: orden.contacto_nombre || '',
+          contacto_email: orden.contacto_email || '',
+          fecha_entrega: orden.fecha_entrega || '',
+          estado: orden.estado || 'borrador',
+          moneda: orden.moneda || 'USD',
+          igv_incluido: orden.igv_incluido || false,
+          porcentaje_igv: parseFloat(orden.porcentaje_igv) || 18,
+          referencia: orden.referencia || '',
+          forma_pago: orden.forma_pago || 'Contado',
+          notas: orden.notas || '',
+        });
+        setEquipos(
+          (orden.items || []).length
+            ? orden.items.map(it => ({
+                numero_serie: it.numero_serie || '',
+                modelo: it.modelo || '',
+                marca: it.marca || '',
+                trabajo: it.trabajo || '',
+                cantidad: parseFloat(it.cantidad) || 1,
+                costo_unitario: parseFloat(it.costo_unitario) || 0,
+              }))
+            : [{ ...EQUIPO_VACIO }]
+        );
+      } catch (error) {
+        toast({ title: 'No se pudo cargar la orden', status: 'error', duration: 4000 });
+        navigate('/app/compras/ordenes-servicio');
+      } finally {
+        setCargandoOrden(false);
+      }
+    };
+    cargar();
+  }, [esEdicion, id, navigate, toast]);
 
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -263,7 +297,7 @@ const OrdenCompraServicioForm = () => {
   const calcularTotales = () => {
     const subtotalBruto = equipos.reduce((sum, eq) => sum + calcularSubtotalEquipo(eq), 0);
     let baseImponible, igv, total;
-    if (formData.incluye_igv) {
+    if (formData.igv_incluido) {
       baseImponible = subtotalBruto / (1 + (formData.porcentaje_igv / 100));
       igv = subtotalBruto - baseImponible;
       total = subtotalBruto;
@@ -294,7 +328,7 @@ const OrdenCompraServicioForm = () => {
   const aplicarImportados = (lista) => {
     const nuevos = lista.map(({ id_temp, valido, seleccionado, ...rest }) => rest);
     setEquipos(prev => {
-      const base = prev.length === 1 && !prev[0].numero_serie && !prev[0].modelo && !prev[0].descripcion ? [] : prev;
+      const base = prev.length === 1 && !prev[0].numero_serie && !prev[0].modelo && !prev[0].trabajo ? [] : prev;
       return [...base, ...nuevos];
     });
   };
@@ -328,59 +362,57 @@ const OrdenCompraServicioForm = () => {
       toast({ title: 'Error', description: 'Debe seleccionar el proveedor de reparación', status: 'error', duration: 3000 });
       return;
     }
-    if (!formData.fecha_entrega) {
-      toast({ title: 'Error', description: 'Debe indicar la fecha estimada de entrega', status: 'error', duration: 3000 });
-      return;
-    }
-    const invalido = equipos.some(
-      eq => (!(eq.descripcion || '').trim() && !(eq.modelo || '').trim() && !(eq.numero_serie || '').trim()) ||
-            !(parseFloat(eq.cantidad) > 0) ||
-            !(parseFloat(eq.costo_unitario) > 0),
+    const equiposValidos = equipos.filter(
+      eq => (eq.numero_serie || '').trim() || (eq.modelo || '').trim() || (eq.marca || '').trim() || (eq.trabajo || '').trim()
     );
-    if (invalido) {
+    if (equiposValidos.length === 0) {
       toast({
         title: 'Error',
-        description: 'Cada equipo necesita identificación (serie/modelo/descripción), cantidad y costo mayor a 0',
+        description: 'Agrega al menos un equipo con serie, modelo, marca o trabajo',
         status: 'error',
         duration: 4000,
       });
       return;
     }
 
-    const totales = calcularTotales();
+    const payload = {
+      proveedor: formData.proveedor_id ? parseInt(formData.proveedor_id) : null,
+      proveedor_nombre: formData.proveedor_nombre,
+      contacto_nombre: formData.contacto_nombre || null,
+      contacto_email: formData.contacto_email || null,
+      fecha_entrega: formData.fecha_entrega || null,
+      estado: formData.estado,
+      moneda: formData.moneda,
+      forma_pago: formData.forma_pago,
+      referencia: formData.referencia || null,
+      igv_incluido: formData.igv_incluido,
+      porcentaje_igv: formData.porcentaje_igv,
+      notas: formData.notas,
+      items: equiposValidos.map(eq => ({
+        numero_serie: (eq.numero_serie || '').trim() || null,
+        modelo: (eq.modelo || '').trim() || null,
+        marca: (eq.marca || '').trim() || null,
+        trabajo: (eq.trabajo || '').trim() || null,
+        cantidad: parseFloat(eq.cantidad) || 1,
+        costo_unitario: parseFloat(eq.costo_unitario) || 0,
+      })),
+    };
+
     try {
       setLoading(true);
-      const orden = await api.post('/api/compras/ordenes/', {
-        proveedor: formData.proveedor_id ? parseInt(formData.proveedor_id) : null,
-        proveedor_nombre: formData.proveedor_nombre,
-        contacto_nombre: formData.contacto_nombre || null,
-        contacto_email: formData.contacto_email || null,
-        fecha_entrega: formData.fecha_entrega,
-        estado: formData.estado,
-        moneda: formData.moneda,
-        forma_pago: formData.forma_pago,
-        notas: formData.notas,
-        subtotal: totales.subtotal,
-        igv: totales.igv,
-        total: totales.total,
-        detalles: equipos.map(eq => ({
-          producto: null,
-          descripcion: componerDescripcion(eq).slice(0, 500),
-          cantidad: parseFloat(eq.cantidad) || 1,
-          precio_unitario: parseFloat(eq.costo_unitario) || 0,
-        })),
+      const orden = esEdicion
+        ? await comprasService.updateOrdenServicio(id, payload)
+        : await comprasService.createOrdenServicio(payload);
+      toast({
+        title: esEdicion ? 'Orden actualizada' : 'Orden de compra de servicio creada',
+        status: 'success',
+        duration: 3000,
       });
-      toast({ title: 'Orden de reparación creada', status: 'success', duration: 3000 });
-      const id = orden?.data?.id;
-      if (id) {
-        navigate(`/app/compras/ordenes/${id}`);
-      } else {
-        navigate('/app/compras/ordenes');
-      }
+      navigate(`/app/compras/ordenes-servicio/${orden.id}`);
     } catch (error) {
       toast({
         title: 'Error al guardar',
-        description: error.response?.data?.detail || JSON.stringify(error.response?.data || {}).slice(0, 180) || error.message,
+        description: error.response?.data?.detail || JSON.stringify(error.response?.data || {}).slice(0, 200) || error.message,
         status: 'error',
         duration: 6000,
         isClosable: true,
@@ -393,19 +425,29 @@ const OrdenCompraServicioForm = () => {
   const totales = calcularTotales();
   const simbolo = formData.moneda === 'USD' ? '$' : 'S/';
 
+  if (cargandoOrden) {
+    return (
+      <Box p={6}>
+        <Text color="gray.400">Cargando orden...</Text>
+      </Box>
+    );
+  }
+
   return (
     <Box p={6}>
       <Flex justify="space-between" align="center" mb={6}>
         <HStack spacing={3}>
-          <Box p={2} bg="blue.50" borderRadius="lg">
-            <FaTools size={16} color="var(--chakra-colors-blue-500)" />
+          <Box p={2} bg="purple.50" borderRadius="lg">
+            <FaTools size={16} color="var(--chakra-colors-purple-500)" />
           </Box>
           <Box>
-            <Heading size="lg">Orden de Compra — Servicios de Reparación</Heading>
-            <Text fontSize="sm" color="gray.500">Genera una OC de reparación a tu proveedor y descárgala en PDF</Text>
+            <Heading size="lg">
+              {esEdicion ? 'Editar Orden de Compra de Servicio' : 'Nueva Orden de Compra de Servicio'}
+            </Heading>
+            <Text fontSize="sm" color="gray.500">Orden de reparación dirigida a tu proveedor — descargable en PDF</Text>
           </Box>
         </HStack>
-        <Button leftIcon={<FaArrowLeft />} variant="ghost" onClick={() => navigate('/app/compras/ordenes')}>
+        <Button leftIcon={<FaArrowLeft />} variant="ghost" onClick={() => navigate('/app/compras/ordenes-servicio')}>
           Volver
         </Button>
       </Flex>
@@ -441,7 +483,7 @@ const OrdenCompraServicioForm = () => {
                         ) : (
                           resultadosProveedores.map((p) => (
                             <Box
-                              key={p.id} py={2} px={3} cursor="pointer" _hover={{ bg: 'blue.50' }}
+                              key={p.id} py={2} px={3} cursor="pointer" _hover={{ bg: 'purple.50' }}
                               onClick={() => seleccionarProveedor(p)}
                               borderBottom="1px solid" borderColor="gray.100" _last={{ borderBottom: 'none' }}
                             >
@@ -515,7 +557,7 @@ const OrdenCompraServicioForm = () => {
           <Box bg="white" p={6} borderRadius="lg" shadow="sm">
             <Heading size="md" mb={4}>Configuración</Heading>
             <Grid templateColumns="repeat(3, 1fr)" gap={4}>
-              <FormControl isRequired>
+              <FormControl>
                 <FormLabel>Fecha Estimada de Entrega</FormLabel>
                 <Input type="date" name="fecha_entrega" value={formData.fecha_entrega} onChange={handleChange} />
               </FormControl>
@@ -540,10 +582,10 @@ const OrdenCompraServicioForm = () => {
               <FormControl display="flex" flexDirection="column" alignItems="flex-start">
                 <HStack spacing={3} mb={1}>
                   <FormLabel mb="0">IGV Incluido</FormLabel>
-                  <Switch name="incluye_igv" isChecked={formData.incluye_igv} onChange={handleChange} colorScheme="green" />
+                  <Switch name="igv_incluido" isChecked={formData.igv_incluido} onChange={handleChange} colorScheme="green" />
                 </HStack>
                 <Text fontSize="xs" color="gray.600">
-                  {formData.incluye_igv ? '✓ El costo ya incluye IGV' : '✗ El IGV se sumará al costo'}
+                  {formData.igv_incluido ? '✓ El costo ya incluye IGV' : '✗ El IGV se sumará al costo'}
                 </Text>
               </FormControl>
               <FormControl>
@@ -554,7 +596,7 @@ const OrdenCompraServicioForm = () => {
                 <FormLabel>Porcentaje IGV (%)</FormLabel>
                 <NumberInput
                   value={formData.porcentaje_igv}
-                  onChange={(value) => setFormData(prev => ({ ...prev, porcentaje_igv: parseFloat(value) || 18 }))}
+                  onChange={(value) => setFormData(prev => ({ ...prev, porcentaje_igv: parseFloat(value) || 0 }))}
                   min={0} max={100}
                 >
                   <NumberInputField />
@@ -567,12 +609,12 @@ const OrdenCompraServicioForm = () => {
           <Box bg="white" p={6} borderRadius="lg" shadow="sm">
             <Flex justify="space-between" align="center" mb={4} flexWrap="wrap" gap={2}>
               <HStack spacing={3}>
-                <Heading size="md">Equipos a Reparar</Heading>
+                <Heading size="md">Equipos / Trabajos</Heading>
                 <Badge colorScheme="purple" variant="subtle" fontSize="sm">{equipos.length}</Badge>
               </HStack>
               <HStack spacing={2} flexWrap="wrap">
-                <Button leftIcon={<FaPlus />} colorScheme="blue" size="sm" variant="outline" onClick={agregarEquipo}>
-                  Agregar Equipo
+                <Button leftIcon={<FaPlus />} colorScheme="purple" size="sm" variant="outline" onClick={agregarEquipo}>
+                  Agregar
                 </Button>
                 <Button leftIcon={<FaFileExcel />} colorScheme="green" size="sm" variant="outline"
                   onClick={() => { setImportPreview([]); onExcelOpen(); }}>
@@ -592,7 +634,7 @@ const OrdenCompraServicioForm = () => {
                     <Th>N° Serie</Th>
                     <Th>Modelo</Th>
                     <Th>Marca</Th>
-                    <Th>Falla / Servicio</Th>
+                    <Th>Trabajo</Th>
                     <Th>Cant.</Th>
                     <Th>Costo ({simbolo})</Th>
                     <Th>Subtotal</Th>
@@ -615,8 +657,8 @@ const OrdenCompraServicioForm = () => {
                           onChange={e => updateEquipo(i, 'marca', e.target.value)} placeholder="HP / Apple..." />
                       </Td>
                       <Td minW="220px">
-                        <Input size="sm" value={eq.falla}
-                          onChange={e => updateEquipo(i, 'falla', e.target.value)} placeholder="No enciende, cambio de pantalla..." />
+                        <Input size="sm" value={eq.trabajo}
+                          onChange={e => updateEquipo(i, 'trabajo', e.target.value)} placeholder="Cambio de pantalla, reparación de placa..." />
                       </Td>
                       <Td minW="80px">
                         <NumberInput size="sm" min={1} value={eq.cantidad}
@@ -649,7 +691,7 @@ const OrdenCompraServicioForm = () => {
                 <Text fontWeight="bold">Subtotal:</Text>
                 <Text textAlign="right">{simbolo} {totales.subtotal}</Text>
 
-                {formData.incluye_igv && (
+                {formData.igv_incluido && (
                   <>
                     <Text fontWeight="bold" fontSize="sm" color="gray.600">Base Imponible:</Text>
                     <Text textAlign="right" fontSize="sm" color="gray.600">{simbolo} {totales.baseImponible}</Text>
@@ -661,8 +703,8 @@ const OrdenCompraServicioForm = () => {
 
                 <Divider gridColumn="1 / -1" my={2} />
 
-                <Text fontSize="xl" fontWeight="bold" color="blue.600">TOTAL:</Text>
-                <Text fontSize="xl" fontWeight="bold" color="blue.600" textAlign="right">{simbolo} {totales.total}</Text>
+                <Text fontSize="xl" fontWeight="bold" color="purple.600">TOTAL:</Text>
+                <Text fontSize="xl" fontWeight="bold" color="purple.600" textAlign="right">{simbolo} {totales.total}</Text>
               </Grid>
             </Box>
           </Box>
@@ -680,9 +722,9 @@ const OrdenCompraServicioForm = () => {
 
           {/* ── Botones ── */}
           <Flex justify="flex-end" gap={4}>
-            <Button variant="outline" onClick={() => navigate('/app/compras/ordenes')}>Cancelar</Button>
-            <Button type="submit" colorScheme="blue" leftIcon={<FaSave />} isLoading={loading} loadingText="Guardando...">
-              Crear Orden de Reparación
+            <Button variant="outline" onClick={() => navigate('/app/compras/ordenes-servicio')}>Cancelar</Button>
+            <Button type="submit" colorScheme="purple" leftIcon={<FaSave />} isLoading={loading} loadingText="Guardando...">
+              {esEdicion ? 'Guardar Cambios' : 'Crear Orden'}
             </Button>
           </Flex>
         </VStack>
@@ -700,10 +742,10 @@ const OrdenCompraServicioForm = () => {
                 <Button size="sm" leftIcon={<FaDownload />} variant="outline" onClick={descargarPlantilla}>
                   Descargar plantilla
                 </Button>
-                <Text fontSize="xs" color="gray.500">Columnas: SERIE · MODELO · MARCA · FALLA · COSTO</Text>
+                <Text fontSize="xs" color="gray.500">Columnas: SERIE · MODELO · MARCA · TRABAJO · COSTO</Text>
               </HStack>
-              <Box border="2px dashed" borderColor="blue.200" borderRadius="lg" p={6} textAlign="center"
-                cursor="pointer" _hover={{ bg: 'blue.50' }} onClick={() => fileInputRef.current?.click()}>
+              <Box border="2px dashed" borderColor="purple.200" borderRadius="lg" p={6} textAlign="center"
+                cursor="pointer" _hover={{ bg: 'purple.50' }} onClick={() => fileInputRef.current?.click()}>
                 <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }} onChange={handleFileChange} />
                 <FaFileExcel size={28} color="var(--chakra-colors-green-500)" style={{ margin: '0 auto 8px' }} />
                 <Text fontSize="sm" fontWeight="medium">
@@ -722,7 +764,7 @@ const OrdenCompraServicioForm = () => {
                             onChange={(ev) => setImportPreview(p => p.map(e => ({ ...e, seleccionado: ev.target.checked })))}
                           />
                         </Th>
-                        <Th>Serie</Th><Th>Modelo</Th><Th>Marca</Th><Th>Falla</Th><Th>Costo</Th>
+                        <Th>Serie</Th><Th>Modelo</Th><Th>Marca</Th><Th>Trabajo</Th><Th>Costo</Th>
                       </Tr>
                     </Thead>
                     <Tbody>
@@ -735,7 +777,7 @@ const OrdenCompraServicioForm = () => {
                           <Td fontFamily="mono" fontSize="xs">{eq.numero_serie || '—'}</Td>
                           <Td fontSize="xs">{eq.modelo || '—'}</Td>
                           <Td fontSize="xs">{eq.marca || '—'}</Td>
-                          <Td fontSize="xs"><Text noOfLines={1}>{eq.falla || '—'}</Text></Td>
+                          <Td fontSize="xs"><Text noOfLines={1}>{eq.trabajo || '—'}</Text></Td>
                           <Td fontSize="xs">{eq.costo_unitario || 0}</Td>
                         </Tr>
                       ))}
@@ -747,7 +789,7 @@ const OrdenCompraServicioForm = () => {
           </ModalBody>
           <ModalFooter gap={2}>
             <Button variant="ghost" onClick={onExcelClose}>Cancelar</Button>
-            <Button colorScheme="blue" isDisabled={importPreview.filter(e => e.seleccionado).length === 0} onClick={handleImportarExcel}>
+            <Button colorScheme="purple" isDisabled={importPreview.filter(e => e.seleccionado).length === 0} onClick={handleImportarExcel}>
               Importar {importPreview.filter(e => e.seleccionado).length} equipos
             </Button>
           </ModalFooter>
@@ -763,13 +805,13 @@ const OrdenCompraServicioForm = () => {
           <ModalBody>
             <VStack spacing={4} align="stretch">
               <Text fontSize="xs" color="gray.500">
-                Pega una tabla desde Excel o Google Sheets. Primera fila: SERIE · MODELO · MARCA · FALLA · COSTO
+                Pega una tabla desde Excel o Google Sheets. Primera fila: SERIE · MODELO · MARCA · TRABAJO · COSTO
               </Text>
               <Textarea
                 value={tsvText}
                 onChange={(e) => handleTsvChange(e.target.value)}
                 onPaste={(e) => handleTsvChange(e.clipboardData.getData('text/plain'))}
-                placeholder={'SERIE\tMODELO\tMARCA\tFALLA\tCOSTO\nSN-001\tLaptop HP\tHP\tNo enciende\t120'}
+                placeholder={'SERIE\tMODELO\tMARCA\tTRABAJO\tCOSTO\nSN-001\tLaptop HP\tHP\tCambio de pantalla\t120'}
                 rows={7} fontFamily="mono" fontSize="xs"
               />
               {tsvPreview.length > 0 && (
@@ -784,7 +826,7 @@ const OrdenCompraServicioForm = () => {
                             onChange={(ev) => setTsvPreview(p => p.map(e => ({ ...e, seleccionado: ev.target.checked })))}
                           />
                         </Th>
-                        <Th>Serie</Th><Th>Modelo</Th><Th>Marca</Th><Th>Falla</Th><Th>Costo</Th>
+                        <Th>Serie</Th><Th>Modelo</Th><Th>Marca</Th><Th>Trabajo</Th><Th>Costo</Th>
                       </Tr>
                     </Thead>
                     <Tbody>
@@ -797,7 +839,7 @@ const OrdenCompraServicioForm = () => {
                           <Td fontFamily="mono" fontSize="xs">{eq.numero_serie || '—'}</Td>
                           <Td fontSize="xs">{eq.modelo || '—'}</Td>
                           <Td fontSize="xs">{eq.marca || '—'}</Td>
-                          <Td fontSize="xs">{eq.falla || '—'}</Td>
+                          <Td fontSize="xs">{eq.trabajo || '—'}</Td>
                           <Td fontSize="xs">{eq.costo_unitario || 0}</Td>
                         </Tr>
                       ))}

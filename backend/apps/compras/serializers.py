@@ -8,7 +8,9 @@ from .models import (
     RecepcionCompra,
     PagoCompra,
     CompraRecurrente,
-    ComprobantePago
+    ComprobantePago,
+    OrdenServicioCompra,
+    ItemServicioCompra,
 )
 from apps.inventario.models.producto import Producto
 from apps.inventario.models.almacen import Almacen
@@ -333,4 +335,94 @@ class CompraRecurrenteSerializer(serializers.ModelSerializer):
         model = CompraRecurrente
         fields = ['id', 'empresa', 'proveedor_nombre', 'concepto', 'monto',
                  'frecuencia', 'proximo_pago', 'activo', 'notas']
+
+
+class ItemServicioCompraSerializer(serializers.ModelSerializer):
+    importe = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ItemServicioCompra
+        fields = [
+            'id', 'numero_item', 'numero_serie', 'modelo', 'marca',
+            'trabajo', 'cantidad', 'costo_unitario', 'notas', 'importe',
+        ]
+
+    def get_importe(self, obj):
+        return float(obj.importe)
+
+
+class OrdenServicioCompraSerializer(serializers.ModelSerializer):
+    items = ItemServicioCompraSerializer(many=True, required=False)
+    estado_display = serializers.CharField(source='get_estado_display', read_only=True)
+    proveedor_info = serializers.SerializerMethodField()
+    total_items = serializers.SerializerMethodField()
+
+    class Meta:
+        model = OrdenServicioCompra
+        fields = [
+            'id', 'numero', 'empresa', 'proveedor', 'proveedor_nombre',
+            'contacto_nombre', 'contacto_email',
+            'fecha_emision', 'fecha_entrega', 'fecha_creacion',
+            'estado', 'estado_display', 'moneda', 'forma_pago', 'referencia',
+            'igv_incluido', 'porcentaje_igv', 'subtotal', 'igv', 'total',
+            'notas', 'items', 'proveedor_info', 'total_items',
+        ]
+        read_only_fields = ['id', 'numero', 'empresa', 'fecha_creacion',
+                            'subtotal', 'igv', 'total']
+
+    def get_proveedor_info(self, obj):
+        p = obj.proveedor
+        if p is None and obj.proveedor_nombre:
+            p = Proveedor.objects.filter(
+                empresa=obj.empresa,
+                razon_social__iexact=obj.proveedor_nombre,
+            ).first()
+        if p:
+            return {'ruc': p.ruc, 'direccion': p.direccion,
+                    'email': p.email, 'telefono': p.telefono}
+        return None
+
+    def get_total_items(self, obj):
+        return obj.items.count()
+
+    def _crear_items(self, orden, items_data):
+        for idx, item in enumerate(items_data, 1):
+            item.pop('numero_item', None)
+            ItemServicioCompra.objects.create(orden=orden, numero_item=idx, **item)
+
+    @transaction.atomic
+    def create(self, validated_data):
+        items_data = validated_data.pop('items', [])
+        orden = OrdenServicioCompra.objects.create(**validated_data)
+        self._crear_items(orden, items_data)
+        orden.recalcular_totales()
+        return orden
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        items_data = validated_data.pop('items', None)
+        for attr, val in validated_data.items():
+            setattr(instance, attr, val)
+        instance.save()
+        if items_data is not None:
+            instance.items.all().delete()
+            self._crear_items(instance, items_data)
+        instance.recalcular_totales()
+        return instance
+
+
+class OrdenServicioCompraListSerializer(serializers.ModelSerializer):
+    estado_display = serializers.CharField(source='get_estado_display', read_only=True)
+    total_items = serializers.SerializerMethodField()
+
+    class Meta:
+        model = OrdenServicioCompra
+        fields = [
+            'id', 'numero', 'proveedor', 'proveedor_nombre',
+            'fecha_emision', 'fecha_entrega', 'fecha_creacion',
+            'estado', 'estado_display', 'moneda', 'total', 'total_items',
+        ]
+
+    def get_total_items(self, obj):
+        return obj.items.count()
 

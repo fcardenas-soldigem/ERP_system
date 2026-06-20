@@ -1,0 +1,37 @@
+# Control de versiones
+.git/
+.gitignore
+
+# Frontend (no forma parte de la imagen del backend)
+frontend/
+node_modules/
+backend/node_modules/
+
+# Entornos virtuales
+venv/
+backend/venv/
+
+# Datos pesados / backups / caches
+datasets/
+data/
+migrations_sql/
+backend/media/
+backend/ml_models_cache/
+ml_models_cache/
+*.sql
+*.dump
+*.tar
+*.gz
+*.zip
+*.bak
+
+# Documentación y misceláneos
+*.md
+ENV_EXAMPLE.txt
+LEEME_SEGURIDAD.txt
+debug_compras.js
+test_kardex.js
+
+# Python compilado
+**/__pycache__/
+*.py[cod]

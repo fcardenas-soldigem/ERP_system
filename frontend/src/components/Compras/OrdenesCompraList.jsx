@@ -155,9 +155,9 @@ const OrdenesCompraList = () => {
             leftIcon={<FaTools />}
             colorScheme="purple"
             variant="outline"
-            onClick={() => navigate('/app/compras/orden-servicio/nueva')}
+            onClick={() => navigate('/app/compras/ordenes-servicio')}
           >
-            Orden de Reparación
+            OC de Servicio
           </Button>
           <Button
             leftIcon={<FaPlus />}

@@ -823,6 +823,135 @@ class RecepcionCompra(models.Model):
             self.orden.estado = 'aprobada'
             self.orden.save()
 
+class OrdenServicioCompra(models.Model):
+    """
+    Orden de Compra de Servicio (reparaciones) emitida a un PROVEEDOR.
+
+    A diferencia de servicios.OrdenServicio (que es para el CLIENTE), esta orden
+    documenta el trabajo de reparación que se solicita a un proveedor externo.
+    Importa equipos desde Excel con: número de serie, modelo, marca y trabajo.
+    """
+    ESTADO_CHOICES = [
+        ('borrador', 'Borrador'),
+        ('enviada', 'Enviada'),
+        ('aprobada', 'Aprobada'),
+        ('rechazada', 'Rechazada'),
+        ('completada', 'Completada'),
+    ]
+
+    MONEDA_CHOICES = [
+        ('PEN', 'Sol Peruano (S/)'),
+        ('USD', 'Dólar Americano ($)'),
+    ]
+
+    empresa = models.ForeignKey(
+        'empresas.Empresa',
+        on_delete=models.PROTECT,
+        related_name='ordenes_servicio_compra',
+    )
+    numero = models.CharField(max_length=20, blank=True, null=True)
+    proveedor = models.ForeignKey(
+        'Proveedor',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='ordenes_servicio_compra',
+    )
+    proveedor_nombre = models.CharField(max_length=200, blank=True, null=True)
+    contacto_nombre = models.CharField(max_length=200, null=True, blank=True)
+    contacto_email = models.EmailField(null=True, blank=True)
+
+    fecha_emision = models.DateField(default=date.today)
+    fecha_entrega = models.DateField(null=True, blank=True)
+    estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default='borrador')
+    moneda = models.CharField(max_length=3, choices=MONEDA_CHOICES, default='USD')
+    forma_pago = models.CharField(max_length=100, blank=True, null=True)
+    referencia = models.CharField(max_length=200, blank=True, null=True)
+
+    igv_incluido = models.BooleanField(default=False)
+    porcentaje_igv = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('18.00'))
+    subtotal = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    igv = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    total = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+
+    notas = models.TextField(blank=True, null=True)
+    fecha_creacion = models.DateTimeField(auto_now_add=True)
+    fecha_actualizacion = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Orden de Compra de Servicio'
+        verbose_name_plural = 'Órdenes de Compra de Servicio'
+        ordering = ['-fecha_creacion']
+
+    def __str__(self):
+        return f"OCS-{self.numero} - {self.proveedor_nombre or ''}"
+
+    @classmethod
+    def generar_numero(cls, empresa):
+        ultima = cls.objects.filter(empresa=empresa).order_by('-id').only('numero').first()
+        if ultima and ultima.numero:
+            try:
+                secuencia = int(ultima.numero) + 1
+            except (ValueError, TypeError):
+                secuencia = cls.objects.filter(empresa=empresa).count() + 1
+        else:
+            secuencia = 1
+        return str(secuencia).zfill(6)
+
+    def clean(self):
+        if not self.empresa_id:
+            raise ValidationError('La orden debe tener una empresa asignada')
+
+    def save(self, *args, **kwargs):
+        if not self.numero:
+            self.numero = self.generar_numero(self.empresa)
+        super().save(*args, **kwargs)
+
+    def recalcular_totales(self):
+        bruto = sum(
+            (Decimal(str(i.cantidad or 0)) * Decimal(str(i.costo_unitario or 0)))
+            for i in self.items.all()
+        )
+        porcentaje = Decimal(str(self.porcentaje_igv or 0)) / Decimal('100')
+        if self.igv_incluido:
+            base = bruto / (Decimal('1') + porcentaje) if porcentaje else bruto
+            self.subtotal = base.quantize(Decimal('0.01'))
+            self.igv = (bruto - base).quantize(Decimal('0.01'))
+            self.total = bruto.quantize(Decimal('0.01'))
+        else:
+            self.subtotal = bruto.quantize(Decimal('0.01'))
+            self.igv = (bruto * porcentaje).quantize(Decimal('0.01'))
+            self.total = (bruto + (bruto * porcentaje)).quantize(Decimal('0.01'))
+        self.save(update_fields=['subtotal', 'igv', 'total', 'fecha_actualizacion'])
+
+
+class ItemServicioCompra(models.Model):
+    orden = models.ForeignKey(
+        OrdenServicioCompra,
+        on_delete=models.CASCADE,
+        related_name='items',
+    )
+    numero_item = models.IntegerField(default=1)
+    numero_serie = models.CharField(max_length=120, blank=True, null=True)
+    modelo = models.CharField(max_length=150, blank=True, null=True)
+    marca = models.CharField(max_length=120, blank=True, null=True)
+    trabajo = models.TextField(blank=True, null=True)
+    cantidad = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('1.00'))
+    costo_unitario = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    notas = models.TextField(blank=True, null=True)
+
+    class Meta:
+        verbose_name = 'Ítem de Orden de Compra de Servicio'
+        verbose_name_plural = 'Ítems de Orden de Compra de Servicio'
+        ordering = ['numero_item', 'id']
+
+    def __str__(self):
+        return f"{self.numero_item} - {self.modelo or self.numero_serie or 'Equipo'}"
+
+    @property
+    def importe(self):
+        return Decimal(str(self.cantidad or 0)) * Decimal(str(self.costo_unitario or 0))
+
+
 class CompraRecurrente(models.Model):
     FRECUENCIA_CHOICES = [
         ('mensual', 'Mensual'),

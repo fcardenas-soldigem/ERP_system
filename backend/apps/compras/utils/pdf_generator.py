@@ -826,3 +826,333 @@ class PurchaseOrderPDFGenerator:
             ('RIGHTPADDING',  (0, 0), (-1, -1), 6),
             ('VALIGN',        (0, 0), (-1, -1), 'MIDDLE'),
         ])
+
+
+# ══════════════════════════════════════════════════════════════════
+#  OrdenServicioCompraPDFGenerator — para objetos OrdenServicioCompra
+#  (orden de compra de servicio / reparaciones enviada al proveedor)
+# ══════════════════════════════════════════════════════════════════
+class OrdenServicioCompraPDFGenerator:
+    """PDF de una Orden de Compra de Servicio (reparaciones) para el proveedor."""
+
+    DARK_HDR = OC_DARK_HDR
+    BLUE     = OC_BLUE
+    ROW_ALT  = OC_ROW_ALT
+    DARK     = _DARK
+    GRAY     = _GRAY
+    BORDER   = _BORDER
+    WHITE    = _WHITE
+
+    def __init__(self, orden, usuario=None):
+        self.orden   = orden
+        self.empresa = orden.empresa
+        self.usuario = usuario
+        self.buffer  = BytesIO()
+        self.proveedor = orden.proveedor
+        if self.proveedor is None and orden.proveedor_nombre:
+            try:
+                from apps.compras.models import Proveedor
+                self.proveedor = Proveedor.objects.filter(
+                    empresa=orden.empresa,
+                    razon_social__iexact=orden.proveedor_nombre,
+                ).first()
+            except Exception:
+                pass
+
+    def _ocs_num(self):
+        return f'OCS-{self.orden.numero or "000001"}'
+
+    def _moneda_texto(self):
+        moneda = getattr(self.orden, 'moneda', 'USD') or 'USD'
+        return 'Sol Peruano' if moneda == 'PEN' else 'Dólar Estadounidense'
+
+    def _sym(self):
+        moneda = getattr(self.orden, 'moneda', 'USD') or 'USD'
+        return 'S/' if moneda == 'PEN' else '$'
+
+    def _nombre_firma(self):
+        if self.usuario:
+            nombre   = getattr(self.usuario, 'nombre',   '') or ''
+            apellido = getattr(self.usuario, 'apellido', '') or ''
+            completo = f'{nombre} {apellido}'.strip()
+            if completo:
+                return completo
+        return self.empresa.nombre
+
+    def generar_pdf(self):
+        doc = SimpleDocTemplate(
+            self.buffer, pagesize=A4,
+            leftMargin=MARGIN, rightMargin=MARGIN,
+            topMargin=MARGIN, bottomMargin=MARGIN + 10,
+        )
+        doc.build(self._build_story(), onFirstPage=self._page_decor, onLaterPages=self._page_decor)
+        self.buffer.seek(0)
+        return self.buffer
+
+    def _page_decor(self, canvas_obj, doc):
+        canvas_obj.saveState()
+        canvas_obj.setFont('Helvetica', 7)
+        canvas_obj.setFillColor(self.GRAY)
+        canvas_obj.drawString(MARGIN, 18, self._ocs_num())
+        canvas_obj.drawCentredString(PAGE_W / 2, 18, f'Página {canvas_obj.getPageNumber()}')
+        canvas_obj.drawRightString(PAGE_W - MARGIN, 18, self.orden.fecha_emision.strftime('%d/%m/%Y'))
+        canvas_obj.restoreState()
+
+    def _build_story(self):
+        sym = self._sym()
+        story = []
+        story.append(self._header_section())
+        story.append(Spacer(1, 8))
+        story.append(self._section_bar('DATOS DEL PROVEEDOR'))
+        story.append(self._proveedor_section())
+        story.append(Spacer(1, 2))
+        story.append(self._section_bar('DATOS DE LA COMPAÑÍA'))
+        story.append(self._company_section())
+        story.append(Spacer(1, 2))
+        story.append(self._section_bar('CONDICIONES'))
+        story.append(self._conditions_section())
+        story.append(Spacer(1, 2))
+        story.append(self._section_bar('EQUIPOS / TRABAJOS DE REPARACIÓN'))
+        story.append(self._items_table(sym))
+        story.append(self._totals_section(sym))
+        story.append(Spacer(1, 6))
+        if self.orden.notas:
+            story.append(self._section_bar('OBSERVACIONES'))
+            story.append(self._notes_section())
+            story.append(Spacer(1, 2))
+        story.append(Spacer(1, 24))
+        story.append(self._firma_section())
+        return story
+
+    def _section_bar(self, text):
+        data = [[Paragraph(f'<b>{text}</b>',
+                           ParagraphStyle('ocs_bar', fontName='Helvetica-Bold',
+                                          fontSize=9, textColor=self.WHITE, leading=12))]]
+        t = Table(data, colWidths=[PAGE_W - 2 * MARGIN])
+        t.setStyle(TableStyle([
+            ('BACKGROUND',    (0, 0), (-1, -1), self.DARK_HDR),
+            ('TOPPADDING',    (0, 0), (-1, -1), 5),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+            ('LEFTPADDING',   (0, 0), (-1, -1), 8),
+        ]))
+        return t
+
+    def _header_section(self):
+        W = PAGE_W - 2 * MARGIN
+        fecha_str = self.orden.fecha_emision.strftime('%d/%m/%Y')
+        logo = self._logo_image(width=140, height=65)
+        if logo:
+            left_content = logo
+        else:
+            left_content = Paragraph(
+                f'<b>{self.empresa.nombre}</b>',
+                ParagraphStyle('ocs_en', fontSize=13, fontName='Helvetica-Bold', textColor=self.BLUE),
+            )
+        right_data = [
+            [Paragraph(f'Fecha de Emisión: {fecha_str}',
+                       ParagraphStyle('ocs_d', fontSize=8, textColor=self.GRAY, alignment=TA_RIGHT))],
+            [Paragraph('Orden de Compra de Servicio:',
+                       ParagraphStyle('ocs_lbl', fontSize=9, fontName='Helvetica-Bold',
+                                      textColor=self.DARK, alignment=TA_RIGHT, spaceBefore=4))],
+            [Paragraph(f'<b>{self._ocs_num()}</b>',
+                       ParagraphStyle('ocs_num', fontSize=17, fontName='Helvetica-Bold',
+                                      textColor=self.BLUE, alignment=TA_RIGHT))],
+        ]
+        right_t = Table(right_data, colWidths=[W * 0.46])
+        t = Table([[left_content, right_t]], colWidths=[W * 0.54, W * 0.46])
+        t.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'MIDDLE')]))
+        return t
+
+    def _proveedor_section(self):
+        W = PAGE_W - 2 * MARGIN
+        half = W / 2
+        p = self.proveedor
+        if p:
+            nombre    = p.razon_social or '—'
+            ruc       = p.ruc or '—'
+            direccion = p.direccion or '—'
+            contacto  = self.orden.contacto_nombre or p.telefono or '—'
+            email     = self.orden.contacto_email or p.email or '—'
+        else:
+            nombre    = self.orden.proveedor_nombre or '—'
+            ruc       = direccion = '—'
+            contacto  = self.orden.contacto_nombre or '—'
+            email     = self.orden.contacto_email or '—'
+        rows = [
+            [self._lv('Razón Social', nombre), self._lv('RUC', ruc)],
+            [self._lv('Dirección', direccion), self._lv('Forma de Pago', self.orden.forma_pago or '—')],
+            [self._lv('Contacto', contacto), self._lv('Mail', email)],
+        ]
+        t = Table(rows, colWidths=[half, half])
+        t.setStyle(self._box_style())
+        return t
+
+    def _company_section(self):
+        W = PAGE_W - 2 * MARGIN
+        half = W / 2
+        e = self.empresa
+        rows = [
+            [self._lv('Facturar a', e.nombre), self._lv('RUC', e.ruc or '—')],
+            [self._lv('Dirección', e.direccion or '—'), ''],
+        ]
+        t = Table(rows, colWidths=[half, half])
+        t.setStyle(self._box_style())
+        return t
+
+    def _conditions_section(self):
+        W = PAGE_W - 2 * MARGIN
+        half = W / 2
+        fecha_ent = self.orden.fecha_entrega.strftime('%d/%m/%Y') if self.orden.fecha_entrega else '—'
+        rows = [[
+            self._lv('Moneda', self._moneda_texto()),
+            self._lv('Entrega Estimada', fecha_ent),
+        ]]
+        t = Table(rows, colWidths=[half, half])
+        t.setStyle(self._box_style())
+        return t
+
+    def _items_table(self, sym):
+        W = PAGE_W - 2 * MARGIN
+        c_num, c_cant, c_costo, c_imp = 24, 38, 62, 66
+        fijo = c_num + c_cant + c_costo + c_imp
+        resto = W - fijo
+        c_serie = resto * 0.22
+        c_modelo = resto * 0.24
+        c_marca = resto * 0.18
+        c_trab = resto * 0.36
+        col_widths = [c_num, c_serie, c_modelo, c_marca, c_trab, c_cant, c_costo, c_imp]
+        headers = ['N°', 'N° Serie', 'Modelo', 'Marca', 'Trabajo', 'Cant.', 'Costo', 'Importe']
+
+        hdr_s = ParagraphStyle('ocs_thdr', fontSize=7, fontName='Helvetica-Bold',
+                               textColor=self.WHITE, alignment=TA_CENTER)
+        data = [[Paragraph(h, hdr_s) for h in headers]]
+
+        cs = ParagraphStyle('ocs_cs', fontSize=7, textColor=self.DARK)
+        cr = ParagraphStyle('ocs_cr', fontSize=7, textColor=self.DARK, alignment=TA_RIGHT)
+        cc = ParagraphStyle('ocs_cc', fontSize=7, textColor=self.DARK, alignment=TA_CENTER)
+
+        items = list(self.orden.items.all())
+        if items:
+            for idx, it in enumerate(items, 1):
+                cantidad = it.cantidad or 0
+                costo = it.costo_unitario or 0
+                importe = float(cantidad) * float(costo)
+                qty = f'{cantidad:.0f}' if float(cantidad) == int(cantidad) else f'{cantidad:.2f}'
+                data.append([
+                    Paragraph(str(idx), cc),
+                    Paragraph(it.numero_serie or '—', cs),
+                    Paragraph(it.modelo or '—', cs),
+                    Paragraph(it.marca or '—', cs),
+                    Paragraph(it.trabajo or '—', cs),
+                    Paragraph(qty, cc),
+                    Paragraph(f'{sym} {float(costo):,.2f}', cr),
+                    Paragraph(f'{sym} {importe:,.2f}', cr),
+                ])
+        else:
+            data.append(['', Paragraph('(sin equipos registrados)', cc), '', '', '', '', '', ''])
+
+        t = Table(data, colWidths=col_widths, repeatRows=1)
+        cmds = [
+            ('BACKGROUND', (0, 0), (-1, 0), self.BLUE),
+            ('TEXTCOLOR',  (0, 0), (-1, 0), self.WHITE),
+            ('TOPPADDING',    (0, 0), (-1, 0), 5),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 5),
+            ('TOPPADDING',    (0, 1), (-1, -1), 4),
+            ('BOTTOMPADDING', (0, 1), (-1, -1), 4),
+            ('LEFTPADDING',   (0, 0), (-1, -1), 3),
+            ('RIGHTPADDING',  (0, 0), (-1, -1), 3),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('GRID',   (0, 0), (-1, -1), 0.5, self.BORDER),
+        ]
+        for i in range(1, len(data)):
+            cmds.append(('BACKGROUND', (0, i), (-1, i),
+                         self.WHITE if i % 2 == 1 else self.ROW_ALT))
+        t.setStyle(TableStyle(cmds))
+        return t
+
+    def _totals_section(self, sym):
+        W = PAGE_W - 2 * MARGIN
+        tot_w = 190
+        s_lbl   = ParagraphStyle('ocs_tl',  fontSize=8, textColor=self.DARK)
+        s_val   = ParagraphStyle('ocs_tv',  fontSize=8, textColor=self.DARK, alignment=TA_RIGHT)
+        s_lbl_b = ParagraphStyle('ocs_tlb', fontSize=9, fontName='Helvetica-Bold', textColor=self.DARK)
+        s_val_b = ParagraphStyle('ocs_tvb', fontSize=9, fontName='Helvetica-Bold',
+                                 textColor=self.DARK, alignment=TA_RIGHT)
+        s_lbl_g = ParagraphStyle('ocs_tlg', fontSize=8, textColor=self.GRAY)
+        s_val_g = ParagraphStyle('ocs_tvg', fontSize=8, textColor=self.GRAY, alignment=TA_RIGHT)
+
+        o = self.orden
+        pct = f'{float(o.porcentaje_igv):.0f}' if float(o.porcentaje_igv) == int(o.porcentaje_igv) else f'{float(o.porcentaje_igv):.2f}'
+        tot_rows = [
+            [Paragraph('Sub Total:', s_lbl), Paragraph(f'{sym} {float(o.subtotal):,.2f}', s_val)],
+            [Paragraph(f'IGV ({pct}%):', s_lbl_g), Paragraph(f'{sym} {float(o.igv):,.2f}', s_val_g)],
+            [Paragraph('<b>TOTAL:</b>', s_lbl_b), Paragraph(f'<b>{sym} {float(o.total):,.2f}</b>', s_val_b)],
+        ]
+        tot_t = Table(tot_rows, colWidths=[100, tot_w - 100])
+        tot_t.setStyle(TableStyle([
+            ('TOPPADDING',    (0, 0), (-1, -1), 3),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+            ('LEFTPADDING',   (0, 0), (-1, -1), 4),
+            ('RIGHTPADDING',  (0, 0), (-1, -1), 4),
+            ('GRID',          (0, 0), (-1, -1), 0.5, self.BORDER),
+            ('BACKGROUND',    (0, -1), (-1, -1), self.ROW_ALT),
+        ]))
+        main = Table([['', tot_t]], colWidths=[W - tot_w, tot_w])
+        main.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'TOP')]))
+        return main
+
+    def _notes_section(self):
+        W = PAGE_W - 2 * MARGIN
+        style = ParagraphStyle('ocs_note', fontSize=7.5, textColor=self.DARK, leading=10)
+        rows = [[Paragraph(self.orden.notas, style)]]
+        t = Table(rows, colWidths=[W])
+        t.setStyle(self._box_style())
+        return t
+
+    def _firma_section(self):
+        W = PAGE_W - 2 * MARGIN
+        half = W / 2
+        lbl = ParagraphStyle('ocs_fl', fontSize=8, textColor=self.GRAY, alignment=TA_CENTER)
+        name = ParagraphStyle('ocs_fn', fontSize=8, fontName='Helvetica-Bold',
+                              textColor=self.DARK, alignment=TA_CENTER)
+        line = ParagraphStyle('ocs_fli', fontSize=7.5, textColor=self.GRAY, alignment=TA_CENTER)
+        data = [
+            [Spacer(1, 36), Spacer(1, 36)],
+            [Paragraph('_' * 36, line), Paragraph('_' * 36, line)],
+            [Paragraph('Autorizado por', lbl), Paragraph('Sello / Conformidad Proveedor', lbl)],
+            [Paragraph(self._nombre_firma(), name), ''],
+        ]
+        t = Table(data, colWidths=[half, half])
+        t.setStyle(TableStyle([
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('TOPPADDING', (0, 0), (-1, -1), 3),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+        ]))
+        return t
+
+    def _logo_image(self, width=130, height=60):
+        if self.empresa.logo:
+            try:
+                path = self.empresa.logo.path
+                if os.path.exists(path):
+                    return Image(path, width=width, height=height, kind='proportional')
+            except Exception:
+                pass
+        return None
+
+    def _lv(self, label, value):
+        return Paragraph(
+            f'<b>{label}:</b> {value or "—"}',
+            ParagraphStyle('ocs_lv', fontSize=7.5, textColor=self.DARK, leading=10),
+        )
+
+    def _box_style(self):
+        return TableStyle([
+            ('BOX',           (0, 0), (-1, -1), 0.5, self.BORDER),
+            ('INNERGRID',     (0, 0), (-1, -1), 0.5, self.BORDER),
+            ('TOPPADDING',    (0, 0), (-1, -1), 4),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            ('LEFTPADDING',   (0, 0), (-1, -1), 6),
+            ('RIGHTPADDING',  (0, 0), (-1, -1), 6),
+            ('VALIGN',        (0, 0), (-1, -1), 'MIDDLE'),
+        ])

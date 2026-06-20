@@ -453,6 +453,50 @@ export const comprasService = {
     setTimeout(() => { link.remove(); window.URL.revokeObjectURL(url); }, 100);
   },
 
+  // ── Órdenes de Compra de Servicio (reparaciones / proveedor) ───────────────
+  getOrdenesServicio: async (params = {}) => {
+    const response = await api.get('/api/compras/ordenes-servicio/', { params });
+    return response.data;
+  },
+
+  getOrdenServicio: async (id) => {
+    const response = await api.get(`/api/compras/ordenes-servicio/${id}/`);
+    return response.data;
+  },
+
+  createOrdenServicio: async (data) => {
+    const response = await api.post('/api/compras/ordenes-servicio/', data);
+    return response.data;
+  },
+
+  updateOrdenServicio: async (id, data) => {
+    const response = await api.put(`/api/compras/ordenes-servicio/${id}/`, data);
+    return response.data;
+  },
+
+  deleteOrdenServicio: async (id) => {
+    await api.delete(`/api/compras/ordenes-servicio/${id}/`);
+  },
+
+  cambiarEstadoOrdenServicio: async (id, estado) => {
+    const response = await api.post(`/api/compras/ordenes-servicio/${id}/cambiar-estado/`, { estado });
+    return response.data;
+  },
+
+  exportarPDFOrdenServicio: async (orden) => {
+    const response = await api.get(`/api/compras/ordenes-servicio/${orden.id}/exportar-pdf/`, {
+      responseType: 'blob',
+    });
+    const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
+    const link = document.createElement('a');
+    link.href = url;
+    const prov = (orden.proveedor_nombre || 'PROVEEDOR').replace(/\s+/g, '_').slice(0, 30);
+    link.setAttribute('download', `OCS-${orden.numero || orden.id}_${prov}.pdf`);
+    document.body.appendChild(link);
+    link.click();
+    setTimeout(() => { link.remove(); window.URL.revokeObjectURL(url); }, 100);
+  },
+
   // Constantes
   TIPO_COMPRA: {
     CONTADO: 'contado',

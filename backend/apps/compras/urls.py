@@ -4,6 +4,7 @@ from .views import (
     CompraViewSet,
     ProveedorViewSet,
     OrdenCompraViewSet,
+    OrdenServicioCompraViewSet,
     RecepcionCompraViewSet,
     ResumenComprasMensual,
     PagoCompraViewSet,
@@ -14,6 +15,7 @@ router = DefaultRouter()
 router.register(r'compras', CompraViewSet, basename='compra')
 router.register(r'proveedores', ProveedorViewSet, basename='proveedor')
 router.register(r'ordenes', OrdenCompraViewSet, basename='orden')
+router.register(r'ordenes-servicio', OrdenServicioCompraViewSet, basename='orden-servicio-compra')
 router.register(r'recepciones', RecepcionCompraViewSet, basename='recepcion')
 router.register(r'pagos', PagoCompraViewSet, basename='pago')
 router.register(r'resumen', ResumenComprasMensual, basename='resumen-compras')
