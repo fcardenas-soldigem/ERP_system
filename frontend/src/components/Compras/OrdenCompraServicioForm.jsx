@@ -59,7 +59,84 @@ const EQUIPO_VACIO = {
   costo_unitario: 0,
 };
 
-// ── Parsers de importación: SERIE · MODELO · MARCA · TRABAJO · COSTO ──────────
+// ── Parsers de importación ─────────────────────────────────────────────────────
+// Formato Excel: numero_serie | modelo | trabajo | cantidad | valor_unitario
+// Las filas siguientes del mismo equipo dejan numero_serie y modelo vacíos (fill-down).
+
+const normKey = (k) => String(k || '').trim().toLowerCase().replace(/\s+/g, '_');
+
+const buildRowMap = (row) => {
+  const map = {};
+  Object.entries(row || {}).forEach(([k, v]) => {
+    map[normKey(k)] = v;
+  });
+  return map;
+};
+
+const getField = (rowMap, aliases) => {
+  for (const alias of aliases) {
+    const val = rowMap[normKey(alias)];
+    if (val !== undefined && val !== null && String(val).trim() !== '') {
+      return String(val).trim();
+    }
+  }
+  return '';
+};
+
+const parseNumero = (raw, fallback = 0) => {
+  const n = parseFloat(String(raw ?? '').replace(/[^0-9.]/g, ''));
+  return Number.isFinite(n) ? n : fallback;
+};
+
+const ALIAS = {
+  serie: ['numero_serie', 'n_serie', 'serie', 'n°_serie', 's/n', 'sn'],
+  modelo: ['modelo', 'model'],
+  marca: ['marca', 'brand'],
+  trabajo: ['trabajo', 'falla', 'servicio', 'descripcion', 'estado_ingreso', 'estado'],
+  cantidad: ['cantidad', 'cant', 'qty', 'cant.'],
+  valor: ['valor_unitario', 'valor', 'costo_unitario', 'costo', 'precio', 'precio_unitario'],
+};
+
+const parseFilasImportacion = (rawRows) => {
+  let lastSerie = '';
+  let lastModelo = '';
+  const items = [];
+
+  rawRows.forEach((row, idx) => {
+    const m = buildRowMap(row);
+    const serieRaw = getField(m, ALIAS.serie);
+    const modeloRaw = getField(m, ALIAS.modelo);
+    const trabajo = getField(m, ALIAS.trabajo);
+    const cantidad = parseNumero(getField(m, ALIAS.cantidad), 1) || 1;
+    const valor = parseNumero(getField(m, ALIAS.valor), 0);
+    const marca = getField(m, ALIAS.marca);
+
+    if (serieRaw) lastSerie = serieRaw;
+    if (modeloRaw) lastModelo = modeloRaw;
+
+    if (!trabajo && !serieRaw && !modeloRaw) return;
+
+    const numero_serie = lastSerie;
+    const modelo = lastModelo;
+
+    if (!trabajo) return;
+
+    items.push({
+      id_temp: idx,
+      numero_serie,
+      modelo,
+      marca,
+      trabajo,
+      cantidad,
+      costo_unitario: valor,
+      valido: Boolean(trabajo),
+      seleccionado: true,
+    });
+  });
+
+  return items.filter(r => r.valido);
+};
+
 const parseExcel = (file) => new Promise((resolve) => {
   const reader = new FileReader();
   reader.onload = (e) => {
@@ -67,26 +144,10 @@ const parseExcel = (file) => new Promise((resolve) => {
       const wb = XLSX.read(e.target.result, { type: 'array' });
       const ws = wb.Sheets[wb.SheetNames[0]];
       const data = XLSX.utils.sheet_to_json(ws, { defval: '' });
-      const equipos = data.map((row, idx) => {
-        const serie = row.SERIE || row.serie || row.N_SERIE || row['N° SERIE'] || row['S/N'] || '';
-        const modelo = row.MODELO || row.modelo || row.MODEL || '';
-        const marca = row.MARCA || row.marca || row.BRAND || '';
-        const trabajo = row.TRABAJO || row.trabajo || row.FALLA || row.falla || row.SERVICIO || row.servicio || '';
-        const costo = row.COSTO || row.costo || row.PRECIO || row.precio || 0;
-        return {
-          id_temp: idx,
-          numero_serie: String(serie).trim(),
-          modelo: String(modelo).trim(),
-          marca: String(marca).trim(),
-          trabajo: String(trabajo).trim(),
-          cantidad: 1,
-          costo_unitario: parseFloat(String(costo).replace(/[^0-9.]/g, '')) || 0,
-          valido: serie !== '' || modelo !== '' || trabajo !== '',
-          seleccionado: true,
-        };
-      }).filter(r => r.valido);
-      resolve(equipos);
-    } catch { resolve([]); }
+      resolve(parseFilasImportacion(data));
+    } catch {
+      resolve([]);
+    }
   };
   reader.readAsArrayBuffer(file);
 });
@@ -94,37 +155,42 @@ const parseExcel = (file) => new Promise((resolve) => {
 const parseTSV = (text) => {
   const lines = text.trim().split('\n');
   if (lines.length < 2) return [];
-  const headers = lines[0].split('\t').map(h => h.trim().toUpperCase());
-  const idx = {
-    serie: headers.findIndex(h => ['SERIE', 'N_SERIE', 'N° SERIE', 'S/N', 'SN'].includes(h)),
-    modelo: headers.findIndex(h => ['MODELO', 'MODEL'].includes(h)),
-    marca: headers.findIndex(h => ['MARCA', 'BRAND'].includes(h)),
-    trabajo: headers.findIndex(h => ['TRABAJO', 'FALLA', 'SERVICIO', 'ESTADO'].includes(h)),
-    costo: headers.findIndex(h => ['COSTO', 'PRECIO', 'COST'].includes(h)),
-  };
-  return lines.slice(1).filter(l => l.trim()).map((line, i) => {
+
+  const headers = lines[0].split('\t').map(h => normKey(h));
+  const col = (aliases) => headers.findIndex(h => aliases.some(a => h === normKey(a)));
+
+  const idxSerie = col(ALIAS.serie);
+  const idxModelo = col(ALIAS.modelo);
+  const idxMarca = col(ALIAS.marca);
+  const idxTrabajo = col(ALIAS.trabajo);
+  const idxCantidad = col(ALIAS.cantidad);
+  const idxValor = col(ALIAS.valor);
+
+  const rawRows = lines.slice(1).filter(l => l.trim()).map((line) => {
     const cols = line.split('\t').map(c => c.trim());
-    const serie = idx.serie >= 0 ? cols[idx.serie] : cols[0] || '';
-    const modelo = idx.modelo >= 0 ? cols[idx.modelo] : cols[1] || '';
+    const pick = (i) => (i >= 0 ? cols[i] : '');
     return {
-      id_temp: i,
-      numero_serie: serie,
-      modelo,
-      marca: idx.marca >= 0 ? cols[idx.marca] : '',
-      trabajo: idx.trabajo >= 0 ? cols[idx.trabajo] : '',
-      cantidad: 1,
-      costo_unitario: idx.costo >= 0 ? (parseFloat(String(cols[idx.costo]).replace(/[^0-9.]/g, '')) || 0) : 0,
-      valido: true,
-      seleccionado: true,
+      numero_serie: pick(idxSerie >= 0 ? idxSerie : 0),
+      modelo: pick(idxModelo >= 0 ? idxModelo : 1),
+      marca: pick(idxMarca),
+      trabajo: pick(idxTrabajo >= 0 ? idxTrabajo : 2),
+      cantidad: pick(idxCantidad),
+      valor_unitario: pick(idxValor >= 0 ? idxValor : 4),
     };
   });
+
+  return parseFilasImportacion(rawRows);
 };
 
 const descargarPlantilla = () => {
-  const header = [['SERIE', 'MODELO', 'MARCA', 'TRABAJO', 'COSTO']];
+  const header = [['numero_serie', 'modelo', 'trabajo', 'cantidad', 'valor_unitario']];
   const ejemplo = [
-    ['SN-001', 'Laptop HP ProBook 450', 'HP', 'Cambio de pantalla', 120],
-    ['SN-002', 'MacBook Air M2', 'Apple', 'Reparación de placa', 250],
+    ['5CD208KGPB', 'LAPTOP HP 640-G8', 'Mantenimiento de hardware', 1, 95],
+    ['', '', 'Teclado', 1, 245],
+    ['', '', 'Batería', 1, 255],
+    ['5CD2213RM4', 'LAPTOP HP 640-G8', 'Mantenimiento de hardware', 1, 95],
+    ['', '', 'Teclado', 1, 245],
+    ['', '', 'Batería', 1, 255],
   ];
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet([...header, ...ejemplo]);
@@ -338,7 +404,7 @@ const OrdenCompraServicioForm = () => {
     aplicarImportados(sel);
     setImportPreview([]);
     onExcelClose();
-    toast({ title: `${sel.length} equipo(s) importados`, status: 'success', duration: 2500 });
+    toast({ title: `${sel.length} línea(s) importadas`, status: 'success', duration: 2500 });
   };
 
   const handleTsvChange = (text) => {
@@ -352,7 +418,7 @@ const OrdenCompraServicioForm = () => {
     setTsvText('');
     setTsvPreview([]);
     onPasteClose();
-    toast({ title: `${sel.length} equipo(s) agregados`, status: 'success', duration: 2500 });
+    toast({ title: `${sel.length} línea(s) agregadas`, status: 'success', duration: 2500 });
   };
 
   // ── Guardar ──────────────────────────────────────────────────────────────────
@@ -742,7 +808,10 @@ const OrdenCompraServicioForm = () => {
                 <Button size="sm" leftIcon={<FaDownload />} variant="outline" onClick={descargarPlantilla}>
                   Descargar plantilla
                 </Button>
-                <Text fontSize="xs" color="gray.500">Columnas: SERIE · MODELO · MARCA · TRABAJO · COSTO</Text>
+                <Text fontSize="xs" color="gray.500">
+                  Columnas: numero_serie · modelo · trabajo · cantidad · valor_unitario
+                  {' '}(serie/modelo solo en la 1ª fila de cada equipo)
+                </Text>
               </HStack>
               <Box border="2px dashed" borderColor="purple.200" borderRadius="lg" p={6} textAlign="center"
                 cursor="pointer" _hover={{ bg: 'purple.50' }} onClick={() => fileInputRef.current?.click()}>
@@ -764,7 +833,7 @@ const OrdenCompraServicioForm = () => {
                             onChange={(ev) => setImportPreview(p => p.map(e => ({ ...e, seleccionado: ev.target.checked })))}
                           />
                         </Th>
-                        <Th>Serie</Th><Th>Modelo</Th><Th>Marca</Th><Th>Trabajo</Th><Th>Costo</Th>
+                        <Th>Serie</Th><Th>Modelo</Th><Th>Trabajo</Th><Th>Cant.</Th><Th>Valor unit.</Th>
                       </Tr>
                     </Thead>
                     <Tbody>
@@ -774,11 +843,11 @@ const OrdenCompraServicioForm = () => {
                             <Checkbox isChecked={eq.seleccionado}
                               onChange={(ev) => setImportPreview(p => p.map((e, idx) => idx === i ? { ...e, seleccionado: ev.target.checked } : e))} />
                           </Td>
-                          <Td fontFamily="mono" fontSize="xs">{eq.numero_serie || '—'}</Td>
-                          <Td fontSize="xs">{eq.modelo || '—'}</Td>
-                          <Td fontSize="xs">{eq.marca || '—'}</Td>
+                          <Td fontFamily="mono" fontSize="xs">{eq.numero_serie || '↑'}</Td>
+                          <Td fontSize="xs">{eq.modelo || '↑'}</Td>
                           <Td fontSize="xs"><Text noOfLines={1}>{eq.trabajo || '—'}</Text></Td>
-                          <Td fontSize="xs">{eq.costo_unitario || 0}</Td>
+                          <Td fontSize="xs" isNumeric>{eq.cantidad || 1}</Td>
+                          <Td fontSize="xs" isNumeric>{eq.costo_unitario || 0}</Td>
                         </Tr>
                       ))}
                     </Tbody>
@@ -790,7 +859,7 @@ const OrdenCompraServicioForm = () => {
           <ModalFooter gap={2}>
             <Button variant="ghost" onClick={onExcelClose}>Cancelar</Button>
             <Button colorScheme="purple" isDisabled={importPreview.filter(e => e.seleccionado).length === 0} onClick={handleImportarExcel}>
-              Importar {importPreview.filter(e => e.seleccionado).length} equipos
+              Importar {importPreview.filter(e => e.seleccionado).length} líneas
             </Button>
           </ModalFooter>
         </ModalContent>
@@ -805,13 +874,14 @@ const OrdenCompraServicioForm = () => {
           <ModalBody>
             <VStack spacing={4} align="stretch">
               <Text fontSize="xs" color="gray.500">
-                Pega una tabla desde Excel o Google Sheets. Primera fila: SERIE · MODELO · MARCA · TRABAJO · COSTO
+                Pega desde Excel/Sheets. Encabezados: numero_serie · modelo · trabajo · cantidad · valor_unitario.
+                Deja serie/modelo vacíos en las filas adicionales del mismo equipo.
               </Text>
               <Textarea
                 value={tsvText}
                 onChange={(e) => handleTsvChange(e.target.value)}
                 onPaste={(e) => handleTsvChange(e.clipboardData.getData('text/plain'))}
-                placeholder={'SERIE\tMODELO\tMARCA\tTRABAJO\tCOSTO\nSN-001\tLaptop HP\tHP\tCambio de pantalla\t120'}
+                placeholder={'numero_serie\tmodelo\ttrabajo\tcantidad\tvalor_unitario\n5CD208KGPB\tLAPTOP HP 640-G8\tMantenimiento de hardware\t1\t95\n\t\tTeclado\t1\t245'}
                 rows={7} fontFamily="mono" fontSize="xs"
               />
               {tsvPreview.length > 0 && (
@@ -826,7 +896,7 @@ const OrdenCompraServicioForm = () => {
                             onChange={(ev) => setTsvPreview(p => p.map(e => ({ ...e, seleccionado: ev.target.checked })))}
                           />
                         </Th>
-                        <Th>Serie</Th><Th>Modelo</Th><Th>Marca</Th><Th>Trabajo</Th><Th>Costo</Th>
+                        <Th>Serie</Th><Th>Modelo</Th><Th>Trabajo</Th><Th>Cant.</Th><Th>Valor unit.</Th>
                       </Tr>
                     </Thead>
                     <Tbody>
@@ -836,11 +906,11 @@ const OrdenCompraServicioForm = () => {
                             <Checkbox isChecked={eq.seleccionado}
                               onChange={(ev) => setTsvPreview(p => p.map((e, idx) => idx === i ? { ...e, seleccionado: ev.target.checked } : e))} />
                           </Td>
-                          <Td fontFamily="mono" fontSize="xs">{eq.numero_serie || '—'}</Td>
-                          <Td fontSize="xs">{eq.modelo || '—'}</Td>
-                          <Td fontSize="xs">{eq.marca || '—'}</Td>
+                          <Td fontFamily="mono" fontSize="xs">{eq.numero_serie || '↑'}</Td>
+                          <Td fontSize="xs">{eq.modelo || '↑'}</Td>
                           <Td fontSize="xs">{eq.trabajo || '—'}</Td>
-                          <Td fontSize="xs">{eq.costo_unitario || 0}</Td>
+                          <Td fontSize="xs" isNumeric>{eq.cantidad || 1}</Td>
+                          <Td fontSize="xs" isNumeric>{eq.costo_unitario || 0}</Td>
                         </Tr>
                       ))}
                     </Tbody>
@@ -852,7 +922,7 @@ const OrdenCompraServicioForm = () => {
           <ModalFooter gap={2}>
             <Button variant="ghost" onClick={onPasteClose}>Cancelar</Button>
             <Button colorScheme="teal" isDisabled={tsvPreview.filter(e => e.seleccionado).length === 0} onClick={handlePasteConfirm}>
-              Agregar {tsvPreview.filter(e => e.seleccionado).length} equipos
+              Agregar {tsvPreview.filter(e => e.seleccionado).length} líneas
             </Button>
           </ModalFooter>
         </ModalContent>
