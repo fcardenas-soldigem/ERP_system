@@ -912,7 +912,7 @@ class OrdenServicioCompraPDFGenerator:
         story.append(self._section_bar('CONDICIONES'))
         story.append(self._conditions_section())
         story.append(Spacer(1, 2))
-        story.append(self._section_bar('EQUIPOS / TRABAJOS DE REPARACIÓN'))
+        story.append(self._section_bar('DETALLE DE SERVICIOS / REPARACIÓN'))
         story.append(self._items_table(sym))
         story.append(self._totals_section(sym))
         story.append(Spacer(1, 6))
@@ -951,7 +951,7 @@ class OrdenServicioCompraPDFGenerator:
         right_data = [
             [Paragraph(f'Fecha de Emisión: {fecha_str}',
                        ParagraphStyle('ocs_d', fontSize=8, textColor=self.GRAY, alignment=TA_RIGHT))],
-            [Paragraph('Orden de Compra de Servicio:',
+            [Paragraph('Nro Orden de Compra:',
                        ParagraphStyle('ocs_lbl', fontSize=9, fontName='Helvetica-Bold',
                                       textColor=self.DARK, alignment=TA_RIGHT, spaceBefore=4))],
             [Paragraph(f'<b>{self._ocs_num()}</b>',
@@ -1012,44 +1012,79 @@ class OrdenServicioCompraPDFGenerator:
         return t
 
     def _items_table(self, sym):
-        W = PAGE_W - 2 * MARGIN
-        c_num, c_cant, c_costo, c_imp = 24, 38, 62, 66
-        fijo = c_num + c_cant + c_costo + c_imp
-        resto = W - fijo
-        c_serie = resto * 0.22
-        c_modelo = resto * 0.24
-        c_marca = resto * 0.18
-        c_trab = resto * 0.36
-        col_widths = [c_num, c_serie, c_modelo, c_marca, c_trab, c_cant, c_costo, c_imp]
-        headers = ['N°', 'N° Serie', 'Modelo', 'Marca', 'Trabajo', 'Cant.', 'Costo', 'Importe']
+        """
+        Agrupa los items por número de serie.
+        Cada fila = un equipo con su lista de trabajos y costos individuales.
+        Columnas: N°, Descripción, Cant., U.M., P. Unitario, Importe
+        """
+        from collections import OrderedDict
+        from decimal import Decimal
 
-        hdr_s = ParagraphStyle('ocs_thdr', fontSize=7, fontName='Helvetica-Bold',
+        W = PAGE_W - 2 * MARGIN
+        desc_w = W - 28 - 50 - 40 - 75 - 75
+        col_widths = [28, desc_w, 50, 40, 75, 75]
+        headers = ['N°', 'Descripción', 'Cant.', 'U.M.', 'P. Unitario', 'Importe']
+
+        hdr_s = ParagraphStyle('ocs_thdr', fontSize=7.5, fontName='Helvetica-Bold',
                                textColor=self.WHITE, alignment=TA_CENTER)
         data = [[Paragraph(h, hdr_s) for h in headers]]
 
-        cs = ParagraphStyle('ocs_cs', fontSize=7, textColor=self.DARK)
-        cr = ParagraphStyle('ocs_cr', fontSize=7, textColor=self.DARK, alignment=TA_RIGHT)
-        cc = ParagraphStyle('ocs_cc', fontSize=7, textColor=self.DARK, alignment=TA_CENTER)
+        cs  = ParagraphStyle('ocs_cs',  fontSize=7.5, textColor=self.DARK, leading=11)
+        cr  = ParagraphStyle('ocs_cr',  fontSize=7.5, textColor=self.DARK, alignment=TA_RIGHT)
+        cc  = ParagraphStyle('ocs_cc',  fontSize=7.5, textColor=self.DARK, alignment=TA_CENTER)
+        csg = ParagraphStyle('ocs_csg', fontSize=7,   textColor=self.GRAY, leading=10)
 
         items = list(self.orden.items.all())
-        if items:
-            for idx, it in enumerate(items, 1):
-                cantidad = it.cantidad or 0
-                costo = it.costo_unitario or 0
-                importe = float(cantidad) * float(costo)
-                qty = f'{cantidad:.0f}' if float(cantidad) == int(cantidad) else f'{cantidad:.2f}'
+
+        if not items:
+            data.append(['', Paragraph('(sin equipos registrados)', csg), '', '', '', ''])
+        else:
+            # Agrupar por numero_serie manteniendo el orden de aparición
+            grupos = OrderedDict()
+            for it in items:
+                clave = (it.numero_serie or '', it.modelo or '', it.marca or '')
+                if clave not in grupos:
+                    grupos[clave] = []
+                grupos[clave].append(it)
+
+            for idx, ((serie, modelo, marca), trabajos) in enumerate(grupos.items(), 1):
+                # Encabezado del equipo
+                if modelo and serie:
+                    equipo_hdr = f'<b>{modelo} | SN: {serie}</b>'
+                elif serie:
+                    equipo_hdr = f'<b>SN: {serie}</b>'
+                elif modelo:
+                    equipo_hdr = f'<b>{modelo}</b>'
+                else:
+                    equipo_hdr = '<b>Equipo</b>'
+
+                if marca and marca not in (modelo or ''):
+                    equipo_hdr = f'<b>{marca} {modelo or ""} | SN: {serie or "—"}</b>'
+
+                # Lista de trabajos con su costo individual
+                lineas_trabajos = []
+                total_equipo = Decimal('0')
+                for t_item in trabajos:
+                    costo = Decimal(str(t_item.costo_unitario or 0))
+                    total_equipo += costo
+                    nombre_trab = (t_item.trabajo or '—').strip()
+                    lineas_trabajos.append(f'- {nombre_trab}: {sym} {float(costo):,.2f}')
+
+                desc_text = equipo_hdr
+                if lineas_trabajos:
+                    desc_text += '<br/>' + '<br/>'.join(
+                        f'<font size="7" color="#555555">{l}</font>'
+                        for l in lineas_trabajos
+                    )
+
                 data.append([
                     Paragraph(str(idx), cc),
-                    Paragraph(it.numero_serie or '—', cs),
-                    Paragraph(it.modelo or '—', cs),
-                    Paragraph(it.marca or '—', cs),
-                    Paragraph(it.trabajo or '—', cs),
-                    Paragraph(qty, cc),
-                    Paragraph(f'{sym} {float(costo):,.2f}', cr),
-                    Paragraph(f'{sym} {importe:,.2f}', cr),
+                    Paragraph(desc_text, cs),
+                    Paragraph('1.00', cc),
+                    Paragraph('SVC', cc),
+                    Paragraph(f'{sym} {float(total_equipo):,.2f}', cr),
+                    Paragraph(f'{sym} {float(total_equipo):,.2f}', cr),
                 ])
-        else:
-            data.append(['', Paragraph('(sin equipos registrados)', cc), '', '', '', '', '', ''])
 
         t = Table(data, colWidths=col_widths, repeatRows=1)
         cmds = [
@@ -1057,11 +1092,11 @@ class OrdenServicioCompraPDFGenerator:
             ('TEXTCOLOR',  (0, 0), (-1, 0), self.WHITE),
             ('TOPPADDING',    (0, 0), (-1, 0), 5),
             ('BOTTOMPADDING', (0, 0), (-1, 0), 5),
-            ('TOPPADDING',    (0, 1), (-1, -1), 4),
-            ('BOTTOMPADDING', (0, 1), (-1, -1), 4),
-            ('LEFTPADDING',   (0, 0), (-1, -1), 3),
-            ('RIGHTPADDING',  (0, 0), (-1, -1), 3),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('TOPPADDING',    (0, 1), (-1, -1), 5),
+            ('BOTTOMPADDING', (0, 1), (-1, -1), 5),
+            ('LEFTPADDING',   (0, 0), (-1, -1), 4),
+            ('RIGHTPADDING',  (0, 0), (-1, -1), 4),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
             ('GRID',   (0, 0), (-1, -1), 0.5, self.BORDER),
         ]
         for i in range(1, len(data)):
@@ -1072,7 +1107,7 @@ class OrdenServicioCompraPDFGenerator:
 
     def _totals_section(self, sym):
         W = PAGE_W - 2 * MARGIN
-        tot_w = 190
+        tot_w = 210
         s_lbl   = ParagraphStyle('ocs_tl',  fontSize=8, textColor=self.DARK)
         s_val   = ParagraphStyle('ocs_tv',  fontSize=8, textColor=self.DARK, alignment=TA_RIGHT)
         s_lbl_b = ParagraphStyle('ocs_tlb', fontSize=9, fontName='Helvetica-Bold', textColor=self.DARK)
@@ -1083,12 +1118,31 @@ class OrdenServicioCompraPDFGenerator:
 
         o = self.orden
         pct = f'{float(o.porcentaje_igv):.0f}' if float(o.porcentaje_igv) == int(o.porcentaje_igv) else f'{float(o.porcentaje_igv):.2f}'
-        tot_rows = [
-            [Paragraph('Sub Total:', s_lbl), Paragraph(f'{sym} {float(o.subtotal):,.2f}', s_val)],
-            [Paragraph(f'IGV ({pct}%):', s_lbl_g), Paragraph(f'{sym} {float(o.igv):,.2f}', s_val_g)],
-            [Paragraph('<b>TOTAL:</b>', s_lbl_b), Paragraph(f'<b>{sym} {float(o.total):,.2f}</b>', s_val_b)],
-        ]
-        tot_t = Table(tot_rows, colWidths=[100, tot_w - 100])
+
+        if o.igv_incluido:
+            # Precios ya incluyen IGV → mostrar: Sub Total (c/IGV), Base imponible, IGV incluido, TOTAL
+            base = float(o.total) - float(o.igv) if o.total else float(o.subtotal) - float(o.igv)
+            tot_rows = [
+                [Paragraph(f'Sub Total (c/IGV):', s_lbl),
+                 Paragraph(f'{sym} {float(o.total):,.2f}', s_val)],
+                [Paragraph('Base imponible:', s_lbl_g),
+                 Paragraph(f'{sym} {base:,.2f}', s_val_g)],
+                [Paragraph(f'IGV {pct}% (incluido):', s_lbl_g),
+                 Paragraph(f'{sym} {float(o.igv):,.2f}', s_val_g)],
+                [Paragraph('<b>TOTAL:</b>', s_lbl_b),
+                 Paragraph(f'<b>{sym} {float(o.total):,.2f}</b>', s_val_b)],
+            ]
+        else:
+            tot_rows = [
+                [Paragraph('Sub Total:', s_lbl),
+                 Paragraph(f'{sym} {float(o.subtotal):,.2f}', s_val)],
+                [Paragraph(f'IGV ({pct}%):', s_lbl_g),
+                 Paragraph(f'{sym} {float(o.igv):,.2f}', s_val_g)],
+                [Paragraph('<b>TOTAL:</b>', s_lbl_b),
+                 Paragraph(f'<b>{sym} {float(o.total):,.2f}</b>', s_val_b)],
+            ]
+
+        tot_t = Table(tot_rows, colWidths=[110, tot_w - 110])
         tot_t.setStyle(TableStyle([
             ('TOPPADDING',    (0, 0), (-1, -1), 3),
             ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
@@ -1110,25 +1164,56 @@ class OrdenServicioCompraPDFGenerator:
         return t
 
     def _firma_section(self):
-        W = PAGE_W - 2 * MARGIN
+        W    = PAGE_W - 2 * MARGIN
         half = W / 2
-        lbl = ParagraphStyle('ocs_fl', fontSize=8, textColor=self.GRAY, alignment=TA_CENTER)
-        name = ParagraphStyle('ocs_fn', fontSize=8, fontName='Helvetica-Bold',
-                              textColor=self.DARK, alignment=TA_CENTER)
-        line = ParagraphStyle('ocs_fli', fontSize=7.5, textColor=self.GRAY, alignment=TA_CENTER)
-        data = [
-            [Spacer(1, 36), Spacer(1, 36)],
-            [Paragraph('_' * 36, line), Paragraph('_' * 36, line)],
-            [Paragraph('Autorizado por', lbl), Paragraph('Sello / Conformidad Proveedor', lbl)],
-            [Paragraph(self._nombre_firma(), name), ''],
-        ]
-        t = Table(data, colWidths=[half, half])
-        t.setStyle(TableStyle([
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('TOPPADDING', (0, 0), (-1, -1), 3),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+
+        lbl_s  = ParagraphStyle('ocs_fl',  fontSize=8, textColor=self.GRAY, alignment=TA_CENTER)
+        name_s = ParagraphStyle('ocs_fn',  fontSize=8, fontName='Helvetica-Bold',
+                                textColor=self.DARK, alignment=TA_CENTER)
+        line_s = ParagraphStyle('ocs_fli', fontSize=7.5, textColor=self.GRAY, alignment=TA_CENTER)
+
+        firma_elab  = self._firma_image('firma_elaborado', width=90, height=35)
+        firma_aprob = self._firma_image('firma_aprobado',  width=90, height=35)
+
+        def _col(firma_img, label_footer):
+            col = []
+            col.append(firma_img if firma_img else Spacer(1, 35))
+            col.append(Spacer(1, 4))
+            col.append(Paragraph('_' * 38, line_s))
+            col.append(Paragraph(label_footer, lbl_s))
+            return col
+
+        left_items  = _col(firma_elab,  'Preparada por')
+        right_items = _col(firma_aprob, 'Aprobada por')
+
+        def _cell(items):
+            rows = [[item] for item in items]
+            t = Table(rows, colWidths=[half - 20])
+            t.setStyle(TableStyle([
+                ('ALIGN',         (0, 0), (-1, -1), 'CENTER'),
+                ('VALIGN',        (0, 0), (-1, -1), 'MIDDLE'),
+                ('TOPPADDING',    (0, 0), (-1, -1), 2),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
+            ]))
+            return t
+
+        outer = Table([[_cell(left_items), _cell(right_items)]], colWidths=[half, half])
+        outer.setStyle(TableStyle([
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('ALIGN',  (0, 0), (-1, -1), 'CENTER'),
         ]))
-        return t
+        return outer
+
+    def _firma_image(self, field_name, width=90, height=35):
+        campo = getattr(self.empresa, field_name, None)
+        if campo:
+            try:
+                path = campo.path
+                if os.path.exists(path):
+                    return Image(path, width=width, height=height, kind='proportional')
+            except Exception:
+                pass
+        return None
 
     def _logo_image(self, width=130, height=60):
         if self.empresa.logo:
