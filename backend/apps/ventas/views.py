@@ -560,6 +560,48 @@ class VentaViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+    @action(detail=True, methods=['post'], url_path='generar-guia')
+    def generar_guia(self, request, pk=None):
+        from datetime import date
+        from apps.guias.models import GuiaRemision, ItemGuia
+        from apps.guias.serializers import GuiaRemisionSerializer
+
+        venta = self.get_object()
+        cliente = venta.cliente
+
+        guia = GuiaRemision.objects.create(
+            empresa=venta.empresa,
+            tipo='venta',
+            motivo='venta',
+            fecha_emision=date.today(),
+            fecha_traslado=date.today(),
+            estado='borrador',
+            cliente=cliente,
+            nombre_destinatario=cliente.nombre,
+            ruc_destinatario=cliente.documento or '',
+            direccion_origen=getattr(venta.empresa, 'direccion', '') or '',
+            direccion_destino=cliente.direccion or '',
+            observaciones=f'Generada automáticamente desde Venta {venta.numero}',
+            creado_por=request.user,
+        )
+
+        for idx, detalle in enumerate(venta.detalles.select_related('producto').all(), start=1):
+            producto = detalle.producto
+            ItemGuia.objects.create(
+                guia=guia,
+                numero_item=idx,
+                descripcion=producto.nombre if producto else '',
+                serie='',
+                marca=getattr(producto, 'marca', '') or '',
+                modelo=getattr(producto, 'modelo', '') or '',
+                cantidad=int(detalle.cantidad),
+                unidad_medida=getattr(producto, 'unidad_medida', 'UNIDAD') or 'UNIDAD',
+                estado_ingreso='',
+            )
+
+        serializer = GuiaRemisionSerializer(guia)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
     @action(detail=True, methods=['get'])
     def saldo_pendiente(self, request, pk=None):
         venta = self.get_object()

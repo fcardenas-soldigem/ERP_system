@@ -20,11 +20,16 @@ import { useNavigate, useParams } from 'react-router-dom';
 import guiasService from '../../services/guiasService';
 import api from '../../lib/api';
 
-const MOTIVOS = [
+const MOTIVOS_SERVICIO = [
   { value: 'ingreso_reparacion', label: 'Ingreso por Reparación' },
   { value: 'devolucion_cliente', label: 'Devolución a Cliente' },
   { value: 'traslado_tecnico',   label: 'Traslado Técnico' },
   { value: 'otro',               label: 'Otro' },
+];
+
+const MOTIVOS_VENTA = [
+  { value: 'venta', label: 'Despacho de Venta' },
+  { value: 'otro',  label: 'Otro' },
 ];
 
 const today = () => new Date().toISOString().split('T')[0];
@@ -132,7 +137,7 @@ const GuiaForm = () => {
 
   // Paso 1
   const [datos, setDatos] = useState({
-    motivo: 'ingreso_reparacion', fecha_emision: today(), fecha_traslado: today(),
+    tipo: 'servicio', motivo: 'ingreso_reparacion', fecha_emision: today(), fecha_traslado: today(),
     cliente: '', nombre_destinatario: '', ruc_destinatario: '',
     direccion_origen: '', direccion_destino: '', observaciones: '',
   });
@@ -147,7 +152,7 @@ const GuiaForm = () => {
     if (isEdit) {
       guiasService.getById(id).then(g => {
         setDatos({
-          motivo: g.motivo, fecha_emision: g.fecha_emision, fecha_traslado: g.fecha_traslado,
+          tipo: g.tipo ?? 'servicio', motivo: g.motivo, fecha_emision: g.fecha_emision, fecha_traslado: g.fecha_traslado,
           cliente: g.cliente ?? '', nombre_destinatario: g.nombre_destinatario,
           ruc_destinatario: g.ruc_destinatario ?? '',
           direccion_origen: g.direccion_origen, direccion_destino: g.direccion_destino,
@@ -347,7 +352,7 @@ const GuiaForm = () => {
               fontSize="sm" fontWeight={paso === n ? 'semibold' : 'normal'}
               color={paso === n ? 'blue.600' : 'gray.500'} ml={2} mr={n < 2 ? 2 : 0}
             >
-              {n === 1 ? 'Datos Generales' : 'Equipos'}
+              {n === 1 ? 'Datos Generales' : datos.tipo === 'venta' ? 'Productos' : 'Equipos'}
             </Text>
             {n < 2 && <Box flex="1" h="2px" bg={paso > 1 ? 'green.400' : 'gray.200'} mx={3} />}
           </React.Fragment>
@@ -362,10 +367,30 @@ const GuiaForm = () => {
           <Box bg="white" p={6} borderRadius="lg" shadow="sm">
             <Heading size="md" mb={4}>Configuración</Heading>
             <Grid templateColumns="repeat(3, 1fr)" gap={4}>
+              <FormControl isRequired>
+                <FormLabel>Tipo de Guía</FormLabel>
+                <Select
+                  value={datos.tipo}
+                  onChange={(e) => {
+                    const nuevoTipo = e.target.value;
+                    setDatos(d => ({
+                      ...d,
+                      tipo: nuevoTipo,
+                      motivo: nuevoTipo === 'venta' ? 'venta' : 'ingreso_reparacion',
+                    }));
+                  }}
+                >
+                  <option value="servicio">Servicio</option>
+                  <option value="venta">Venta</option>
+                </Select>
+              </FormControl>
+
               <FormControl isRequired isInvalid={!!errors.motivo}>
                 <FormLabel>Motivo</FormLabel>
                 <Select value={datos.motivo} onChange={(e) => setDatos({ ...datos, motivo: e.target.value })}>
-                  {MOTIVOS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                  {(datos.tipo === 'venta' ? MOTIVOS_VENTA : MOTIVOS_SERVICIO).map(m => (
+                    <option key={m.value} value={m.value}>{m.label}</option>
+                  ))}
                 </Select>
                 <FormErrorMessage>{errors.motivo}</FormErrorMessage>
               </FormControl>
@@ -519,12 +544,12 @@ const GuiaForm = () => {
         <Box bg="white" p={6} borderRadius="lg" shadow="sm">
           <Flex justify="space-between" align="center" mb={4}>
             <HStack spacing={3}>
-              <Heading size="md">Equipos</Heading>
+              <Heading size="md">{datos.tipo === 'venta' ? 'Productos' : 'Equipos'}</Heading>
               <Badge colorScheme="purple" variant="subtle" fontSize="sm">{items.length}</Badge>
             </HStack>
             <HStack spacing={2}>
               <Button size="sm" leftIcon={<FaPlus />} colorScheme="blue" variant="outline" onClick={addItem}>
-                Agregar equipo
+                {datos.tipo === 'venta' ? 'Agregar producto' : 'Agregar equipo'}
               </Button>
               <Button size="sm" leftIcon={<FaFileExcel />} colorScheme="green" variant="outline"
                 onClick={() => { setImportPreview([]); onExcelOpen(); }}>
@@ -540,9 +565,13 @@ const GuiaForm = () => {
           {items.length === 0 ? (
             <Center py={10} flexDir="column" gap={3}>
               <Box fontSize="3xl" color="gray.300">📦</Box>
-              <Text color="gray.400" fontSize="sm">Agrega equipos manualmente, importa desde Excel o pega una tabla</Text>
+              <Text color="gray.400" fontSize="sm">
+                {datos.tipo === 'venta'
+                  ? 'Agrega productos manualmente, importa desde Excel o pega una tabla'
+                  : 'Agrega equipos manualmente, importa desde Excel o pega una tabla'}
+              </Text>
               <Button size="sm" colorScheme="blue" leftIcon={<FaPlus />} onClick={addItem}>
-                Agregar primer equipo
+                {datos.tipo === 'venta' ? 'Agregar primer producto' : 'Agregar primer equipo'}
               </Button>
             </Center>
           ) : (
@@ -554,7 +583,7 @@ const GuiaForm = () => {
                     <Th fontSize="xs">N° Serie</Th>
                     <Th fontSize="xs">Modelo</Th>
                     <Th fontSize="xs">Marca</Th>
-                    <Th fontSize="xs">Falla / Estado Ingreso</Th>
+                    <Th fontSize="xs">{datos.tipo === 'venta' ? 'Descripción' : 'Falla / Estado Ingreso'}</Th>
                     <Th fontSize="xs" w="80px">Cant.</Th>
                     <Th w="36px"></Th>
                   </Tr>
@@ -578,9 +607,17 @@ const GuiaForm = () => {
                       <Td>
                         <FormControl isInvalid={!!errors[`item_${i}_descripcion`]}>
                           <Input size="sm"
-                            value={item.estado_ingreso || item.descripcion}
-                            onChange={(e) => { updateItem(i, 'estado_ingreso', e.target.value); updateItem(i, 'descripcion', e.target.value); }}
-                            placeholder="Descripción de falla..." w="240px"
+                            value={datos.tipo === 'venta' ? item.descripcion : (item.estado_ingreso || item.descripcion)}
+                            onChange={(e) => {
+                              if (datos.tipo === 'venta') {
+                                updateItem(i, 'descripcion', e.target.value);
+                              } else {
+                                updateItem(i, 'estado_ingreso', e.target.value);
+                                updateItem(i, 'descripcion', e.target.value);
+                              }
+                            }}
+                            placeholder={datos.tipo === 'venta' ? 'Nombre del producto...' : 'Descripción de falla...'}
+                            w="240px"
                           />
                         </FormControl>
                       </Td>
@@ -626,7 +663,7 @@ const GuiaForm = () => {
 
         {paso === 1 ? (
           <Button colorScheme="blue" rightIcon={<FaArrowRight />} onClick={handleNext}>
-            Siguiente: Equipos
+            {datos.tipo === 'venta' ? 'Siguiente: Productos' : 'Siguiente: Equipos'}
           </Button>
         ) : (
           <Button colorScheme="blue" leftIcon={<FaCheck />} onClick={handleSubmit}

@@ -55,6 +55,10 @@ class GuiaRemisionViewSet(viewsets.ModelViewSet):
 
         params = self.request.query_params
 
+        tipo = params.get('tipo')
+        if tipo:
+            qs = qs.filter(tipo=tipo)
+
         estado = params.get('estado')
         if estado:
             qs = qs.filter(estado=estado)

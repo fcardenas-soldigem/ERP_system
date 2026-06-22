@@ -24,10 +24,12 @@ import {
   Tooltip
 } from '@chakra-ui/react';
 import { ChevronDownIcon, EditIcon, DeleteIcon, DownloadIcon, AddIcon, ViewIcon, ChevronLeftIcon, ChevronRightIcon, InfoIcon } from '@chakra-ui/icons';
+import { FaTruck } from 'react-icons/fa';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ventasService } from '../../services/ventas.service';
+import guiasService from '../../services/guiasService';
 import ImportExcelModal from '../common/ImportExcelModal';
 import { useNavigate } from 'react-router-dom';
 import { ESTADOS_VENTA, TIPOS_VENTA, METODOS_PAGO, ESTADOS_DISPLAY, TIPOS_VENTA_DISPLAY, METODOS_PAGO_DISPLAY } from './constants';
@@ -141,6 +143,30 @@ const VentaList = () => {
       toast({
         title: 'Error al crear venta',
         description: error.message || 'Ocurrió un error al crear la venta',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    },
+  });
+
+  // Mutación para generar guía de remisión desde una venta
+  const generarGuiaMutation = useMutation({
+    mutationFn: (ventaId) => guiasService.generarDesdeVenta(ventaId),
+    onSuccess: (data) => {
+      toast({
+        title: 'Guía de Remisión generada',
+        description: `Se creó la guía ${data.numero} en estado borrador`,
+        status: 'success',
+        duration: 4000,
+        isClosable: true,
+      });
+      navigate(`/app/guias/${data.id}`);
+    },
+    onError: (error) => {
+      toast({
+        title: 'Error al generar guía',
+        description: error.response?.data?.detail || error.message,
         status: 'error',
         duration: 5000,
         isClosable: true,
@@ -337,6 +363,13 @@ const VentaList = () => {
                       </MenuItem>
                       <MenuItem icon={<EditIcon />} onClick={() => navigate(`/app/ventas/${venta.id}/editar`)}>
                         Editar estado
+                      </MenuItem>
+                      <MenuItem
+                        icon={<FaTruck />}
+                        onClick={() => generarGuiaMutation.mutate(venta.id)}
+                        isDisabled={generarGuiaMutation.isLoading}
+                      >
+                        Generar Guía de Remisión
                       </MenuItem>
                       {venta.estado !== 'anulado' && venta.estado !== 'pagado' && (
                         <MenuItem icon={<DeleteIcon />} color="red.500" onClick={() => handleEliminarVenta(venta.id)}>

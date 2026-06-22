@@ -21,7 +21,7 @@ class GuiaRemisionSerializer(serializers.ModelSerializer):
     class Meta:
         model = GuiaRemision
         fields = [
-            'id', 'empresa', 'numero', 'fecha_emision', 'fecha_traslado',
+            'id', 'empresa', 'numero', 'tipo', 'fecha_emision', 'fecha_traslado',
             'motivo', 'estado', 'cliente', 'cliente_nombre',
             'nombre_destinatario', 'ruc_destinatario',
             'direccion_origen', 'direccion_destino', 'observaciones',
@@ -58,7 +58,7 @@ class GuiaRemisionListSerializer(serializers.ModelSerializer):
     class Meta:
         model = GuiaRemision
         fields = [
-            'id', 'numero', 'fecha_emision', 'fecha_traslado',
+            'id', 'numero', 'tipo', 'fecha_emision', 'fecha_traslado',
             'motivo', 'estado', 'cliente_nombre',
             'nombre_destinatario', 'direccion_destino',
             'total_items', 'created_at',

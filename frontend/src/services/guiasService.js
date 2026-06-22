@@ -31,6 +31,11 @@ const guiasService = {
     return response.data;
   },
 
+  generarDesdeVenta: async (ventaId) => {
+    const response = await api.post(`/api/ventas/ventas/${ventaId}/generar-guia/`);
+    return response.data;
+  },
+
   exportarPDF: async (id, numero = '') => {
     const response = await api.get(`/api/guias/guias/${id}/pdf/`, { responseType: 'blob' });
     const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));

@@ -9,10 +9,16 @@ logger = logging.getLogger(__name__)
 
 
 class GuiaRemision(models.Model):
+    TIPO_CHOICES = [
+        ('servicio', 'Servicio'),
+        ('venta', 'Venta'),
+    ]
+
     MOTIVO_CHOICES = [
         ('ingreso_reparacion', 'Ingreso por Reparación'),
         ('devolucion_cliente', 'Devolución a Cliente'),
         ('traslado_tecnico', 'Traslado Técnico'),
+        ('venta', 'Despacho de Venta'),
         ('otro', 'Otro'),
     ]
 
@@ -28,6 +34,11 @@ class GuiaRemision(models.Model):
         Empresa,
         on_delete=models.CASCADE,
         related_name='guias_remision',
+    )
+    tipo = models.CharField(
+        max_length=10,
+        choices=TIPO_CHOICES,
+        default='servicio',
     )
     numero = models.CharField(max_length=20)
     fecha_emision = models.DateField(default=timezone.now)

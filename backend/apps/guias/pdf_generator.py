@@ -102,7 +102,8 @@ class GuiaRemisionPDF:
         story.append(Spacer(1, 10))
         story.append(self._info_block())
         story.append(Spacer(1, 10))
-        story.append(self._section_title('EQUIPOS A TRANSPORTAR'))
+        seccion = 'PRODUCTOS A TRANSPORTAR' if g.tipo == 'venta' else 'EQUIPOS A TRANSPORTAR'
+        story.append(self._section_title(seccion))
         story.append(Spacer(1, 2))
         equipos = self._tabla_equipos()
         if isinstance(equipos, list):
@@ -284,7 +285,8 @@ class GuiaRemisionPDF:
         col_w   = [col_n, col_s, col_m, col_b, col_f, col_c]
 
         hdr_s = _s('th', size=7, bold=True, color=WHITE, align=TA_CENTER)
-        headers = ['N°', 'N° SERIE', 'MODELO', 'MARCA', 'FALLA / ESTADO', 'CANT.']
+        col_f_label = 'DESCRIPCIÓN' if self.guia.tipo == 'venta' else 'FALLA / ESTADO'
+        headers = ['N°', 'N° SERIE', 'MODELO', 'MARCA', col_f_label, 'CANT.']
         header_row = [Paragraph(h, hdr_s) for h in headers]
 
         cell_c = _s('tcc', size=7.5, align=TA_CENTER)
@@ -324,8 +326,9 @@ class GuiaRemisionPDF:
         t.setStyle(TableStyle(style_cmds))
 
         # Total row
+        unidad = 'producto' if self.guia.tipo == 'venta' else 'equipo'
         total_p = Paragraph(
-            f'<b>Total: {total} equipo{"s" if total != 1 else ""}</b>',
+            f'<b>Total: {total} {unidad}{"s" if total != 1 else ""}</b>',
             _s('tot', size=8, bold=True, color=NAVY, align=TA_RIGHT),
         )
         total_row = Table([[total_p]], colWidths=[CONTENT_W])

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box, Button, Table, Thead, Tbody, Tr, Th, Td,
   Badge, IconButton, Menu, MenuButton, MenuList, MenuItem,
-  useToast, Flex, Heading, Input, HStack, Text,
+  useToast, Flex, Heading, Input, Select, HStack, Text,
   Center, Tabs, TabList, Tab, InputGroup, InputLeftElement,
   Checkbox, VStack,
 } from '@chakra-ui/react';
@@ -37,6 +37,7 @@ const MOTIVO_COLOR = {
   ingreso_reparacion: 'blue',
   devolucion_cliente: 'green',
   traslado_tecnico:   'orange',
+  venta:              'teal',
   otro:               'gray',
 };
 
@@ -44,7 +45,18 @@ const MOTIVO_LABEL = {
   ingreso_reparacion: 'Ing. Reparación',
   devolucion_cliente: 'Dev. Cliente',
   traslado_tecnico:   'Traslado Técnico',
+  venta:              'Despacho Venta',
   otro:               'Otro',
+};
+
+const TIPO_COLOR = {
+  servicio: 'purple',
+  venta:    'teal',
+};
+
+const TIPO_LABEL = {
+  servicio: 'Servicio',
+  venta:    'Venta',
 };
 
 const ESTADOS_SIGUIENTES = {
@@ -63,6 +75,7 @@ const GuiaList = () => {
   const [selected, setSelected]     = useState(new Set());
   const [tabIndex, setTabIndex]     = useState(0);
   const [search, setSearch]         = useState('');
+  const [tipoFiltro, setTipoFiltro] = useState('');
   const [fechaDesde, setFechaDesde] = useState('');
   const [fechaHasta, setFechaHasta] = useState('');
   const [guiasMes, setGuiasMes]     = useState(0);
@@ -83,6 +96,7 @@ const GuiaList = () => {
         page_size: PAGE_SIZE,
         ...(search       && { search }),
         ...(estadoFiltro && { estado: estadoFiltro }),
+        ...(tipoFiltro   && { tipo: tipoFiltro }),
         ...(fechaDesde   && { fecha_desde: fechaDesde }),
         ...(fechaHasta   && { fecha_hasta: fechaHasta }),
       };
@@ -109,7 +123,7 @@ const GuiaList = () => {
     } finally {
       setLoading(false);
     }
-  }, [search, estadoFiltro, fechaDesde, fechaHasta, toast]);
+  }, [search, estadoFiltro, tipoFiltro, fechaDesde, fechaHasta, toast]);
 
   // Contador guías del mes
   useEffect(() => {
@@ -159,6 +173,7 @@ const GuiaList = () => {
   const handleDuplicar = async (guia) => {
     try {
       const payload = {
+        tipo:                guia.tipo ?? 'servicio',
         motivo:              guia.motivo,
         fecha_emision:       new Date().toISOString().split('T')[0],
         fecha_traslado:      guia.fecha_traslado,
@@ -234,6 +249,16 @@ const GuiaList = () => {
             onChange={(e) => setSearch(e.target.value)}
           />
         </InputGroup>
+        <Select
+          maxW="160px"
+          value={tipoFiltro}
+          onChange={(e) => setTipoFiltro(e.target.value)}
+          placeholder="Tipo: Todos"
+          size="md"
+        >
+          <option value="servicio">Servicio</option>
+          <option value="venta">Venta</option>
+        </Select>
         <Input type="date" maxW="160px" value={fechaDesde} onChange={(e) => setFechaDesde(e.target.value)} />
         <Input type="date" maxW="160px" value={fechaHasta} onChange={(e) => setFechaHasta(e.target.value)} />
       </Flex>
@@ -279,7 +304,8 @@ const GuiaList = () => {
                 <Th>Cliente / Destinatario</Th>
                 <Th>Fecha Emisión</Th>
                 <Th>Fecha Traslado</Th>
-                <Th>Equipos</Th>
+                <Th>Ítems</Th>
+                <Th>Tipo</Th>
                 <Th>Motivo</Th>
                 <Th>Estado</Th>
                 <Th w="48px"></Th>
@@ -315,7 +341,18 @@ const GuiaList = () => {
                     <Td fontSize="sm">{fmtFecha(guia.fecha_traslado)}</Td>
                     <Td>
                       <Badge colorScheme="purple" variant="subtle" borderRadius="full">
-                        {guia.total_items ?? (guia.items?.length ?? 0)} eq.
+                        {guia.total_items ?? (guia.items?.length ?? 0)}
+                      </Badge>
+                    </Td>
+                    <Td>
+                      <Badge
+                        colorScheme={TIPO_COLOR[guia.tipo] || 'gray'}
+                        variant="solid"
+                        fontSize="xs"
+                        borderRadius="full"
+                        px={2}
+                      >
+                        {TIPO_LABEL[guia.tipo] || guia.tipo || '—'}
                       </Badge>
                     </Td>
                     <Td>
