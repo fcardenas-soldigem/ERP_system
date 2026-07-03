@@ -31,7 +31,7 @@ import {
   Spinner,
 } from '@chakra-ui/react';
 import { FaPlus, FaTrash, FaSave, FaArrowLeft, FaSearch } from 'react-icons/fa';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { comprasService } from '../../services/compras.service';
 import { proveedoresService } from '../../services/proveedores.service';
@@ -39,8 +39,11 @@ import { api } from '../../lib/api';
 
 const OrdenCompraForm = () => {
   const navigate = useNavigate();
+  const { id } = useParams();
+  const esEdicion = Boolean(id);
   const toast = useToast();
   const [loading, setLoading] = useState(false);
+  const [cargandoOrden, setCargandoOrden] = useState(esEdicion);
 
   const [formData, setFormData] = useState({
     proveedor_nombre: '',
@@ -101,6 +104,49 @@ const OrdenCompraForm = () => {
     };
     cargarProveedores();
   }, []);
+
+  // Cargar orden existente en modo edición
+  useEffect(() => {
+    if (!esEdicion) return;
+    const cargar = async () => {
+      try {
+        setCargandoOrden(true);
+        const orden = await comprasService.getOrden(id);
+        setFormData({
+          proveedor_nombre: orden.proveedor_nombre || '',
+          proveedor_id: orden.proveedor || '',
+          contacto_nombre: orden.contacto_nombre || '',
+          contacto_email: orden.contacto_email || '',
+          fecha_entrega: orden.fecha_entrega || '',
+          estado: orden.estado || 'borrador',
+          moneda: orden.moneda || 'USD',
+          incluye_igv: false,
+          porcentaje_igv: 18,
+          referencia: orden.referencia || '',
+          forma_pago: orden.forma_pago || 'Contado',
+          tiempo_entrega: orden.tiempo_entrega || '',
+          lugar_entrega: orden.lugar_entrega || '',
+          notas: orden.notas || '',
+          terminos_condiciones: orden.terminos_condiciones || '',
+          detalles: (orden.detalles || []).length
+            ? orden.detalles.map(d => ({
+                producto_id: d.producto || '',
+                descripcion: d.descripcion || '',
+                cantidad: parseFloat(d.cantidad) || 1,
+                precio_unitario: parseFloat(d.precio_unitario) || 0,
+                descuento_item: 0,
+              }))
+            : [{ producto_id: '', descripcion: '', cantidad: 1, precio_unitario: 0, descuento_item: 0 }],
+        });
+      } catch (error) {
+        toast({ title: 'No se pudo cargar la orden', status: 'error', duration: 4000 });
+        navigate('/app/compras/ordenes');
+      } finally {
+        setCargandoOrden(false);
+      }
+    };
+    cargar();
+  }, [esEdicion, id, navigate, toast]);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -246,29 +292,35 @@ const OrdenCompraForm = () => {
       return;
     }
     const totales = calcularTotales();
+    const payload = {
+      proveedor: formData.proveedor_id ? parseInt(formData.proveedor_id) : null,
+      proveedor_nombre: formData.proveedor_nombre,
+      contacto_nombre: formData.contacto_nombre || null,
+      contacto_email: formData.contacto_email || null,
+      fecha_entrega: formData.fecha_entrega,
+      estado: formData.estado,
+      moneda: formData.moneda,
+      forma_pago: formData.forma_pago,
+      notas: formData.notas,
+      subtotal: totales.subtotal,
+      igv: totales.igv,
+      total: totales.total,
+      detalles: formData.detalles.map(d => ({
+        producto: d.producto_id ? parseInt(d.producto_id) : null,
+        descripcion: d.descripcion,
+        cantidad: parseFloat(d.cantidad) || 1,
+        precio_unitario: parseFloat(d.precio_unitario) || 0,
+      })),
+    };
     try {
       setLoading(true);
-      await api.post('/api/compras/ordenes/', {
-        proveedor: formData.proveedor_id ? parseInt(formData.proveedor_id) : null,
-        proveedor_nombre: formData.proveedor_nombre,
-        contacto_nombre: formData.contacto_nombre || null,
-        contacto_email: formData.contacto_email || null,
-        fecha_entrega: formData.fecha_entrega,
-        estado: formData.estado,
-        moneda: formData.moneda,
-        forma_pago: formData.forma_pago,
-        notas: formData.notas,
-        subtotal: totales.subtotal,
-        igv: totales.igv,
-        total: totales.total,
-        detalles: formData.detalles.map(d => ({
-          producto: d.producto_id ? parseInt(d.producto_id) : null,
-          descripcion: d.descripcion,
-          cantidad: parseFloat(d.cantidad) || 1,
-          precio_unitario: parseFloat(d.precio_unitario) || 0,
-        })),
-      });
-      toast({ title: 'Orden de Compra creada', status: 'success', duration: 3000 });
+      if (esEdicion) {
+        await comprasService.updateOrden(id, payload);
+        toast({ title: 'Orden de Compra actualizada', status: 'success', duration: 3000 });
+      } else {
+        await api.post('/api/compras/ordenes/', payload);
+        toast({ title: 'Orden de Compra creada', status: 'success', duration: 3000 });
+      }
       navigate('/app/compras/ordenes');
     } catch (error) {
       toast({
@@ -287,10 +339,18 @@ const OrdenCompraForm = () => {
   const simbolo = formData.moneda === 'USD' ? '$' : 'S/';
   const proveedorSeleccionado = proveedores.find(p => p.id === formData.proveedor_id);
 
+  if (cargandoOrden) {
+    return (
+      <Box p={6}>
+        <Text color="gray.400">Cargando orden...</Text>
+      </Box>
+    );
+  }
+
   return (
     <Box p={6}>
       <Flex justify="space-between" align="center" mb={6}>
-        <Heading size="lg">Nueva Orden de Compra</Heading>
+        <Heading size="lg">{esEdicion ? 'Editar Orden de Compra' : 'Nueva Orden de Compra'}</Heading>
         <Button leftIcon={<FaArrowLeft />} variant="ghost" onClick={() => navigate('/app/compras/ordenes')}>
           Volver
         </Button>
@@ -756,7 +816,7 @@ const OrdenCompraForm = () => {
               isLoading={loading}
               loadingText="Guardando..."
             >
-              Crear Orden de Compra
+              {esEdicion ? 'Guardar Cambios' : 'Crear Orden de Compra'}
             </Button>
           </Flex>
 

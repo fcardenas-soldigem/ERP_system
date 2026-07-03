@@ -125,6 +125,7 @@ function App() {
                                 <Route path="compras" element={<Compras />} />
                                 <Route path="compras/nueva" element={<CompraForm />} />
                                 <Route path="compras/orden-compra/nueva" element={<OrdenCompraForm />} />
+                                <Route path="compras/orden-compra/:id/editar" element={<OrdenCompraForm />} />
                                 <Route path="compras/ordenes-servicio" element={<OrdenesServicioCompraList />} />
                                 <Route path="compras/orden-servicio/nueva" element={<OrdenCompraServicioForm />} />
                                 <Route path="compras/ordenes-servicio/:id" element={<OrdenServicioCompraDetalle />} />
