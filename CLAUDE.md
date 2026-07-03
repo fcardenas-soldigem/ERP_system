@@ -56,7 +56,7 @@ npm run dev
 - Menú ⋮ (tres puntos) con Chakra `Menu/MenuButton/MenuList/MenuItem`
 - Paginación: `PAGE_SIZE = 20`, parámetros `page` y `page_size`
 - Estados de OC/OCS: `borrador → enviada → aprobada → rechazada/completada`
-- Solo permitir "Editar" en estado `borrador` para OC; OCS sin restricción de estado
+- "Editar" disponible en cualquier estado para OC y OCS (sin restricción por estado)
 
 ### Backend
 - ViewSets con `ModelViewSet` + `permission_classes = [IsAuthenticated, HasEmpresaPermission]`

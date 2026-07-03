@@ -283,12 +283,10 @@ const OrdenesCompraList = () => {
                             onClick={() => navigate(`/app/compras/ordenes/${orden.id}`)}>
                             Ver Detalle
                           </MenuItem>
-                          {estadoKey === 'borrador' && (
-                            <MenuItem icon={<FaEdit />}
-                              onClick={() => navigate(`/app/compras/orden-compra/${orden.id}/editar`)}>
-                              Editar
-                            </MenuItem>
-                          )}
+                          <MenuItem icon={<FaEdit />}
+                            onClick={() => navigate(`/app/compras/orden-compra/${orden.id}/editar`)}>
+                            Editar
+                          </MenuItem>
                           <MenuItem icon={<FaFilePdf />} onClick={() => handleExportarPDF(orden)}>
                             Exportar PDF
                           </MenuItem>
