@@ -306,6 +306,11 @@ const CotizacionForm = () => {
       descuento_tipo,
       descuento_valor: parseFloat(descuento_valor) || 0,
       descuento_monto: parseFloat(totales.montoDescuento) || 0,
+      detalles: formData.detalles.map(d => ({
+        ...d,
+        producto: d.producto || null,
+        codigo: d.codigo || null,
+      })),
     };
     try {
       setLoading(true);
@@ -318,11 +323,15 @@ const CotizacionForm = () => {
       }
       navigate('/app/cotizaciones');
     } catch (error) {
+      const errData = error.response?.data;
+      const description = errData?.detail
+        || (typeof errData === 'object' ? JSON.stringify(errData) : null)
+        || error.message;
       toast({
         title: 'Error al guardar',
-        description: error.response?.data?.detail || error.message,
+        description,
         status: 'error',
-        duration: 5000,
+        duration: 7000,
         isClosable: true,
       });
     } finally {
