@@ -310,6 +310,7 @@ const CotizacionForm = () => {
         ...d,
         producto: d.producto || null,
         codigo: d.codigo || null,
+        descripcion: (d.descripcion || '').replace(/ /g, '').trim(),
       })),
     };
     try {
