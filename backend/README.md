@@ -22,17 +22,27 @@ ahí. Por eso las credenciales se separan en archivos distintos (todos en
    ```bash
    docker compose up -d db
    ```
-   Crea una BD `erp` (user `postgres` / pass `postgres`) en `localhost:5432`.
+   Crea una BD `erp` (user `postgres` / pass `postgres`) en **`localhost:5433`**
+   (el `5432` suele estar ocupado por un Postgres nativo). La imagen es
+   `postgres:17`, igual major que prod. `backend/.env.local` ya apunta a `5433`.
 
-2. Confirmar que `backend/.env.local` existe y tiene `DB_HOST=localhost`.
+2. **Clonar el esquema de prod a local** (recomendado). Un `migrate` desde cero
+   NO funciona hoy por una deuda en las migraciones de `compras` (R4: `0002` y
+   `0004` chocan en `created_at`). En su lugar se clona el esquema real:
+   ```bash
+   ./scripts/clone_prod_schema.sh
+   ```
+   El script: levanta la BD local, hace `pg_dump` SOLO LECTURA del schema
+   `public` + la tabla `django_migrations` de prod, los carga en local, y
+   verifica que `migrate` diga **"No migrations to apply"**. No copia datos de
+   clientes. Los dumps quedan en `/tmp` (nunca se commitean).
 
-3. Migrar y correr, desde `backend/`:
+3. Correr, desde `backend/`:
    ```bash
    source ../venv/bin/activate
-   python manage.py migrate
-   python manage.py runserver
+   python manage.py runserver   # usa .env.local → localhost:5433
+   python manage.py createsuperuser   # (o crear vía ORM; USERNAME_FIELD=email)
    ```
-   Esto crea las tablas en la **BD local**, no en Supabase.
 
 ## Correr contra producción (solo cuando sea estrictamente necesario)
 
@@ -47,7 +57,12 @@ que aún corre en Cloud Run.
 ## Tests
 
 ```bash
+# SQLite en memoria (rápido, no toca ninguna BD real):
 python manage.py test apps.cotizaciones.tests.test_conversion_dual --settings=config.settings_test
+
+# Contra el Postgres local (fidelidad de engine, crea test_erp en localhost:5433):
+python manage.py test apps.cotizaciones.tests.test_conversion_dual --settings=config.settings_test_pg --noinput
 ```
-`config/settings_test.py` usa **SQLite en memoria** (no toca ninguna BD real) y
-una URLconf vacía (evita importar el stack de ML ausente en dev).
+Ambos settings usan una URLconf vacía (evitan importar el stack de ML ausente en
+dev) y deshabilitan migraciones (syncdb desde los modelos) para no replayar la
+deuda de `compras`; crean a mano la tabla managed=False `compras_ordencompradetalle`.

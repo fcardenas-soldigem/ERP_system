@@ -1,7 +1,8 @@
 version: "3.9"
 services:
   db:
-    image: postgres:15
+    # postgres:17 para igualar el major de producción (Supabase 17.6).
+    image: postgres:17
     environment:
       POSTGRES_DB: ${DB_NAME:-erp}
       POSTGRES_USER: ${DB_USER:-postgres}
@@ -9,7 +10,9 @@ services:
     volumes:
       - db_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      # Host 5433 (el 5432 suele estar ocupado por un Postgres nativo local).
+      # Dentro de la red de compose el backend sigue usando 5432.
+      - "${DB_LOCAL_PORT:-5433}:5432"
 
   backend:
     build:
