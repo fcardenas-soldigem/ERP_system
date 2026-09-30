@@ -11,8 +11,21 @@ from dotenv import load_dotenv
 # BASE_DIR apunta a la carpeta "backend"
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Cargar variables de entorno desde .env (override=True para que .env siempre tenga prioridad)
-load_dotenv(os.path.join(BASE_DIR, '.env'), override=True)
+# Cargar variables de entorno. Se prefiere .env.local (desarrollo) si existe;
+# si no, .env. Así el dev no apunta a producción por accidente: .env.local trae
+# la BD local (DB_HOST=localhost). Las credenciales de prod viven en
+# .env.production, que NO se carga por defecto. Todos estos archivos están en
+# .gitignore. Para forzar prod localmente: DOTENV_FILE=.env.production.
+_dotenv_override = os.getenv('DOTENV_FILE')
+_env_local = os.path.join(BASE_DIR, '.env.local')
+_env_default = os.path.join(BASE_DIR, '.env')
+if _dotenv_override:
+    _dotenv_path = os.path.join(BASE_DIR, _dotenv_override)
+elif os.path.exists(_env_local):
+    _dotenv_path = _env_local
+else:
+    _dotenv_path = _env_default
+load_dotenv(_dotenv_path, override=True)
 
 # === SECURITY: SECRET KEYS ===
 # CRITICAL: Must be set via environment variables in production
