@@ -1,0 +1,10 @@
+# Exclusiones adicionales para graphify (se suman a .gitignore).
+# .env*, node_modules, venv, datasets y graphify-out/ ya los excluye .gitignore.
+
+# Migraciones (ruido para el grafo de arquitectura)
+**/migrations/
+migrations_sql/
+
+# Dumps / backups SQL
+*.sql
+*.dump

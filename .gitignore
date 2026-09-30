@@ -55,6 +55,9 @@ frontend/dist/
 .venv/
 ml_models_cache/
 
+# Graphify: salida generada (grafo del codebase). Se regenera localmente.
+graphify-out/
+
 # Machine Learning Datasets
 datasets/*.csv
 datasets/*.xlsx
