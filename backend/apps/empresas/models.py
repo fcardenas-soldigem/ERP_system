@@ -20,6 +20,21 @@ class Empresa(models.Model):
         verbose_name='Tipo de cambio USD→PEN',
         help_text='Soles por cada dólar. Se usa para convertir montos en USD a PEN en reportes y dashboard.'
     )
+    MODO_INVENTARIO_CHOICES = [
+        ('con_stock', 'Con inventario'),
+        ('sin_stock', 'Sin inventario (back-to-back)'),
+    ]
+    modo_inventario = models.CharField(
+        max_length=20,
+        choices=MODO_INVENTARIO_CHOICES,
+        default='con_stock',
+        verbose_name='Modo de inventario',
+        help_text=(
+            "con_stock: la empresa maneja inventario (reserva/descuenta stock). "
+            "sin_stock: modelo back-to-back, nunca mueve inventario y el menú de "
+            "Inventario se oculta."
+        ),
+    )
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -8,15 +8,21 @@ from decimal import Decimal
 class DetalleCotizacionSerializer(serializers.ModelSerializer):
     producto_nombre = serializers.CharField(source='producto.nombre', read_only=True)
     producto_codigo = serializers.CharField(source='producto.codigo', read_only=True)
-    
+    # F1 — costeo interno. Estos campos NUNCA se muestran al cliente (PDF no los usa).
+    proveedor_nombre = serializers.CharField(source='proveedor.razon_social', read_only=True)
+    margen_unitario = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
+    margen_pct = serializers.DecimalField(max_digits=6, decimal_places=2, read_only=True)
+
     class Meta:
         model = DetalleCotizacion
         fields = [
             'id', 'producto', 'producto_nombre', 'producto_codigo',
+            'proveedor', 'proveedor_nombre', 'costo_unitario',
+            'margen_unitario', 'margen_pct',
             'codigo', 'descripcion', 'cantidad', 'precio_unitario',
             'descuento_item', 'subtotal', 'orden'
         ]
-        read_only_fields = ['subtotal']
+        read_only_fields = ['subtotal', 'margen_unitario', 'margen_pct']
     
     def validate(self, data):
         """

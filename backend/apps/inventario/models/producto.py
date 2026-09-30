@@ -47,6 +47,11 @@ class Producto(models.Model):
     descripcion = models.TextField(blank=True, verbose_name='Descripción')
     stock_total = models.DecimalField(max_digits=10, decimal_places=2, default=0, verbose_name='Stock Total')
     stock_minimo = models.DecimalField(max_digits=10, decimal_places=2, default=0, verbose_name='Stock Mínimo')
+    controla_stock = models.BooleanField(
+        default=True,
+        verbose_name='Controla stock',
+        help_text='True: el producto mueve inventario. False: servicios/no inventariables (nunca reservan ni descuentan).'
+    )
     alerta_stock = models.BooleanField(default=False)
     categoria = models.ForeignKey(
         Categoria, 

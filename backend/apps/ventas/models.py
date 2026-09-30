@@ -229,6 +229,26 @@ class Venta(models.Model):
         
         self.save()
 
+    def _debe_saltar_stock(self, detalle):
+        """
+        Regla defensiva (H1). Devuelve True si esta línea NO debe mover stock.
+
+        Se omite si:
+        - la empresa opera en modo 'sin_stock' (back-to-back), o
+        - la línea es 'pedido_proveedor', o
+        - la línea ya fue descontada (stock_descontado=True).
+
+        origen == None (ventas normales/legacy) se trata como movible en
+        empresas con_stock (fail-open) para no regresionar el flujo actual.
+        """
+        if getattr(self.empresa, 'modo_inventario', 'con_stock') == 'sin_stock':
+            return True
+        if detalle.origen == 'pedido_proveedor':
+            return True
+        if detalle.stock_descontado:
+            return True
+        return False
+
     def actualizar_stock(self):
         """
         Actualiza el stock cuando se confirma una venta.
@@ -243,7 +263,22 @@ class Venta(models.Model):
         logger.info("Actualizando stock venta %s (modo: %s)", self.numero, self.modo_venta)
 
         for detalle in self.detalles.all():
+            # H1 — Regla defensiva: NUNCA confiar solo en el flag de la línea.
+            # Solo mover stock si la empresa controla inventario y la línea no es
+            # a pedido de proveedor ni ya fue descontada.
+            if self._debe_saltar_stock(detalle):
+                logger.info(
+                    "Venta %s: se omite stock de la línea %s (modo=%s, origen=%s, descontado=%s)",
+                    self.numero, detalle.id,
+                    getattr(self.empresa, 'modo_inventario', 'con_stock'),
+                    detalle.origen, detalle.stock_descontado,
+                )
+                continue
+
             producto = detalle.producto
+            if producto is None:
+                # Línea de texto libre: no hay producto que mover.
+                continue
             cantidad = detalle.cantidad
 
             almacen = producto.almacen
@@ -503,14 +538,31 @@ class Venta(models.Model):
         return self.estado
 
 class DetalleVenta(models.Model):
+    ORIGEN_CHOICES = [
+        ('stock', 'Desde stock (reserva/descuenta inventario)'),
+        ('pedido_proveedor', 'A pedido de proveedor (nunca mueve inventario)'),
+    ]
+
     venta = models.ForeignKey(
-        Venta, 
-        on_delete=models.CASCADE, 
+        Venta,
+        on_delete=models.CASCADE,
         related_name='detalles'
     )
-    producto = models.ForeignKey('inventario.Producto', on_delete=models.PROTECT)
+    # producto nullable (D1): se permiten líneas de texto libre.
+    producto = models.ForeignKey(
+        'inventario.Producto', on_delete=models.PROTECT, null=True, blank=True
+    )
+    # descripcion para líneas sin producto (D1).
+    descripcion = models.CharField(max_length=500, null=True, blank=True)
     cantidad = models.DecimalField(max_digits=10, decimal_places=2)
     precio_unitario = models.DecimalField(max_digits=10, decimal_places=2)
+    # D6 — origen decidido en la conversión. null = línea legacy/venta normal
+    # (se trata como movible en empresas con_stock; fail-open).
+    origen = models.CharField(
+        max_length=20, choices=ORIGEN_CHOICES, null=True, blank=True
+    )
+    # Guarda de idempotencia del descuento de stock (se usa en la Parte 2B).
+    stock_descontado = models.BooleanField(default=False)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(default=timezone.now)
 

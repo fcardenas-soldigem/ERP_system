@@ -163,12 +163,16 @@ class CotizacionViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR
                 )
 
+            info = getattr(venta, 'conversion_info', {}) or {}
             cotizacion.refresh_from_db()
             data = self.get_serializer(cotizacion).data
             data.update({
                 'venta_creada': True,
                 'venta_id': venta.id,
                 'venta_numero': venta.numero,
+                'ocs_creadas': info.get('ocs_creadas', []),
+                'lineas_stock_reservadas': info.get('lineas_stock_reservadas', 0),
+                'lineas_sin_proveedor': info.get('lineas_sin_proveedor', []),
                 'message': f'Cotización aceptada y convertida a venta {venta.numero}',
             })
             return Response(data)
@@ -256,11 +260,15 @@ class CotizacionViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+        info = getattr(venta, 'conversion_info', {}) or {}
         return Response({
             'success': True,
             'message': f'Cotización convertida a venta {venta.numero}',
             'venta_id': venta.id,
             'venta_numero': venta.numero,
+            'ocs_creadas': info.get('ocs_creadas', []),
+            'lineas_stock_reservadas': info.get('lineas_stock_reservadas', 0),
+            'lineas_sin_proveedor': info.get('lineas_sin_proveedor', []),
         })
     
     @action(detail=True, methods=['post'], url_path='vincular-producto')

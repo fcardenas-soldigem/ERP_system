@@ -645,6 +645,19 @@ class OrdenCompra(models.Model):
         related_name='ordenes_compra',
     )
     proveedor_nombre = models.CharField(max_length=200, blank=True, null=True)
+    # F2 — trazabilidad de la OC generada desde una conversión de cotización.
+    venta = models.ForeignKey(
+        'ventas.Venta',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='ordenes_compra',
+    )
+    cotizacion_origen = models.ForeignKey(
+        'cotizaciones.Cotizacion',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='ordenes_compra',
+    )
     fecha_emision = models.DateField(default=date.today)
     fecha_entrega = models.DateField()
     estado = models.CharField(

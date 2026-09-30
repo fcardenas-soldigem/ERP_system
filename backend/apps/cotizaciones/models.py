@@ -130,6 +130,23 @@ class Cotizacion(models.Model):
         null=True,
         related_name='cotizacion_origen'
     )
+
+    # Cierre de cotizaciones no ganadas (F4). La lógica de exigir el motivo al
+    # rechazar se implementa en una sesión posterior; aquí solo se persisten.
+    MOTIVO_RECHAZO_CHOICES = [
+        ('precio', 'Precio'),
+        ('plazo', 'Plazo'),
+        ('competidor', 'Competidor'),
+        ('sin_presupuesto', 'Sin presupuesto'),
+        ('otro', 'Otro'),
+    ]
+    motivo_rechazo = models.CharField(
+        max_length=20, choices=MOTIVO_RECHAZO_CHOICES, null=True, blank=True,
+        verbose_name='Motivo de rechazo'
+    )
+    motivo_rechazo_nota = models.TextField(
+        null=True, blank=True, verbose_name='Nota del motivo de rechazo'
+    )
     
     # Auditoría
     fecha_creacion = models.DateTimeField(auto_now_add=True)
@@ -226,7 +243,20 @@ class DetalleCotizacion(models.Model):
         blank=True,
         null=True
     )
-    
+
+    # F1 — Costeo interno por línea. NUNCA se muestra al cliente (ni en el PDF).
+    proveedor = models.ForeignKey(
+        'compras.Proveedor',
+        on_delete=models.SET_NULL,
+        related_name='detalles_cotizacion',
+        blank=True,
+        null=True
+    )
+    costo_unitario = models.DecimalField(
+        max_digits=12, decimal_places=2, blank=True, null=True,
+        help_text='Costo de compra estimado por unidad. Uso interno (margen y OC).'
+    )
+
     # Información del item (puede ser producto o servicio personalizado)
     codigo = models.CharField(max_length=50, blank=True, null=True)
     descripcion = models.TextField()
@@ -276,6 +306,23 @@ class DetalleCotizacion(models.Model):
         """
         self.subtotal = (self.cantidad * self.precio_unitario) - self.descuento_item
         return self.subtotal
+
+    @property
+    def margen_unitario(self):
+        """Margen absoluto por unidad (calculado, no persistido). Uso interno."""
+        if self.costo_unitario is None:
+            return None
+        return self.precio_unitario - self.costo_unitario
+
+    @property
+    def margen_pct(self):
+        """Margen porcentual sobre el precio (calculado, no persistido). Uso interno."""
+        if self.costo_unitario is None or not self.precio_unitario:
+            return None
+        return round(
+            (self.precio_unitario - self.costo_unitario) / self.precio_unitario * Decimal('100'),
+            2,
+        )
     
     def save(self, *args, **kwargs):
         self.calcular_subtotal()
