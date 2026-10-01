@@ -361,8 +361,8 @@ class VentaSerializer(serializers.ModelSerializer):
             # Actualizar totales
             venta.actualizar_totales()
 
-            # Actualizar stock del inventario (productos entregados al cliente)
-            venta.actualizar_stock()
+            # §4.4 — El stock NO se descuenta al crear/pagar. Se descuenta al
+            # entrar a 'entregado' (estado operativo) vía aplicar_entrega_stock().
 
             # Si es venta a crédito, establecer fecha de vencimiento
             if venta.tipo_venta.startswith('credito_'):

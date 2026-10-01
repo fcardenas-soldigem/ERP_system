@@ -15,7 +15,8 @@ from .serializers import (
     DetalleCotizacionSerializer
 )
 from apps.core.permissions import HasEmpresaPermission
-from .utils.pdf_generator import CotizacionPDFGenerator
+# CotizacionPDFGenerator se importa de forma perezosa dentro de exportar_pdf
+# (depende de reportlab, que puede no estar instalado en el entorno de dev/test).
 from .services.conversion_service import (
     convertir_cotizacion_a_venta,
     CotizacionNoConvertibleError,
@@ -68,7 +69,16 @@ class CotizacionViewSet(viewsets.ModelViewSet):
                 Q(asunto__icontains=search) |
                 Q(cliente__nombre__icontains=search)
             )
-        
+
+        # F4 #12 — filtro de vencidas (derivado): abiertas con fecha pasada.
+        vencida = self.request.query_params.get('vencida', None)
+        if vencida is not None and str(vencida).lower() in ('1', 'true', 'si', 'sí'):
+            from django.utils import timezone
+            queryset = queryset.filter(
+                estado__in=['borrador', 'enviada'],
+                fecha_vencimiento__lt=timezone.now().date(),
+            )
+
         return queryset
     
     def get_serializer_class(self):
@@ -93,8 +103,9 @@ class CotizacionViewSet(viewsets.ModelViewSet):
         Exportar cotización a PDF profesional
         """
         import traceback
+        from .utils.pdf_generator import CotizacionPDFGenerator
         cotizacion = self.get_object()
-        
+
         try:
             # Generar PDF
             pdf_generator = CotizacionPDFGenerator(cotizacion)
@@ -176,6 +187,29 @@ class CotizacionViewSet(viewsets.ModelViewSet):
                 'message': f'Cotización aceptada y convertida a venta {venta.numero}',
             })
             return Response(data)
+
+        if nuevo_estado == 'rechazada':
+            # F4 #11 — motivo obligatorio; nota obligatoria si el motivo es 'otro'.
+            motivo = request.data.get('motivo_rechazo')
+            nota = (request.data.get('motivo_rechazo_nota') or '').strip()
+            validos = dict(Cotizacion.MOTIVO_RECHAZO_CHOICES)
+            if motivo not in validos:
+                return Response(
+                    {'error': 'Debe indicar motivo_rechazo.', 'opciones': list(validos.keys())},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if motivo == 'otro' and not nota:
+                return Response(
+                    {'error': "La nota es obligatoria cuando el motivo es 'otro'."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            cotizacion.motivo_rechazo = motivo
+            cotizacion.motivo_rechazo_nota = nota or None
+            cotizacion.estado = 'rechazada'
+            cotizacion.save(update_fields=[
+                'motivo_rechazo', 'motivo_rechazo_nota', 'estado', 'fecha_modificacion',
+            ])
+            return Response(self.get_serializer(cotizacion).data)
 
         cotizacion.estado = nuevo_estado
         cotizacion.save()

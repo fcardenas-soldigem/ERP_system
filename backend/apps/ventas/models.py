@@ -107,6 +107,33 @@ class Venta(models.Model):
         ('pedido', 'A Pedido (Descontar Materias Primas)'),
     ]
 
+    # F3 — Estado OPERATIVO (separado del estado de PAGO). Flujo back-to-back.
+    ESTADO_OPERATIVO_CHOICES = [
+        ('pendiente_compra', 'Pendiente de compra'),
+        ('comprado', 'Comprado'),
+        ('recibido', 'Recibido'),
+        ('entregado', 'Entregado'),
+        ('esperando_oc_nr', 'Esperando OC/NR del cliente'),
+        ('facturado', 'Facturado'),
+        ('cobrado', 'Cobrado'),
+    ]
+    # 'cobrado' es terminal y se sincroniza con el estado de PAGO (no se elige a mano).
+    ESTADOS_OPERATIVOS_MANUALES = [
+        'pendiente_compra', 'comprado', 'recibido', 'entregado',
+        'esperando_oc_nr', 'facturado',
+    ]
+    # SLA por estado (días esperados). Valores pensados para back-to-back:
+    # comprar rápido tras aceptar, lead time de proveedor, y cobranza.
+    # 'cobrado' es terminal → sin SLA. Configurable por empresa en fase futura (D5).
+    SLA_OPERATIVO_DIAS = {
+        'pendiente_compra': 2,
+        'comprado': 5,
+        'recibido': 2,
+        'entregado': 3,
+        'esperando_oc_nr': 5,
+        'facturado': 8,
+    }
+
     id = models.BigAutoField(primary_key=True)
     numero = models.CharField(max_length=20, unique=True)
     empresa = models.ForeignKey(Empresa, on_delete=models.PROTECT)
@@ -132,12 +159,20 @@ class Venta(models.Model):
     comprobante = models.FileField(upload_to='comprobantes/', null=True, blank=True)
     # Modo de venta para ventas a pedido
     modo_venta = models.CharField(
-        max_length=20, 
-        choices=MODO_VENTA_CHOICES, 
+        max_length=20,
+        choices=MODO_VENTA_CHOICES,
         default='stock',
         verbose_name='Modo de Venta',
         help_text='Stock: descuenta productos terminados. Pedido: descuenta materias primas directamente.'
     )
+    # F3 — estado operativo (timeline), independiente de `estado` (pago).
+    estado_operativo = models.CharField(
+        max_length=30,
+        choices=ESTADO_OPERATIVO_CHOICES,
+        default='pendiente_compra',
+        verbose_name='Estado operativo',
+    )
+    estado_operativo_actualizado = models.DateTimeField(null=True, blank=True)
     fecha_creacion = models.DateTimeField(auto_now_add=True)
     fecha_modificacion = models.DateTimeField(auto_now=True)
 
@@ -229,25 +264,154 @@ class Venta(models.Model):
         
         self.save()
 
-    def _debe_saltar_stock(self, detalle):
+    def _debe_mover_stock(self, detalle):
         """
-        Regla defensiva (H1). Devuelve True si esta línea NO debe mover stock.
+        Regla ESTRICTA (H1, punto 7 — sin fail-open). Solo mueve stock si TODO
+        se cumple:
+        - la empresa controla inventario (modo_inventario == 'con_stock'), Y
+        - la línea es de stock (origen == 'stock'), Y
+        - la línea NO fue descontada aún (stock_descontado == False), Y
+        - la línea tiene producto.
 
-        Se omite si:
-        - la empresa opera en modo 'sin_stock' (back-to-back), o
-        - la línea es 'pedido_proveedor', o
-        - la línea ya fue descontada (stock_descontado=True).
-
-        origen == None (ventas normales/legacy) se trata como movible en
-        empresas con_stock (fail-open) para no regresionar el flujo actual.
+        origen == None ya NO se trata como movible: el backfill #8 fijó las
+        líneas históricas y DetalleVenta.save() infiere el origen en las nuevas.
         """
-        if getattr(self.empresa, 'modo_inventario', 'con_stock') == 'sin_stock':
-            return True
-        if detalle.origen == 'pedido_proveedor':
-            return True
+        if getattr(self.empresa, 'modo_inventario', 'con_stock') != 'con_stock':
+            return False
+        if detalle.origen != 'stock':
+            return False
         if detalle.stock_descontado:
-            return True
-        return False
+            return False
+        if detalle.producto_id is None:
+            return False
+        return True
+
+    # ───────── F3: estado operativo, historial y SLA ─────────
+    @property
+    def tiene_historial_operativo(self):
+        """True si la venta tiene historial operativo (ventas nuevas, no históricas)."""
+        return self.historial_operativo.exists()
+
+    @property
+    def dias_en_estado_operativo(self):
+        ref = self.estado_operativo_actualizado or self.fecha_creacion
+        if ref is None:
+            return None
+        return (timezone.now() - ref).days
+
+    @property
+    def estado_sla_operativo(self):
+        """ok / alerta / vencido / sin_sla (patrón servicios.estado_sla)."""
+        if self.estado_operativo == 'cobrado':
+            return 'ok'  # terminal
+        limite = self.SLA_OPERATIVO_DIAS.get(self.estado_operativo)
+        dias = self.dias_en_estado_operativo
+        if limite is None or dias is None:
+            return 'sin_sla'
+        if dias > limite:
+            return 'vencido'
+        if dias >= limite - 1:
+            return 'alerta'
+        return 'ok'
+
+    def _registrar_historial_operativo(self, anterior, nuevo, usuario=None, nota=''):
+        HistorialEstadoVenta.objects.create(
+            venta=self, estado_anterior=anterior or '', estado_nuevo=nuevo,
+            usuario=usuario, nota=nota or '',
+        )
+
+    def cambiar_estado_operativo(self, nuevo_estado, usuario=None, nota=''):
+        """
+        F3/D3. Avanza o retrocede el estado operativo, escribe historial y
+        dispara/reversa el descuento de stock al entrar/salir de 'entregado'.
+        'cobrado' NO es elegible aquí: se sincroniza con el estado de pago.
+        """
+        if nuevo_estado not in dict(self.ESTADO_OPERATIVO_CHOICES):
+            raise ValidationError(f'Estado operativo inválido: {nuevo_estado}')
+        if nuevo_estado == 'cobrado':
+            raise ValidationError(
+                "'cobrado' se sincroniza con el estado de pago; no se asigna manualmente."
+            )
+        anterior = self.estado_operativo
+        if anterior == nuevo_estado:
+            return self
+        with transaction.atomic():
+            self.estado_operativo = nuevo_estado
+            self.estado_operativo_actualizado = timezone.now()
+            self.save(update_fields=['estado_operativo', 'estado_operativo_actualizado', 'fecha_modificacion'])
+            self._registrar_historial_operativo(anterior, nuevo_estado, usuario, nota)
+            if nuevo_estado == 'entregado':
+                self.aplicar_entrega_stock()
+            elif anterior == 'entregado':
+                self.revertir_entrega_stock()
+        return self
+
+    def _sincronizar_estado_operativo_pago(self, usuario=None):
+        """
+        Fuente única cobrado↔pago (punto 3):
+        - estado 'pagado'            → estado_operativo 'cobrado' (+historial).
+        - estado deja de ser 'pagado' y estaba 'cobrado' → 'facturado' (+historial).
+        """
+        if self.estado == 'pagado' and self.estado_operativo != 'cobrado':
+            anterior = self.estado_operativo
+            self.estado_operativo = 'cobrado'
+            self.estado_operativo_actualizado = timezone.now()
+            self.save(update_fields=['estado_operativo', 'estado_operativo_actualizado'])
+            self._registrar_historial_operativo(anterior, 'cobrado', usuario, 'Sincronizado con pago')
+        elif self.estado != 'pagado' and self.estado_operativo == 'cobrado':
+            self.estado_operativo = 'facturado'
+            self.estado_operativo_actualizado = timezone.now()
+            self.save(update_fields=['estado_operativo', 'estado_operativo_actualizado'])
+            self._registrar_historial_operativo('cobrado', 'facturado', usuario, 'Pago revertido')
+
+    def aplicar_entrega_stock(self):
+        """§4.4 — Descuenta stock al entrar a 'entregado' (una sola vez por línea)."""
+        from apps.inventario.models.inventario_productos_terminados import InventarioProductosTerminados
+        for detalle in self.detalles.all():
+            if not self._debe_mover_stock(detalle):
+                continue
+            producto = detalle.producto
+            almacen = producto.almacen or self.empresa.almacenes.first()
+            if not almacen:
+                logger.warning("Entrega venta %s: sin almacén para %s; se omite", self.numero, producto.nombre)
+                continue
+            try:
+                InventarioProductosTerminados.procesar_venta(
+                    empresa=self.empresa, producto=producto, almacen=almacen,
+                    cantidad=detalle.cantidad, desde_reserva=True,
+                )
+            except Exception:
+                # OD-B degradación: sin reserva previa → descontar de disponible.
+                try:
+                    InventarioProductosTerminados.procesar_venta(
+                        empresa=self.empresa, producto=producto, almacen=almacen,
+                        cantidad=detalle.cantidad, desde_reserva=False,
+                    )
+                except Exception as e2:
+                    logger.warning("Entrega venta %s: no se pudo descontar %s: %s", self.numero, producto.nombre, e2)
+            detalle.stock_descontado = True
+            detalle.save(update_fields=['stock_descontado'])
+            producto.actualizar_stock_total()
+
+    def revertir_entrega_stock(self):
+        """§4.4 — Reversa simétrica al retroceder desde 'entregado'."""
+        from apps.inventario.models.inventario_productos_terminados import InventarioProductosTerminados
+        for detalle in self.detalles.all():
+            if detalle.origen != 'stock' or not detalle.stock_descontado or detalle.producto_id is None:
+                continue
+            producto = detalle.producto
+            almacen = producto.almacen or self.empresa.almacenes.first()
+            if almacen:
+                try:
+                    inv = InventarioProductosTerminados.objects.select_for_update().get(
+                        empresa=self.empresa, producto=producto, almacen=almacen)
+                    inv.cantidad_disponible += detalle.cantidad
+                    inv.save()
+                except Exception as e:
+                    logger.warning("Reversa entrega venta %s: no se reintegró %s: %s", self.numero, producto.nombre, e)
+            detalle.stock_descontado = False
+            detalle.save(update_fields=['stock_descontado'])
+            producto.actualizar_stock_total()
 
     def actualizar_stock(self):
         """
@@ -263,22 +427,13 @@ class Venta(models.Model):
         logger.info("Actualizando stock venta %s (modo: %s)", self.numero, self.modo_venta)
 
         for detalle in self.detalles.all():
-            # H1 — Regla defensiva: NUNCA confiar solo en el flag de la línea.
-            # Solo mover stock si la empresa controla inventario y la línea no es
-            # a pedido de proveedor ni ya fue descontada.
-            if self._debe_saltar_stock(detalle):
-                logger.info(
-                    "Venta %s: se omite stock de la línea %s (modo=%s, origen=%s, descontado=%s)",
-                    self.numero, detalle.id,
-                    getattr(self.empresa, 'modo_inventario', 'con_stock'),
-                    detalle.origen, detalle.stock_descontado,
-                )
+            # H1 — Regla ESTRICTA. Esta vía (descuento al pagar) quedó
+            # DESACTIVADA (§4.4): el descuento real ocurre al entrar a 'entregado'
+            # vía aplicar_entrega_stock(). Se mantiene la guarda por seguridad.
+            if not self._debe_mover_stock(detalle):
                 continue
 
             producto = detalle.producto
-            if producto is None:
-                # Línea de texto libre: no hay producto que mover.
-                continue
             cantidad = detalle.cantidad
 
             almacen = producto.almacen
@@ -482,10 +637,12 @@ class Venta(models.Model):
     def marcar_como_pagada(self):
         if self.estado == 'pagado':
             return
-            
+
         with transaction.atomic():
             self.estado = 'pagado'
             self.save()
+            # Fuente única cobrado↔pago (F3, punto 3).
+            self._sincronizar_estado_operativo_pago()
 
     def anular_venta(self):
         if self.estado == 'pagado':
@@ -533,8 +690,10 @@ class Venta(models.Model):
                 self.estado = 'pendiente'
             else:
                 self.estado = 'borrador'
-        
+
         self.save()
+        # Fuente única cobrado↔pago (F3, punto 3).
+        self._sincronizar_estado_operativo_pago()
         return self.estado
 
 class DetalleVenta(models.Model):
@@ -556,12 +715,13 @@ class DetalleVenta(models.Model):
     descripcion = models.CharField(max_length=500, null=True, blank=True)
     cantidad = models.DecimalField(max_digits=10, decimal_places=2)
     precio_unitario = models.DecimalField(max_digits=10, decimal_places=2)
-    # D6 — origen decidido en la conversión. null = línea legacy/venta normal
-    # (se trata como movible en empresas con_stock; fail-open).
+    # D6 — origen. La conversión lo fija explícito; en ventas normales lo infiere
+    # save() según el modo de inventario de la empresa (ya no hay fail-open).
     origen = models.CharField(
         max_length=20, choices=ORIGEN_CHOICES, null=True, blank=True
     )
-    # Guarda de idempotencia del descuento de stock (se usa en la Parte 2B).
+    # Guarda de idempotencia del descuento de stock (§4.4): el descuento real
+    # ocurre al entrar a 'entregado' y marca esta bandera.
     stock_descontado = models.BooleanField(default=False)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(default=timezone.now)
@@ -571,7 +731,8 @@ class DetalleVenta(models.Model):
         verbose_name_plural = 'Detalles de venta'
 
     def __str__(self):
-        return f"{self.producto.nombre} - {self.cantidad} unidades"
+        nombre = self.producto.nombre if self.producto_id else (self.descripcion or 'Ítem')
+        return f"{nombre} - {self.cantidad} unidades"
 
     def clean(self):
         if self.cantidad <= 0:
@@ -580,6 +741,11 @@ class DetalleVenta(models.Model):
             raise ValidationError('El precio unitario debe ser mayor que cero')
 
     def save(self, *args, **kwargs):
+        # Inferir origen cuando no vino explícito (ventas normales). La conversión
+        # ya lo fija. sin_stock → pedido_proveedor; con_stock → stock.
+        if self.origen is None and self.venta_id:
+            modo = getattr(self.venta.empresa, 'modo_inventario', 'con_stock')
+            self.origen = 'pedido_proveedor' if modo == 'sin_stock' else 'stock'
         super().save(*args, **kwargs)
         if self.venta_id:
             self.venta.actualizar_totales()
@@ -716,4 +882,31 @@ def actualizar_estado_pago_venta(sender, instance, **kwargs):
 
 @receiver(post_delete, sender=PagoVenta)
 def actualizar_estado_pago_venta_delete(sender, instance, **kwargs):
-    instance.venta.actualizar_estado_pago() 
+    instance.venta.actualizar_estado_pago()
+
+
+class HistorialEstadoVenta(models.Model):
+    """
+    F3 — Historial de cambios de estado OPERATIVO de la venta.
+    Espejo de servicios.HistorialEstadoOS. Lo escribe Venta.cambiar_estado_operativo
+    y la sincronización con el pago. NO se crea para ventas históricas (H3).
+    """
+    venta = models.ForeignKey(
+        Venta, on_delete=models.CASCADE, related_name='historial_operativo'
+    )
+    estado_anterior = models.CharField(max_length=30, blank=True)
+    estado_nuevo = models.CharField(max_length=30)
+    usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='historial_estado_venta',
+    )
+    fecha = models.DateTimeField(auto_now_add=True)
+    nota = models.CharField(max_length=500, blank=True)
+
+    class Meta:
+        verbose_name = 'Historial de Estado Operativo de Venta'
+        verbose_name_plural = 'Historial de Estados Operativos de Venta'
+        ordering = ['-fecha']
+
+    def __str__(self):
+        return f"{self.venta.numero}: {self.estado_anterior} → {self.estado_nuevo}"

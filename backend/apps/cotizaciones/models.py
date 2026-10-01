@@ -166,7 +166,19 @@ class Cotizacion(models.Model):
     
     def __str__(self):
         return f"{self.numero} - {self.cliente.nombre} - {self.get_estado_display()}"
-    
+
+    @property
+    def esta_vencida(self):
+        """
+        F4/D4 — Vencimiento DERIVADO (sin cron, no sobrescribe `estado`).
+        True si la cotización sigue abierta (borrador/enviada) y pasó su
+        fecha de vencimiento.
+        """
+        from django.utils import timezone
+        if self.estado not in ('borrador', 'enviada'):
+            return False
+        return bool(self.fecha_vencimiento and self.fecha_vencimiento < timezone.now().date())
+
     def calcular_totales(self):
         """
         Calcula los totales de la cotización basándose en los detalles

@@ -494,8 +494,10 @@ class VentaViewSet(viewsets.ModelViewSet):
                     notas=f'Pago pendiente para venta a crédito de {dias_credito} días'
                 )
 
+            # §4.4 — El stock YA NO se descuenta al pagar; se descuenta al entrar
+            # a 'entregado' (estado operativo). Aquí solo se sincroniza cobrado↔pago.
             if venta.estado == 'pagado':
-                venta.actualizar_stock()
+                venta._sincronizar_estado_operativo_pago()
 
             self._invalidate_ventas_cache()
 
@@ -548,9 +550,9 @@ class VentaViewSet(viewsets.ModelViewSet):
                     venta.anular_venta()
                 else:
                     venta.estado = nuevo_estado
-                    if nuevo_estado == 'pagado':
-                        venta.actualizar_stock()
                     venta.save()
+                    # §4.4 — sin descuento al pagar; solo sincronizar cobrado↔pago.
+                    venta._sincronizar_estado_operativo_pago()
             
             serializer = self.get_serializer(venta)
             return Response(serializer.data)
@@ -559,6 +561,48 @@ class VentaViewSet(viewsets.ModelViewSet):
                 {"detail": str(e)},
                 status=status.HTTP_400_BAD_REQUEST
             )
+
+    @action(detail=True, methods=['post'], url_path='cambiar-estado-operativo')
+    def cambiar_estado_operativo(self, request, pk=None):
+        """
+        F3/D3 — Cambia el estado OPERATIVO (avanzar o retroceder).
+        Body: {"estado": "<estado>", "nota": "<opcional>"}.
+        'cobrado' NO es elegible (se sincroniza con el pago).
+        Al entrar a 'entregado' descuenta stock; al salir, lo reintegra.
+        """
+        from django.core.exceptions import ValidationError as DjangoValidationError
+        venta = self.get_object()
+        nuevo_estado = request.data.get('estado')
+        nota = request.data.get('nota', '') or ''
+
+        if not nuevo_estado:
+            return Response({'detail': 'Falta el campo "estado".'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            venta.cambiar_estado_operativo(nuevo_estado, usuario=request.user, nota=nota)
+        except DjangoValidationError as e:
+            msg = e.messages[0] if hasattr(e, 'messages') and e.messages else str(e)
+            return Response({'detail': msg}, status=status.HTTP_400_BAD_REQUEST)
+
+        self._invalidate_ventas_cache()
+        venta.refresh_from_db()
+        return Response({
+            'id': venta.id,
+            'numero': venta.numero,
+            'estado_operativo': venta.estado_operativo,
+            'estado_sla_operativo': venta.estado_sla_operativo,
+            'dias_en_estado_operativo': venta.dias_en_estado_operativo,
+            'historial': [
+                {
+                    'estado_anterior': h.estado_anterior,
+                    'estado_nuevo': h.estado_nuevo,
+                    'usuario': getattr(h.usuario, 'email', None),
+                    'fecha': h.fecha,
+                    'nota': h.nota,
+                }
+                for h in venta.historial_operativo.all()
+            ],
+        })
 
     @action(detail=True, methods=['post'], url_path='generar-guia')
     def generar_guia(self, request, pk=None):

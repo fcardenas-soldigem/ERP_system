@@ -201,10 +201,8 @@ class VentaAdmin(admin.ModelAdmin):
                 
                 formset.save_m2m()
                 venta.actualizar_totales()
-                
-                if venta.estado == 'pagada':
-                    venta.actualizar_stock()
-                
+                # §4.4 — El stock se descuenta al entrar a 'entregado', no al pagar.
+
         except Exception as e:
             self.message_user(request, f"Error al guardar los detalles: {str(e)}", level=messages.ERROR)
             raise

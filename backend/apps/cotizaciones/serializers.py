@@ -54,13 +54,14 @@ class CotizacionListSerializer(serializers.ModelSerializer):
     usuario_nombre = serializers.CharField(source='usuario_creador.username', read_only=True)
     estado_display = serializers.CharField(source='get_estado_display', read_only=True)
     moneda_display = serializers.CharField(source='get_moneda_display', read_only=True)
-    
+    esta_vencida = serializers.BooleanField(read_only=True)
+
     class Meta:
         model = Cotizacion
         fields = [
             'id', 'numero', 'cliente', 'cliente_nombre', 'asunto',
             'fecha_emision', 'fecha_vencimiento', 'estado', 'estado_display',
-            'moneda', 'moneda_display', 'total', 'usuario_nombre'
+            'moneda', 'moneda_display', 'total', 'usuario_nombre', 'esta_vencida'
         ]
 
 
@@ -74,7 +75,8 @@ class CotizacionSerializer(serializers.ModelSerializer):
     venta_info = serializers.SerializerMethodField()
     estado_display = serializers.CharField(source='get_estado_display', read_only=True)
     moneda_display = serializers.CharField(source='get_moneda_display', read_only=True)
-    
+    esta_vencida = serializers.BooleanField(read_only=True)
+
     class Meta:
         model = Cotizacion
         fields = [
@@ -84,7 +86,8 @@ class CotizacionSerializer(serializers.ModelSerializer):
             'moneda', 'moneda_display', 'subtotal', 'descuento', 'igv', 'total',
             'incluye_igv', 'precios_incluyen_igv', 'porcentaje_igv', 'forma_pago', 'pago_facturas', 'tiempo_entrega',
             'lugar_entrega', 'validez_oferta', 'notas', 'terminos_condiciones',
-            'contacto_nombre', 'contacto_email',
+            'contacto_nombre', 'contacto_email', 'esta_vencida',
+            'motivo_rechazo', 'motivo_rechazo_nota',
             'venta', 'venta_info', 'detalles', 'fecha_creacion', 'fecha_modificacion'
         ]
         read_only_fields = [

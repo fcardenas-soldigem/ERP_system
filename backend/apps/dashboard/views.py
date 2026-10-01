@@ -183,6 +183,21 @@ class DashboardResumen(APIView):
                 convertir_a_pen(c.total, c.moneda, tipo_cambio) for c in compras_borrador
             )
 
+            # F4 #13 — Alertas operativas/comerciales.
+            from apps.cotizaciones.models import Cotizacion
+            limite_seguimiento = timezone.now().date() - timedelta(days=7)
+            cotizaciones_sin_respuesta = Cotizacion.objects.filter(
+                empresa=empresa, estado='enviada', fecha_emision__lt=limite_seguimiento,
+            ).count()
+            # Solo ventas CON historial operativo (H3/punto 10): evita falsos
+            # positivos en ventas históricas sin timeline.
+            ventas_con_historial = Venta.objects.filter(
+                empresa=empresa, historial_operativo__isnull=False,
+            ).distinct()
+            ventas_fuera_sla = sum(
+                1 for v in ventas_con_historial if v.estado_sla_operativo == 'vencido'
+            )
+
             response_data = {
                 'ventas': {
                     'total': float(ventas_totales),
@@ -215,6 +230,10 @@ class DashboardResumen(APIView):
                     'total_productos': productos_stock['total_productos'] or 0,
                     'total_cantidad': float(productos_stock['total_cantidad'] or 0),
                     'productos_bajo_stock': productos_bajo_stock,
+                },
+                'alertas': {
+                    'cotizaciones_sin_respuesta': cotizaciones_sin_respuesta,
+                    'ventas_fuera_sla': ventas_fuera_sla,
                 },
                 'tipo_cambio': {
                     'valor': tipo_cambio,

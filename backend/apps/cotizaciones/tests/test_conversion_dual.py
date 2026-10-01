@@ -124,9 +124,9 @@ class ConversionSinStockTests(ConversionDualBase):
         cot = self._cotizacion(emp, user, cli)
         self._detalle(cot, producto=prod, proveedor=self._proveedor(emp), cantidad='5')
         venta = convertir_cotizacion_a_venta(cot)
-        # La regla defensiva salta toda línea en empresa sin_stock.
+        # La regla estricta NO mueve stock en empresa sin_stock.
         for d in venta.detalles.all():
-            self.assertTrue(venta._debe_saltar_stock(d))
+            self.assertFalse(venta._debe_mover_stock(d))
 
 
 class ConversionConStockTests(ConversionDualBase):
