@@ -136,7 +136,7 @@ class Venta(models.Model):
     }
 
     id = models.BigAutoField(primary_key=True)
-    numero = models.CharField(max_length=20, unique=True)
+    numero = models.CharField(max_length=20)  # único POR EMPRESA (ver Meta)
     empresa = models.ForeignKey(Empresa, on_delete=models.PROTECT)
     cliente = models.ForeignKey('Cliente', on_delete=models.PROTECT)
     fecha_emision = models.DateField()
@@ -181,6 +181,11 @@ class Venta(models.Model):
         ordering = ['-fecha_emision']
         verbose_name = 'Venta'
         verbose_name_plural = 'Ventas'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['empresa', 'numero'], name='uniq_venta_empresa_numero'
+            ),
+        ]
 
     def __str__(self):
         return f"Venta {self.numero} - {self.cliente.nombre}"
@@ -208,47 +213,40 @@ class Venta(models.Model):
         super().clean()
 
     def save(self, *args, **kwargs):
-        if not self.numero:
-            if not self.empresa:
-                raise ValidationError('La venta debe tener una empresa asignada antes de generar el número')
-
-            with transaction.atomic():
-                # SELECT FOR UPDATE bloquea la última fila de esta empresa
-                # evitando la race condition donde dos requests obtienen el mismo max_num
-                ultima = (
-                    Venta.objects.select_for_update()
-                    .filter(empresa_id=self.empresa.id, numero__startswith='V-')
-                    .order_by('-numero')
-                    .only('numero')
-                    .first()
-                )
-                if ultima:
-                    try:
-                        siguiente_num = int(ultima.numero.split('-')[1]) + 1
-                    except (ValueError, IndexError):
-                        # Fallback si el número existente tiene formato inesperado
-                        siguiente_num = (
-                            Venta.objects.filter(empresa_id=self.empresa.id).count() + 1
-                        )
-                else:
-                    # Compatibilidad con registros legacy (formato numérico puro)
-                    legacy = (
-                        Venta.objects.select_for_update()
-                        .filter(empresa_id=self.empresa.id, numero__regex=r'^\d+$')
-                        .order_by('-numero')
-                        .only('numero')
-                        .first()
-                    )
-                    siguiente_num = (int(legacy.numero) + 1) if legacy else 1
-
-                self.numero = f"V-{str(siguiente_num).zfill(6)}"
+        if not self.numero and not self.empresa:
+            raise ValidationError('La venta debe tener una empresa asignada antes de generar el número')
 
         if self.tipo_venta.startswith('credito_'):
             dias = int(self.tipo_venta.split('_')[1])
             if not self.fecha_vencimiento:
                 self.fecha_vencimiento = self.fecha_emision + timezone.timedelta(days=dias)
 
-        super().save(*args, **kwargs)
+        from apps.core.numbering import guardar_con_numero
+        guardar_con_numero(
+            self, self._siguiente_numero,
+            lambda: super(Venta, self).save(*args, **kwargs),
+        )
+
+    def _siguiente_numero(self):
+        """Siguiente número de venta POR EMPRESA (V-000001...). select_for_update."""
+        ultima = (
+            Venta.objects.select_for_update()
+            .filter(empresa_id=self.empresa_id, numero__startswith='V-')
+            .order_by('-numero').only('numero').first()
+        )
+        if ultima:
+            try:
+                siguiente = int(ultima.numero.split('-')[1]) + 1
+            except (ValueError, IndexError):
+                siguiente = Venta.objects.filter(empresa_id=self.empresa_id).count() + 1
+        else:
+            legacy = (
+                Venta.objects.select_for_update()
+                .filter(empresa_id=self.empresa_id, numero__regex=r'^\d+$')
+                .order_by('-numero').only('numero').first()
+            )
+            siguiente = (int(legacy.numero) + 1) if legacy else 1
+        return f"V-{str(siguiente).zfill(6)}"
 
     def actualizar_totales(self):
         detalles = self.detalles.all()

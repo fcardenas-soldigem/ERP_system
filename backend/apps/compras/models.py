@@ -633,10 +633,9 @@ class OrdenCompra(models.Model):
     )
     numero = models.CharField(
         max_length=20,
-        unique=True,
         blank=True,
         null=True
-    )
+    )  # único POR EMPRESA (ver Meta.constraints)
     proveedor = models.ForeignKey(
         'Proveedor',
         on_delete=models.SET_NULL,
@@ -730,6 +729,11 @@ class OrdenCompra(models.Model):
         verbose_name = 'Orden de Compra'
         verbose_name_plural = 'Órdenes de Compra'
         ordering = ['-fecha_creacion']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['empresa', 'numero'], name='uniq_ordencompra_empresa_numero'
+            ),
+        ]
 
     def __str__(self):
         return f"OC-{self.numero} - {self.proveedor_nombre}"
@@ -738,18 +742,24 @@ class OrdenCompra(models.Model):
         if not self.empresa_id:
             raise ValidationError('La orden debe tener una empresa asignada')
 
+    def _siguiente_numero(self):
+        ultimo = (
+            OrdenCompra.objects.select_for_update()
+            .filter(empresa=self.empresa).order_by('-numero').only('numero').first()
+        )
+        if ultimo and ultimo.numero:
+            try:
+                return str(int(ultimo.numero) + 1).zfill(6)
+            except ValueError:
+                return str(OrdenCompra.objects.filter(empresa=self.empresa).count() + 1).zfill(6)
+        return '000001'
+
     def save(self, *args, **kwargs):
-        if not self.numero:
-            ultimo_numero = OrdenCompra.objects.filter(empresa=self.empresa).order_by('-numero').first()
-            if ultimo_numero and ultimo_numero.numero:
-                try:
-                    num = int(ultimo_numero.numero) + 1
-                    self.numero = str(num).zfill(6)
-                except ValueError:
-                    self.numero = '000001'
-            else:
-                self.numero = '000001'
-        super().save(*args, **kwargs)
+        from apps.core.numbering import guardar_con_numero
+        guardar_con_numero(
+            self, self._siguiente_numero,
+            lambda: super(OrdenCompra, self).save(*args, **kwargs),
+        )
 
     def actualizar_totales(self):
         # Funcionalidad temporalmente deshabilitada
@@ -894,13 +904,21 @@ class OrdenServicioCompra(models.Model):
         verbose_name = 'Orden de Compra de Servicio'
         verbose_name_plural = 'Órdenes de Compra de Servicio'
         ordering = ['-fecha_creacion']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['empresa', 'numero'], name='uniq_ordscompra_empresa_numero'
+            ),
+        ]
 
     def __str__(self):
         return f"OCS-{self.numero} - {self.proveedor_nombre or ''}"
 
     @classmethod
     def generar_numero(cls, empresa):
-        ultima = cls.objects.filter(empresa=empresa).order_by('-id').only('numero').first()
+        ultima = (
+            cls.objects.select_for_update()
+            .filter(empresa=empresa).order_by('-id').only('numero').first()
+        )
         if ultima and ultima.numero:
             try:
                 secuencia = int(ultima.numero) + 1
@@ -915,9 +933,11 @@ class OrdenServicioCompra(models.Model):
             raise ValidationError('La orden debe tener una empresa asignada')
 
     def save(self, *args, **kwargs):
-        if not self.numero:
-            self.numero = self.generar_numero(self.empresa)
-        super().save(*args, **kwargs)
+        from apps.core.numbering import guardar_con_numero
+        guardar_con_numero(
+            self, lambda: self.generar_numero(self.empresa),
+            lambda: super(OrdenServicioCompra, self).save(*args, **kwargs),
+        )
 
     def recalcular_totales(self):
         bruto = sum(

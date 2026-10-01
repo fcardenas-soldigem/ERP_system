@@ -44,6 +44,15 @@ const CotizacionForm = () => {
   const [clientes, setClientes] = useState([]);
   const [productos, setProductos] = useState([]);
   const [proveedores, setProveedores] = useState([]);
+  // Toggle "Mostrar costeo" (columnas internas). Default visible; recordado en localStorage.
+  const [mostrarCosteo, setMostrarCosteo] = useState(() => {
+    try { return localStorage.getItem('cotizacion_mostrar_costeo') !== 'false'; }
+    catch { return true; }
+  });
+  const toggleCosteo = (checked) => {
+    setMostrarCosteo(checked);
+    try { localStorage.setItem('cotizacion_mostrar_costeo', String(checked)); } catch { /* noop */ }
+  };
 
   const [formData, setFormData] = useState({
     cliente: '',
@@ -603,17 +612,32 @@ const CotizacionForm = () => {
           <Box bg="white" p={6} borderRadius="lg" shadow="sm">
             <Flex justify="space-between" align="center" mb={4}>
               <Heading size="md">Productos / Servicios</Heading>
-              <Button leftIcon={<FaPlus />} colorScheme="blue" size="sm" onClick={agregarDetalle}>
-                Agregar Ítem
-              </Button>
+              <HStack spacing={4}>
+                <FormControl display="flex" alignItems="center" w="auto" mb="0">
+                  <FormLabel htmlFor="toggle-costeo" mb="0" fontSize="sm" color="gray.600">
+                    Mostrar costeo
+                  </FormLabel>
+                  <Switch
+                    id="toggle-costeo"
+                    isChecked={mostrarCosteo}
+                    onChange={(e) => toggleCosteo(e.target.checked)}
+                    colorScheme="orange"
+                  />
+                </FormControl>
+                <Button leftIcon={<FaPlus />} colorScheme="blue" size="sm" onClick={agregarDetalle}>
+                  Agregar Ítem
+                </Button>
+              </HStack>
             </Flex>
 
-            <HStack mb={3} spacing={2}>
-              <Box w="12px" h="12px" bg="orange.50" border="1px solid" borderColor="orange.200" borderRadius="sm" />
-              <Text fontSize="xs" color="orange.700" fontWeight="medium">
-                Columnas con fondo ámbar = Interno (costeo). No aparecen en el PDF del cliente.
-              </Text>
-            </HStack>
+            {mostrarCosteo && (
+              <HStack mb={3} spacing={2}>
+                <Box w="12px" h="12px" bg="orange.50" border="1px solid" borderColor="orange.200" borderRadius="sm" />
+                <Text fontSize="xs" color="orange.700" fontWeight="medium">
+                  Columnas con fondo ámbar = Interno (costeo). No aparecen en el PDF del cliente.
+                </Text>
+              </HStack>
+            )}
 
             {formData.detalles.length === 0 ? (
               <Text color="gray.500" textAlign="center" py={4}>
@@ -631,9 +655,13 @@ const CotizacionForm = () => {
                       <Th>P. Unit.</Th>
                       <Th>Desc.</Th>
                       <Th>Subtotal</Th>
-                      <Th bg="orange.50" color="orange.700">Proveedor</Th>
-                      <Th bg="orange.50" color="orange.700">Costo</Th>
-                      <Th bg="orange.50" color="orange.700">Margen</Th>
+                      {mostrarCosteo && (
+                        <>
+                          <Th bg="orange.50" color="orange.700">Proveedor</Th>
+                          <Th bg="orange.50" color="orange.700">Costo</Th>
+                          <Th bg="orange.50" color="orange.700">Margen</Th>
+                        </>
+                      )}
                       <Th></Th>
                     </Tr>
                   </Thead>
@@ -706,40 +734,44 @@ const CotizacionForm = () => {
                           {simboloMoneda} {calcularSubtotalDetalle(detalle).toFixed(2)}
                         </Td>
                         {/* ── Columnas INTERNAS (no aparecen en el PDF) ── */}
-                        <Td bg="orange.50">
-                          <Select
-                            size="sm"
-                            minW="150px"
-                            value={detalle.proveedor || ''}
-                            onChange={(e) => handleDetalleChange(index, 'proveedor', e.target.value || '')}
-                            placeholder="— Proveedor —"
-                          >
-                            {proveedores.map((p) => (
-                              <option key={p.id} value={p.id}>{p.razon_social}</option>
-                            ))}
-                          </Select>
-                        </Td>
-                        <Td bg="orange.50">
-                          <NumberInput
-                            size="sm"
-                            value={detalle.costo_unitario ?? ''}
-                            onChange={(value) => handleDetalleChange(index, 'costo_unitario', value)}
-                            min={0}
-                            step={0.01}
-                          >
-                            <NumberInputField placeholder="0.00" />
-                          </NumberInput>
-                        </Td>
-                        <Td bg="orange.50" fontWeight="bold">
-                          {(() => {
-                            const m = calcularMargenPct(detalle);
-                            return (
-                              <Text color={colorMargen(m)}>
-                                {m === null ? '—' : `${m.toFixed(1)}%`}
-                              </Text>
-                            );
-                          })()}
-                        </Td>
+                        {mostrarCosteo && (
+                          <>
+                            <Td bg="orange.50">
+                              <Select
+                                size="sm"
+                                minW="150px"
+                                value={detalle.proveedor || ''}
+                                onChange={(e) => handleDetalleChange(index, 'proveedor', e.target.value || '')}
+                                placeholder="— Proveedor —"
+                              >
+                                {proveedores.map((p) => (
+                                  <option key={p.id} value={p.id}>{p.razon_social}</option>
+                                ))}
+                              </Select>
+                            </Td>
+                            <Td bg="orange.50">
+                              <NumberInput
+                                size="sm"
+                                value={detalle.costo_unitario ?? ''}
+                                onChange={(value) => handleDetalleChange(index, 'costo_unitario', value)}
+                                min={0}
+                                step={0.01}
+                              >
+                                <NumberInputField placeholder="0.00" />
+                              </NumberInput>
+                            </Td>
+                            <Td bg="orange.50" fontWeight="bold">
+                              {(() => {
+                                const m = calcularMargenPct(detalle);
+                                return (
+                                  <Text color={colorMargen(m)}>
+                                    {m === null ? '—' : `${m.toFixed(1)}%`}
+                                  </Text>
+                                );
+                              })()}
+                            </Td>
+                          </>
+                        )}
                         <Td>
                           <IconButton
                             icon={<FaTrash />}
@@ -838,7 +870,7 @@ const CotizacionForm = () => {
               </Grid>
 
               {/* ── Resumen de margen INTERNO (no aparece en el PDF) ── */}
-              {(() => {
+              {mostrarCosteo && (() => {
                 const rm = resumenMargen();
                 if (!rm) return null;
                 return (

@@ -25,10 +25,9 @@ class Cotizacion(models.Model):
         ('USD', 'Dólares ($)'),
     ]
     
-    # Identificación
+    # Identificación — único POR EMPRESA (ver Meta.constraints).
     numero = models.CharField(
         max_length=20,
-        unique=True,
         help_text="Número de cotización (ej: COT-00000001)"
     )
     
@@ -157,6 +156,11 @@ class Cotizacion(models.Model):
         ordering = ['-fecha_emision', '-numero']
         verbose_name = 'Cotización'
         verbose_name_plural = 'Cotizaciones'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['empresa', 'numero'], name='uniq_cotizacion_empresa_numero'
+            ),
+        ]
         indexes = [
             models.Index(fields=['empresa', 'estado']),
             models.Index(fields=['cliente']),
@@ -211,32 +215,32 @@ class Cotizacion(models.Model):
         
         self.save()
     
+    def _siguiente_numero(self):
+        """Siguiente número POR EMPRESA (usa select_for_update sobre el último)."""
+        ultima = (
+            Cotizacion.objects.select_for_update()
+            .filter(empresa=self.empresa, numero__startswith='COT-')
+            .order_by('-numero').only('numero').first()
+        )
+        nuevo = 1
+        if ultima and ultima.numero:
+            try:
+                nuevo = int(ultima.numero.split('-')[1]) + 1
+            except (IndexError, ValueError):
+                nuevo = Cotizacion.objects.filter(empresa=self.empresa).count() + 1
+        return f"COT-{nuevo:08d}"
+
     def generar_numero(self):
-        """
-        Genera el número de cotización automáticamente
-        """
+        """Compat: asigna el número si falta."""
         if not self.numero:
-            # Obtener el último número de cotización de la empresa
-            ultima_cotizacion = Cotizacion.objects.filter(
-                empresa=self.empresa
-            ).order_by('-numero').first()
-            
-            if ultima_cotizacion and ultima_cotizacion.numero:
-                try:
-                    # Extraer el número de la última cotización
-                    ultimo_numero = int(ultima_cotizacion.numero.split('-')[1])
-                    nuevo_numero = ultimo_numero + 1
-                except (IndexError, ValueError):
-                    nuevo_numero = 1
-            else:
-                nuevo_numero = 1
-            
-            self.numero = f"COT-{nuevo_numero:08d}"
-    
+            self.numero = self._siguiente_numero()
+
     def save(self, *args, **kwargs):
-        if not self.numero:
-            self.generar_numero()
-        super().save(*args, **kwargs)
+        from apps.core.numbering import guardar_con_numero
+        guardar_con_numero(
+            self, self._siguiente_numero,
+            lambda: super(Cotizacion, self).save(*args, **kwargs),
+        )
 
 
 class DetalleCotizacion(models.Model):

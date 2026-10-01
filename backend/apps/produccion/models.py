@@ -210,9 +210,8 @@ class OrdenProduccion(models.Model):
     )
     numero = models.CharField(
         max_length=20,
-        unique=True,
         verbose_name='Número de Orden',
-        help_text='Código único de la orden (auto-generado)'
+        help_text='Código auto-generado, único POR EMPRESA (ver Meta.constraints)'
     )
     receta = models.ForeignKey(
         RecetaProducto,
@@ -316,6 +315,11 @@ class OrdenProduccion(models.Model):
         verbose_name = 'Orden de Producción'
         verbose_name_plural = 'Órdenes de Producción'
         ordering = ['-created_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['empresa', 'numero'], name='uniq_ordenproduccion_empresa_numero'
+            ),
+        ]
 
     def __str__(self):
         return f"OP-{self.numero} - {self.receta.producto_terminado.nombre}"
@@ -335,26 +339,26 @@ class OrdenProduccion(models.Model):
         if self.almacen_destino and self.almacen_destino.empresa_id != self.empresa_id:
             raise ValidationError('El almacén de destino no pertenece a la empresa')
 
+    def _siguiente_numero(self):
+        ultimo = (
+            OrdenProduccion.objects.select_for_update()
+            .filter(empresa=self.empresa).order_by('-id').only('numero').first()
+        )
+        nuevo = 1
+        if ultimo and ultimo.numero:
+            try:
+                nuevo = int(ultimo.numero.split('-')[-1]) + 1
+            except (ValueError, IndexError):
+                nuevo = OrdenProduccion.objects.filter(empresa=self.empresa).count() + 1
+        return f"{nuevo:06d}"
+
     def save(self, *args, **kwargs):
-        # Generar número de orden si no existe
-        if not self.numero:
-            ultimo = OrdenProduccion.objects.filter(
-                empresa=self.empresa
-            ).order_by('-id').first()
-            
-            if ultimo and ultimo.numero:
-                try:
-                    ultimo_num = int(ultimo.numero.split('-')[-1])
-                    nuevo_num = ultimo_num + 1
-                except (ValueError, IndexError):
-                    nuevo_num = 1
-            else:
-                nuevo_num = 1
-            
-            self.numero = f"{nuevo_num:06d}"
-        
         self.clean()
-        super().save(*args, **kwargs)
+        from apps.core.numbering import guardar_con_numero
+        guardar_con_numero(
+            self, self._siguiente_numero,
+            lambda: super(OrdenProduccion, self).save(*args, **kwargs),
+        )
 
     @property
     def esta_retrasada(self):

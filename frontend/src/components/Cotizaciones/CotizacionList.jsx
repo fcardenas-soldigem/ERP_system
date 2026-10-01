@@ -324,6 +324,7 @@ const CotizacionList = () => {
                         icon={<FaEllipsisV />}
                         variant="ghost"
                         size="sm"
+                        aria-label={`Acciones ${cotizacion.numero}`}
                       />
                       <MenuList>
                         <MenuItem
