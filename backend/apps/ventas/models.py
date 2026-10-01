@@ -131,7 +131,8 @@ class Venta(models.Model):
         'recibido': 2,
         'entregado': 3,
         'esperando_oc_nr': 5,
-        'facturado': 8,
+        # B1 — 35 = crédito 30 días + tolerancia. En Fase 2 derivar de forma_pago.
+        'facturado': 35,
     }
 
     id = models.BigAutoField(primary_key=True)

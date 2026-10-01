@@ -65,7 +65,8 @@ class ProductoSerializer(serializers.ModelSerializer):
             'almacen_nombre', 'is_active', 'precio_compra',
             'precio_venta', 'moneda', 'margen', 'stocks_por_almacen',
             'stock', 'alerta_stock', 'empresa', 'unidad_medida',
-            'tipo_producto', 'tipo_producto_display', 'es_materia_prima'
+            'tipo_producto', 'tipo_producto_display', 'es_materia_prima',
+            'controla_stock',  # B4/D6 — lectura y escritura
         ]
         read_only_fields = ['empresa', 'margen', 'stock_total', 'alerta_stock', 'tipo_producto_display', 'es_materia_prima']
 

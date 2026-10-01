@@ -12,6 +12,7 @@ class EmpresaSerializer(serializers.ModelSerializer):
             'id', 'uuid', 'nombre', 'ruc', 'direccion', 'telefono', 'email',
             'logo', 'logo_url', 'firma_elaborado', 'firma_elaborado_url',
             'firma_aprobado', 'firma_aprobado_url', 'is_active', 'tipo_cambio_usd',
+            'modo_inventario',  # B4/D6 — lectura y escritura
         ]
         read_only_fields = ['id', 'uuid', 'is_active', 'logo_url', 'firma_elaborado_url', 'firma_aprobado_url']
 

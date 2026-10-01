@@ -499,6 +499,12 @@ class VentaViewSet(viewsets.ModelViewSet):
             if venta.estado == 'pagado':
                 venta._sincronizar_estado_operativo_pago()
 
+            # B3 — Entrega inmediata: nace en 'entregado' (descuenta stock con la
+            # misma guarda estricta). Default false; solo aplica en con_stock.
+            entrega_inmediata = str(self.request.data.get('entrega_inmediata', '')).lower() in ('1', 'true', 'si', 'sí')
+            if entrega_inmediata and venta.empresa.modo_inventario == 'con_stock':
+                venta.cambiar_estado_operativo('entregado', usuario=self.request.user, nota='Entrega inmediata')
+
             self._invalidate_ventas_cache()
 
         except Exception:
