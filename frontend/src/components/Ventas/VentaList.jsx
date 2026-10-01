@@ -33,6 +33,11 @@ import guiasService from '../../services/guiasService';
 import ImportExcelModal from '../common/ImportExcelModal';
 import { useNavigate } from 'react-router-dom';
 import { ESTADOS_VENTA, TIPOS_VENTA, METODOS_PAGO, ESTADOS_DISPLAY, TIPOS_VENTA_DISPLAY, METODOS_PAGO_DISPLAY } from './constants';
+import { Select } from '@chakra-ui/react';
+import {
+  ESTADOS_OPERATIVOS, ESTADO_OPERATIVO_LABEL, SIGUIENTE_ESTADO, VERBO_SIGUIENTE,
+  SLA_COLOR_SCHEME, SLA_LABEL,
+} from './estadoOperativo';
 
 // Constantes para colores de badges
 const ESTADOS_BADGE_COLORS = {
@@ -61,16 +66,73 @@ const VentaList = () => {
   const { isOpen, onOpen, onClose } = useDisclosure();
   const navigate = useNavigate();
   const [page, setPage] = useState(1);
+  const [filtroOperativo, setFiltroOperativo] = useState('');
   const pageSize = 10;
 
   // Consulta para obtener las ventas
   const { data: ventas, isLoading, error } = useQuery({
-    queryKey: ['ventas', page, pageSize],
-    queryFn: () => ventasService.getVentas(page, pageSize),
-    onSuccess: (data) => {
-      console.log('Datos de ventas recibidos:', data);
-    }
+    queryKey: ['ventas', page, pageSize, filtroOperativo],
+    queryFn: () => ventasService.getVentas(page, pageSize, { estado_operativo: filtroOperativo }),
   });
+
+  // F3 — avanzar/cambiar estado operativo (1 clic) con toast "Deshacer" (5 s).
+  const operativoMutation = useMutation({
+    mutationFn: ({ id, estado }) => ventasService.cambiarEstadoOperativo(id, estado),
+    onSuccess: (data, variables) => {
+      queryClient.invalidateQueries(['ventas']);
+      toast({
+        duration: 5000,
+        isClosable: true,
+        render: ({ onClose }) => (
+          <HStack bg="gray.800" color="white" p={3} borderRadius="md" spacing={4} boxShadow="lg">
+            <Text fontSize="sm">
+              {data.numero} → <b>{ESTADO_OPERATIVO_LABEL[data.estado_operativo]}</b>
+            </Text>
+            {variables.anterior && (
+              <Button
+                size="xs"
+                colorScheme="blue"
+                variant="solid"
+                onClick={() => {
+                  operativoMutation.mutate({ id: variables.id, estado: variables.anterior });
+                  onClose();
+                }}
+              >
+                Deshacer
+              </Button>
+            )}
+          </HStack>
+        ),
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: 'No se pudo cambiar el estado',
+        description: error.response?.data?.detail || error.message,
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    },
+  });
+
+  const avanzarPaso = (venta) => {
+    const siguiente = SIGUIENTE_ESTADO[venta.estado_operativo];
+    if (!siguiente) return;
+    operativoMutation.mutate({ id: venta.id, estado: siguiente, anterior: venta.estado_operativo });
+  };
+
+  const getOperativoBadge = (venta) => {
+    const sla = venta.estado_sla_operativo || 'sin_sla';
+    const dias = venta.dias_en_estado_operativo;
+    return (
+      <Tooltip label={`${dias ?? 0} día(s) en este estado · ${SLA_LABEL[sla]}`} hasArrow>
+        <Badge colorScheme={SLA_COLOR_SCHEME[sla]} variant="subtle">
+          {ESTADO_OPERATIVO_LABEL[venta.estado_operativo] || venta.estado_operativo}
+        </Badge>
+      </Tooltip>
+    );
+  };
 
   // Mutación para cambiar el estado de una venta
   const cambiarEstadoMutation = useMutation({
@@ -290,7 +352,18 @@ const VentaList = () => {
 
   return (
     <Box>
-      <HStack spacing={4} mb={4} justify="flex-end">
+      <HStack spacing={4} mb={4} justify="space-between">
+        <Select
+          maxW="260px"
+          placeholder="Todos los estados operativos"
+          value={filtroOperativo}
+          onChange={(e) => { setPage(1); setFiltroOperativo(e.target.value); }}
+        >
+          {ESTADOS_OPERATIVOS.map((e) => (
+            <option key={e} value={e}>{ESTADO_OPERATIVO_LABEL[e]}</option>
+          ))}
+        </Select>
+        <HStack spacing={4}>
         <Button
           leftIcon={<AddIcon />}
           colorScheme="blue"
@@ -305,12 +378,13 @@ const VentaList = () => {
         >
           Exportar Excel
         </Button>
-        <Button 
-          colorScheme="orange" 
+        <Button
+          colorScheme="orange"
           onClick={onOpen}
         >
           Importar Excel
         </Button>
+        </HStack>
       </HStack>
 
       <Table variant="simple">
@@ -322,6 +396,7 @@ const VentaList = () => {
             <Th>Tipo Venta</Th>
             <Th>Método Pago</Th>
             <Th>Estado</Th>
+            <Th>Estado operativo</Th>
             <Th>Total</Th>
             <Th>Acciones</Th>
           </Tr>
@@ -335,9 +410,22 @@ const VentaList = () => {
               <Td>{getTipoVentaBadge(venta.tipo_venta)}</Td>
               <Td>{getMetodoPagoBadge(venta.metodo_pago)}</Td>
               <Td>{getEstadoBadge(venta.estado)}</Td>
+              <Td>{getOperativoBadge(venta)}</Td>
               <Td>{formatCurrency(venta.total, venta.moneda)}</Td>
               <Td>
                 <HStack spacing={1}>
+                  {/* F3 — Acción rápida: siguiente paso del timeline (1 clic). */}
+                  {SIGUIENTE_ESTADO[venta.estado_operativo] && (
+                    <Button
+                      size="xs"
+                      colorScheme="blue"
+                      variant="outline"
+                      isLoading={operativoMutation.isLoading}
+                      onClick={() => avanzarPaso(venta)}
+                    >
+                      {VERBO_SIGUIENTE[venta.estado_operativo]}
+                    </Button>
+                  )}
                   {/* Quick action: inline payment button for pending credit sales */}
                   {venta.estado === 'pendiente' && venta.tipo_venta !== 'contado' && (
                     <Button

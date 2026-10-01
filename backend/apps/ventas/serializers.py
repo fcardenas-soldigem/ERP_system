@@ -61,7 +61,8 @@ class DetalleVentaSerializer(serializers.ModelSerializer):
     class Meta:
         model = DetalleVenta
         fields = ['venta', 'producto', 'producto_nombre', 'producto_sku',
-                 'producto_tipo', 'cantidad', 'precio_unitario']
+                 'producto_tipo', 'descripcion', 'cantidad', 'precio_unitario',
+                 'origen', 'stock_descontado']
         extra_kwargs = {
             'venta': {'required': False}
         }
@@ -105,7 +106,13 @@ class VentaSerializer(serializers.ModelSerializer):
     metodo_pago_display = serializers.SerializerMethodField()
     modo_venta_display = serializers.SerializerMethodField()
     empresa = serializers.PrimaryKeyRelatedField(read_only=True)
-    
+    # F3 — estado operativo (timeline)
+    estado_operativo_display = serializers.CharField(source='get_estado_operativo_display', read_only=True)
+    estado_sla_operativo = serializers.CharField(read_only=True)
+    dias_en_estado_operativo = serializers.IntegerField(read_only=True)
+    historial_operativo = serializers.SerializerMethodField()
+    ordenes_compra = serializers.SerializerMethodField()
+
     class Meta:
         model = Venta
         fields = [
@@ -116,9 +123,31 @@ class VentaSerializer(serializers.ModelSerializer):
             'referencia', 'comprobante', 'detalles', 'saldo_pendiente',
             'dias_restantes', 'estado_vencimiento', 'comprobante_pago',
             'productos_stock_bajo', 'cliente_nombre', 'estado_display',
-            'tipo_venta_display', 'metodo_pago_display', 'empresa'
+            'tipo_venta_display', 'metodo_pago_display', 'empresa',
+            'estado_operativo', 'estado_operativo_display', 'estado_sla_operativo',
+            'dias_en_estado_operativo', 'historial_operativo', 'ordenes_compra',
         ]
-        read_only_fields = ['id', 'numero', 'estado_display', 'tipo_venta_display', 'metodo_pago_display', 'modo_venta_display', 'empresa']
+        read_only_fields = ['id', 'numero', 'estado_display', 'tipo_venta_display', 'metodo_pago_display', 'modo_venta_display', 'empresa',
+                            'estado_operativo', 'estado_operativo_display', 'estado_sla_operativo',
+                            'dias_en_estado_operativo', 'historial_operativo', 'ordenes_compra']
+
+    def get_historial_operativo(self, obj):
+        return [
+            {
+                'estado_anterior': h.estado_anterior,
+                'estado_nuevo': h.estado_nuevo,
+                'usuario': getattr(h.usuario, 'email', None),
+                'fecha': h.fecha,
+                'nota': h.nota,
+            }
+            for h in obj.historial_operativo.all()
+        ]
+
+    def get_ordenes_compra(self, obj):
+        return [
+            {'id': oc.id, 'numero': oc.numero, 'proveedor': oc.proveedor_nombre, 'estado': oc.estado}
+            for oc in obj.ordenes_compra.all()
+        ]
 
     ESTADO_MAP = {
         'borrador': 'Borrador',

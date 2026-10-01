@@ -445,9 +445,12 @@ class VentaViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         queryset = Venta.objects.filter(
             empresa=self.request.user.empresa
-        ).select_related('cliente').prefetch_related('detalles__producto')
+        ).select_related('cliente').prefetch_related(
+            'detalles__producto', 'historial_operativo', 'ordenes_compra'
+        )
 
         estado = self.request.query_params.get('estado')
+        estado_operativo = self.request.query_params.get('estado_operativo')
         tipo_venta = self.request.query_params.get('tipo_venta')
         metodo_pago = self.request.query_params.get('metodo_pago')
         cliente = self.request.query_params.get('cliente')
@@ -456,6 +459,8 @@ class VentaViewSet(viewsets.ModelViewSet):
 
         if estado:
             queryset = queryset.filter(estado=estado)
+        if estado_operativo:
+            queryset = queryset.filter(estado_operativo=estado_operativo)
         if tipo_venta:
             queryset = queryset.filter(tipo_venta=tipo_venta)
         if metodo_pago:

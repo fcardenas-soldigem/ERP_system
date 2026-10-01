@@ -29,9 +29,11 @@ import {
   List,
   ListItem
 } from '@chakra-ui/react';
+import { Checkbox } from '@chakra-ui/react';
 import { DeleteIcon, SearchIcon } from '@chakra-ui/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
+import { api } from '../../lib/api';
 import { ventasService } from '../../services/ventas.service';
 import { clientesService } from '../../services/clientes.service';
 import { TIPOS_VENTA, METODOS_PAGO, TIPOS_VENTA_DISPLAY, METODOS_PAGO_DISPLAY } from './constants';
@@ -53,9 +55,20 @@ const NuevaVenta = () => {
     moneda: 'PEN',
     referencia: '',
     comprobante: null,
+    entrega_inmediata: false,
     detalles: [{ producto: '', cantidad: 1, precio_unitario: 0 }],
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // F3/B3 — "Entrega inmediata" solo tiene sentido en empresas con stock.
+  const [empresaConStock, setEmpresaConStock] = useState(false);
+  useEffect(() => {
+    api.get('/api/empresas/')
+      .then((r) => {
+        const emp = Array.isArray(r.data?.results) ? r.data.results[0] : (Array.isArray(r.data) ? r.data[0] : r.data);
+        setEmpresaConStock((emp?.modo_inventario || 'con_stock') === 'con_stock');
+      })
+      .catch(() => setEmpresaConStock(false));
+  }, []);
 
   const toast = useToast();
   const navigate = useNavigate();
@@ -512,11 +525,27 @@ const NuevaVenta = () => {
                 <option value="pedido">A Pedido (descontar MP)</option>
               </Select>
               <FormHelperText fontSize="xs">
-                {formData.modo_venta === 'pedido' 
-                  ? 'Se descontarán las materias primas según la receta' 
+                {formData.modo_venta === 'pedido'
+                  ? 'Se descontarán las materias primas según la receta'
                   : 'Se descontará del inventario de productos terminados'}
               </FormHelperText>
             </FormControl>
+
+            {/* F3/B3 — Entrega inmediata: nace en 'entregado' (descuenta stock). */}
+            {empresaConStock && (
+              <FormControl flex="1" display="flex" flexDirection="column" justifyContent="center">
+                <Checkbox
+                  isChecked={formData.entrega_inmediata}
+                  onChange={(e) => setFormData(prev => ({ ...prev, entrega_inmediata: e.target.checked }))}
+                  colorScheme="blue"
+                >
+                  Entrega inmediata
+                </Checkbox>
+                <FormHelperText fontSize="xs">
+                  La venta nace en estado “entregado” y descuenta el stock al crearla.
+                </FormHelperText>
+              </FormControl>
+            )}
 
             <FormControl isRequired flex="1">
               <FormLabel>Método de Pago</FormLabel>

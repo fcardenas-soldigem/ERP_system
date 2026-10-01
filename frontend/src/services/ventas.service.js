@@ -2,9 +2,11 @@ import { api } from '../lib/api';
 import { queryClient } from '../lib/queryClient';
 
 export const ventasService = {
-  getVentas: async (page = 1, pageSize = 10) => {
+  getVentas: async (page = 1, pageSize = 10, filtros = {}) => {
     try {
-      const response = await api.get(`/api/ventas/?page=${page}&page_size=${pageSize}`);
+      const params = new URLSearchParams({ page, page_size: pageSize });
+      if (filtros.estado_operativo) params.set('estado_operativo', filtros.estado_operativo);
+      const response = await api.get(`/api/ventas/?${params.toString()}`);
       return response.data;
     } catch (error) {
       console.error('Error al obtener ventas:', error);
@@ -88,7 +90,10 @@ export const ventasService = {
         formData.append('moneda', ventaData.moneda || 'PEN');
         formData.append('referencia', ventaData.referencia || '');
         formData.append('estado', ventaData.estado || 'borrador');
-        
+        if (ventaData.entrega_inmediata) {
+          formData.append('entrega_inmediata', 'true');  // B3/F3
+        }
+
         // Validar y procesar detalles
         if (!ventaData.detalles || !Array.isArray(ventaData.detalles) || ventaData.detalles.length === 0) {
           throw new Error('Debe incluir al menos un detalle de producto');
@@ -190,6 +195,12 @@ export const ventasService = {
       }
       throw error;
     }
+  },
+
+  // F3 — cambia el estado OPERATIVO (avanzar/retroceder). nota opcional.
+  async cambiarEstadoOperativo(id, estado, nota = '') {
+    const response = await api.post(`/api/ventas/${id}/cambiar-estado-operativo/`, { estado, nota });
+    return response.data;
   },
 
   async exportarExcel() {
