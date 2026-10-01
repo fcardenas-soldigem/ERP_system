@@ -24,7 +24,6 @@ urlpatterns = [
     path('api/compras/', include('apps.compras.urls')),
     path('api/inventario/', include('apps.inventario.urls')),
     path('api/dashboard/', include('apps.dashboard.urls')),
-    path('api/ml/', include('apps.ml_models.urls')),  # Machine Learning APIs
     path('api/', include('apps.cotizaciones.urls')),  # Cotizaciones
     path('api/produccion/', include('apps.produccion.urls')),  # Producción
     path('api/finanzas/',   include('apps.finanzas.urls')),    # Finanzas
@@ -32,6 +31,14 @@ urlpatterns = [
     path('api/guias/', include('apps.guias.urls')),           # Guías de Remisión
     path('api/servicios/', include('apps.servicios.urls')),  # Órdenes de Servicio
 ]
+
+# ML APIs: include OPCIONAL. Si faltan dependencias pesadas (joblib/sklearn) en
+# el entorno, no debe romper el resto del URLconf (el módulo ML es opcional).
+try:
+    urlpatterns.append(path('api/ml/', include('apps.ml_models.urls')))
+except Exception as _ml_exc:  # pragma: no cover
+    import logging
+    logging.getLogger(__name__).warning('ml_models URLs deshabilitadas: %s', _ml_exc)
 
 # Solo mapear estáticos vía Django si DEBUG=True. En producción usa WhiteNoise.
 if settings.DEBUG:
