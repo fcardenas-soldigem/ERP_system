@@ -34,6 +34,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import cotizacionesService from '../../services/cotizacionesService';
 import { clientesService } from '../../services/clientes.service';
 import { productosService } from '../../services/productos.service';
+import proveedoresService from '../../services/proveedores.service';
 
 const CotizacionForm = () => {
   const { id } = useParams();
@@ -42,6 +43,7 @@ const CotizacionForm = () => {
   const [loading, setLoading] = useState(false);
   const [clientes, setClientes] = useState([]);
   const [productos, setProductos] = useState([]);
+  const [proveedores, setProveedores] = useState([]);
 
   const [formData, setFormData] = useState({
     cliente: '',
@@ -100,9 +102,10 @@ const CotizacionForm = () => {
 
   const cargarDatos = async () => {
     try {
-      const [clientesData, productosData] = await Promise.all([
+      const [clientesData, productosData, proveedoresData] = await Promise.all([
         clientesService.getClientes(),
         productosService.getProductosParaVenta(),
+        proveedoresService.getProveedores().catch(() => []),
       ]);
       const clientesArray = Array.isArray(clientesData?.results)
         ? clientesData.results
@@ -110,8 +113,12 @@ const CotizacionForm = () => {
       const productosArray = Array.isArray(productosData?.results)
         ? productosData.results
         : Array.isArray(productosData) ? productosData : [];
+      const proveedoresArray = Array.isArray(proveedoresData?.results)
+        ? proveedoresData.results
+        : Array.isArray(proveedoresData) ? proveedoresData : [];
       setClientes(clientesArray);
       setProductos(productosArray);
+      setProveedores(proveedoresArray);
     } catch (error) {
       console.error('Error al cargar datos:', error);
       setClientes([]);
@@ -202,6 +209,8 @@ const CotizacionForm = () => {
         ...prev.detalles,
         {
           producto: '',
+          proveedor: '',
+          costo_unitario: '',
           codigo: '',
           descripcion: '',
           cantidad: 1,
@@ -232,6 +241,8 @@ const CotizacionForm = () => {
             codigo: producto.sku || '',
             descripcion: producto.nombre,
             precio_unitario: producto.precio_venta || 0,
+            // Sugerir costo interno desde el precio de compra (editable).
+            costo_unitario: nuevosDetalles[index].costo_unitario || producto.precio_compra || '',
           };
         }
       }
@@ -242,6 +253,39 @@ const CotizacionForm = () => {
   const calcularSubtotalDetalle = (detalle) => {
     const sub = (detalle.cantidad * detalle.precio_unitario) - (detalle.descuento_item || 0);
     return sub > 0 ? sub : 0;
+  };
+
+  // ── Margen interno por línea (no aparece en el PDF del cliente) ──
+  const calcularMargenPct = (detalle) => {
+    const costo = parseFloat(detalle.costo_unitario);
+    const precio = parseFloat(detalle.precio_unitario) || 0;
+    if (!costo || costo <= 0 || precio <= 0) return null;
+    return ((precio - costo) / precio) * 100;
+  };
+
+  const colorMargen = (m) => {
+    if (m === null || m === undefined || Number.isNaN(m)) return 'gray.400';
+    if (m >= 15) return 'green.500';
+    if (m >= 5) return 'orange.400';
+    return 'red.500';
+  };
+
+  const resumenMargen = () => {
+    let ingreso = 0, costoTotal = 0, hayCosto = false;
+    formData.detalles.forEach((d) => {
+      const costo = parseFloat(d.costo_unitario);
+      const precio = parseFloat(d.precio_unitario) || 0;
+      const cant = parseFloat(d.cantidad) || 0;
+      if (costo && costo > 0) {
+        hayCosto = true;
+        ingreso += precio * cant;
+        costoTotal += costo * cant;
+      }
+    });
+    if (!hayCosto) return null;
+    const margenS = ingreso - costoTotal;
+    const margenPct = ingreso > 0 ? (margenS / ingreso) * 100 : 0;
+    return { margenS, margenPct };
   };
 
   const calcularTotales = () => {
@@ -309,6 +353,10 @@ const CotizacionForm = () => {
       detalles: formData.detalles.map(d => ({
         ...d,
         producto: d.producto || null,
+        proveedor: d.proveedor || null,
+        costo_unitario: (d.costo_unitario === '' || d.costo_unitario === null || d.costo_unitario === undefined)
+          ? null
+          : d.costo_unitario,
         codigo: d.codigo || null,
         descripcion: (d.descripcion || '').replace(/ /g, '').trim(),
       })),
@@ -560,6 +608,13 @@ const CotizacionForm = () => {
               </Button>
             </Flex>
 
+            <HStack mb={3} spacing={2}>
+              <Box w="12px" h="12px" bg="orange.50" border="1px solid" borderColor="orange.200" borderRadius="sm" />
+              <Text fontSize="xs" color="orange.700" fontWeight="medium">
+                Columnas con fondo ámbar = Interno (costeo). No aparecen en el PDF del cliente.
+              </Text>
+            </HStack>
+
             {formData.detalles.length === 0 ? (
               <Text color="gray.500" textAlign="center" py={4}>
                 No hay ítems agregados. Haga clic en "Agregar Ítem" para comenzar.
@@ -576,6 +631,9 @@ const CotizacionForm = () => {
                       <Th>P. Unit.</Th>
                       <Th>Desc.</Th>
                       <Th>Subtotal</Th>
+                      <Th bg="orange.50" color="orange.700">Proveedor</Th>
+                      <Th bg="orange.50" color="orange.700">Costo</Th>
+                      <Th bg="orange.50" color="orange.700">Margen</Th>
                       <Th></Th>
                     </Tr>
                   </Thead>
@@ -646,6 +704,41 @@ const CotizacionForm = () => {
                         </Td>
                         <Td fontWeight="bold">
                           {simboloMoneda} {calcularSubtotalDetalle(detalle).toFixed(2)}
+                        </Td>
+                        {/* ── Columnas INTERNAS (no aparecen en el PDF) ── */}
+                        <Td bg="orange.50">
+                          <Select
+                            size="sm"
+                            minW="150px"
+                            value={detalle.proveedor || ''}
+                            onChange={(e) => handleDetalleChange(index, 'proveedor', e.target.value || '')}
+                            placeholder="— Proveedor —"
+                          >
+                            {proveedores.map((p) => (
+                              <option key={p.id} value={p.id}>{p.razon_social}</option>
+                            ))}
+                          </Select>
+                        </Td>
+                        <Td bg="orange.50">
+                          <NumberInput
+                            size="sm"
+                            value={detalle.costo_unitario ?? ''}
+                            onChange={(value) => handleDetalleChange(index, 'costo_unitario', value)}
+                            min={0}
+                            step={0.01}
+                          >
+                            <NumberInputField placeholder="0.00" />
+                          </NumberInput>
+                        </Td>
+                        <Td bg="orange.50" fontWeight="bold">
+                          {(() => {
+                            const m = calcularMargenPct(detalle);
+                            return (
+                              <Text color={colorMargen(m)}>
+                                {m === null ? '—' : `${m.toFixed(1)}%`}
+                              </Text>
+                            );
+                          })()}
                         </Td>
                         <Td>
                           <IconButton
@@ -743,6 +836,33 @@ const CotizacionForm = () => {
                   </Text>
                 )}
               </Grid>
+
+              {/* ── Resumen de margen INTERNO (no aparece en el PDF) ── */}
+              {(() => {
+                const rm = resumenMargen();
+                if (!rm) return null;
+                return (
+                  <Box mt={3} ml="auto" maxW="420px" p={3} bg="orange.50"
+                       border="1px solid" borderColor="orange.200" borderRadius="md">
+                    <Flex justify="space-between" align="center">
+                      <Text fontSize="sm" fontWeight="medium" color="orange.700">
+                        Margen interno
+                      </Text>
+                      <HStack spacing={3}>
+                        <Text fontWeight="bold" color={colorMargen(rm.margenPct)}>
+                          {simboloMoneda} {rm.margenS.toFixed(2)}
+                        </Text>
+                        <Text fontWeight="bold" color={colorMargen(rm.margenPct)}>
+                          {rm.margenPct.toFixed(1)}%
+                        </Text>
+                      </HStack>
+                    </Flex>
+                    <Text fontSize="xs" color="orange.600" mt={1}>
+                      Solo visible internamente. No se incluye en el PDF del cliente.
+                    </Text>
+                  </Box>
+                );
+              })()}
             </Box>
           </Box>
 

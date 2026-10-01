@@ -51,6 +51,7 @@ import {
 import { useParams, useNavigate } from 'react-router-dom';
 import cotizacionesService from '../../services/cotizacionesService';
 import CrearProductosCotizacionModal from './CrearProductosCotizacionModal';
+import ConversionResultModal from './ConversionResultModal';
 
 const CotizacionDetalle = () => {
   const { id } = useParams();
@@ -64,6 +65,7 @@ const CotizacionDetalle = () => {
     productos: [],
     moneda: 'PEN',
   });
+  const [convResult, setConvResult] = useState({ isOpen: false, result: null });
 
   const cardBg = useColorModeValue('white', 'gray.800');
   const borderColor = useColorModeValue('gray.200', 'gray.600');
@@ -188,18 +190,10 @@ const CotizacionDetalle = () => {
   const handleConvertirVenta = async () => {
     try {
       const result = await cotizacionesService.convertirVenta(id);
-      toast({
-        title: 'Convertida a venta',
-        description: result.message || 'Cotización convertida exitosamente',
-        status: 'success',
-        duration: 3000,
-        isClosable: true,
-      });
-      if (result.venta_id) {
-        navigate(`/app/ventas/${result.venta_id}`);
-      } else {
-        cargarCotizacion();
-      }
+      // F2 — Modal de resultado (venta + OCs + avisos + reservas). Reintento:
+      // si ya estaba convertida, el backend devuelve la venta existente.
+      setConvResult({ isOpen: true, result });
+      cargarCotizacion();
     } catch (err) {
       const data = err.response?.data;
       if (data?.error === 'productos_faltantes' && data?.productos_faltantes?.length) {
@@ -561,6 +555,13 @@ const CotizacionDetalle = () => {
             cargarCotizacion();
           }
         }}
+      />
+
+      <ConversionResultModal
+        isOpen={convResult.isOpen}
+        onClose={() => setConvResult((prev) => ({ ...prev, isOpen: false }))}
+        result={convResult.result}
+        cotizacionId={parseInt(id)}
       />
     </Box>
   );

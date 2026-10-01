@@ -54,6 +54,22 @@ nueva con columnas `NOT NULL` debe traer `DEFAULT` a nivel de BD (ver
 `ventas/0019_set_db_defaults_columnas_nuevas.py`) para no romper el código viejo
 que aún corre en Cloud Run.
 
+## Datos demo (seed)
+
+Para poblar la BD local con datos ficticios (NO toca prod):
+```bash
+python manage.py seed_demo   # idempotente; aborta si la BD no es local
+```
+Crea 2 empresas demo con usuarios de prueba (password `demo12345`):
+
+| Empresa | Modo | Usuario |
+|---------|------|---------|
+| Demo Sin Stock | `sin_stock` (back-to-back) | `demo-sinstock@local.dev` |
+| Demo Con Stock | `con_stock` | `demo-constock@local.dev` |
+
+Cada empresa: 3 proveedores, 2 clientes, 6 productos. En "Demo Con Stock":
+2 con stock alto, 2 con stock bajo, 1 servicio (`controla_stock=False`), 1 sin stock.
+
 ## Tests
 
 ```bash
