@@ -11,10 +11,11 @@ export const getSimboloMoneda = (moneda) => {
   return simbolos[moneda] || 'S/';
 };
 
-// Formatear moneda con símbolo
+// Formatear moneda con símbolo.
+// Number() coacciona montos string (DRF serializa DecimalField como string).
 export const formatCurrency = (amount, moneda = 'PEN') => {
   const simbolo = getSimboloMoneda(moneda);
-  return `${simbolo} ${(amount || 0).toFixed(2)}`;
+  return `${simbolo} ${(Number(amount) || 0).toFixed(2)}`;
 };
 
 // Formatear moneda usando Intl.NumberFormat
@@ -22,5 +23,5 @@ export const formatCurrencyIntl = (amount, moneda = 'PEN') => {
   return new Intl.NumberFormat('es-PE', {
     style: 'currency',
     currency: moneda
-  }).format(amount || 0);
+  }).format(Number(amount) || 0);
 }; 

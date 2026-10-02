@@ -25,6 +25,7 @@ import { cuentasService } from '../../services/cuentas.service';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { ventasService } from '../../services/ventas.service';
+import { getSimboloMoneda } from '../../utils/currency';
 
 const VentaPagoForm = () => {
   const { id } = useParams();
@@ -131,7 +132,7 @@ const VentaPagoForm = () => {
       const montoNumerico = parseFloat(value);
       if (!isNaN(montoNumerico)) {
         if (montoNumerico > montoMaximo) {
-          setError(`El monto no puede ser mayor a ${cuentasService.formatCurrency(montoMaximo)}`);
+          setError(`El monto no puede ser mayor a ${cuentasService.formatCurrency(montoMaximo, venta?.moneda)}`);
         } else {
           setError('');
         }
@@ -158,7 +159,7 @@ const VentaPagoForm = () => {
     }
 
     if (montoNumerico > montoMaximo) {
-      setError(`El monto no puede ser mayor a ${cuentasService.formatCurrency(montoMaximo)}`);
+      setError(`El monto no puede ser mayor a ${cuentasService.formatCurrency(montoMaximo, venta?.moneda)}`);
       return;
     }
 
@@ -193,12 +194,12 @@ const VentaPagoForm = () => {
               </Box>
               <Box>
                 <Text fontSize="sm" color="gray.600">Total Venta</Text>
-                <Text fontSize="lg">{cuentasService.formatCurrency(venta?.total)}</Text>
+                <Text fontSize="lg">{cuentasService.formatCurrency(venta?.total, venta?.moneda)}</Text>
               </Box>
               <Box>
                 <Text fontSize="sm" color="gray.600">Saldo Pendiente</Text>
                 <Text fontSize="lg" color="red.500" fontWeight="bold">
-                  {cuentasService.formatCurrency(montoMaximo)}
+                  {cuentasService.formatCurrency(montoMaximo, venta?.moneda)}
                 </Text>
               </Box>
             </HStack>
@@ -224,7 +225,7 @@ const VentaPagoForm = () => {
                 <FormLabel>Monto</FormLabel>
                 <InputGroup>
                   <InputLeftElement pointerEvents="none" color="gray.300">
-                    S/
+                    {getSimboloMoneda(venta?.moneda)}
                   </InputLeftElement>
                   <Input
                     type="number"
@@ -238,7 +239,7 @@ const VentaPagoForm = () => {
                   />
                 </InputGroup>
                 <Text fontSize="sm" color="gray.600">
-                  Monto máximo: {cuentasService.formatCurrency(montoMaximo)}
+                  Monto máximo: {cuentasService.formatCurrency(montoMaximo, venta?.moneda)}
                 </Text>
                 {error && <FormErrorMessage>{error}</FormErrorMessage>}
               </FormControl>
