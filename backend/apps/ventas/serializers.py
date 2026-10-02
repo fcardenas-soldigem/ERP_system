@@ -187,15 +187,23 @@ class VentaSerializer(serializers.ModelSerializer):
         return self.MODO_VENTA_MAP.get(obj.modo_venta, obj.modo_venta) if obj.modo_venta else 'Desde Stock'
 
     def get_productos_stock_bajo(self, obj):
+        # D6: a quien no maneja stock no tiene sentido alertarle de stock bajo.
+        if getattr(obj.empresa, 'modo_inventario', None) == 'sin_stock':
+            return []
         productos_bajo_stock = []
         for detalle in obj.detalles.all():
-            stock_total = detalle.producto.get_stock_total()
-            if stock_total <= detalle.producto.stock_minimo:
+            producto = detalle.producto
+            # D1: líneas de texto libre no tienen producto.
+            # D6: productos que no controlan stock no se alertan.
+            if producto is None or not getattr(producto, 'controla_stock', True):
+                continue
+            stock_total = producto.get_stock_total()
+            if stock_total <= producto.stock_minimo:
                 productos_bajo_stock.append({
-                    'id': detalle.producto.id,
-                    'nombre': detalle.producto.nombre,
+                    'id': producto.id,
+                    'nombre': producto.nombre,
                     'stock_actual': stock_total,
-                    'stock_minimo': detalle.producto.stock_minimo
+                    'stock_minimo': producto.stock_minimo
                 })
         return productos_bajo_stock
 

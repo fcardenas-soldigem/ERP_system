@@ -646,6 +646,10 @@ class Venta(models.Model):
     def anular_venta(self):
         if self.estado == 'pagado':
             for detalle in self.detalles.all():
+                # D1/D6: líneas de texto libre (producto None) o productos que no
+                # controlan stock no tienen inventario que revertir.
+                if detalle.producto is None or not detalle.producto.controla_stock:
+                    continue
                 almacen = self.empresa.almacenes.first() if hasattr(self.empresa, 'almacenes') else None
                 if almacen is None:
                     raise ValidationError('No se encontró un almacén para la empresa.')
