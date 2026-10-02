@@ -46,6 +46,13 @@ docs/
 **/Dockerfile*
 **/.dockerignore
 
+# ── Dumps SQL y settings de test (no deben entrar a la imagen) ─
+**/*.sql
+**/settings_test*.py
+
+# ── Salida generada por graphify (grafo local, no va al build) ─
+graphify-out/
+
 # ── Archivos de CI/CD y configuración local ──────────────────
 .github/
 .claude/
