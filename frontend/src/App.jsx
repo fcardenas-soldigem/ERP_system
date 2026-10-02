@@ -52,6 +52,7 @@ const InventarioMateriasPrimas= lazy(() => import('./components/Inventario/Inven
 const InventarioProductosTerminados = lazy(() => import('./components/Inventario/InventarioProductosTerminados'));
 const ResumenInventariosSeparados   = lazy(() => import('./components/Inventario/ResumenInventariosSeparados'));
 const CargaMasivaInventario   = lazy(() => import('./components/Inventario/CargaMasivaInventario'));
+const RequireConStock         = lazy(() => import('./components/Layout/RequireConStock'));
 
 // Importador Excel
 const ImportadorWizard = lazy(() => import('./pages/Importador/ImportadorWizard'));
@@ -145,6 +146,7 @@ function App() {
                                 <Route path="finanzas/gastos" element={<GastosPage />} />
 
                                 {/* INVENTARIO */}
+                                <Route element={<RequireConStock />}>
                                 <Route path="inventario" element={<Inventario />} />
                                 <Route path="inventario/nuevo" element={<AddProducto />} />
                                 <Route path="inventario/:id/editar" element={<AddProducto />} />
@@ -154,6 +156,7 @@ function App() {
                                 <Route path="inventario/resumen-separado" element={<ResumenInventariosSeparados />} />
                                 <Route path="inventario/carga-masiva" element={<CargaMasivaInventario />} />
                                 <Route path="inventario/enlaces" element={<InventarioEnlaces />} />
+                                </Route>
                                 <Route path="importador" element={<ImportadorWizard />} />
 
                                 {/* COTIZACIONES — consolidated (CotizacionForm replaces CotizacionFormSimple) */}

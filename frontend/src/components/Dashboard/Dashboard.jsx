@@ -29,6 +29,29 @@ const buildAlerts = (resumen) => {
   const iv     = resumen?.inventario ?? {};
   const ig     = resumen?.impuestos  ?? {};
   const cuentas = resumen?.cuentas   ?? {};
+  const al      = resumen?.alertas   ?? {};
+
+  // F4 — cotizaciones enviadas sin respuesta hace +7 días
+  if ((al.cotizaciones_sin_respuesta ?? 0) > 0) {
+    const n = al.cotizaciones_sin_respuesta;
+    alerts.push({
+      level: 'warning',
+      message: `${n} cotización${n > 1 ? 'es' : ''} enviada${n > 1 ? 's' : ''} sin respuesta hace +7 días`,
+      actionLabel: 'Ver cotizaciones',
+      actionPath: '/app/cotizaciones?estado=enviada',
+    });
+  }
+
+  // F4 — ventas con SLA operativo vencido (solo con historial)
+  if ((al.ventas_fuera_sla ?? 0) > 0) {
+    const n = al.ventas_fuera_sla;
+    alerts.push({
+      level: 'urgent',
+      message: `${n} venta${n > 1 ? 's' : ''} fuera de SLA operativo`,
+      actionLabel: 'Ver ventas',
+      actionPath: '/app/ventas?sla=vencido',
+    });
+  }
 
   if ((iv.productos_bajo_stock ?? 0) > 0) {
     alerts.push({

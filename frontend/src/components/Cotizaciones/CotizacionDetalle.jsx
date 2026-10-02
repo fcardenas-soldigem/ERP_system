@@ -52,6 +52,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import cotizacionesService from '../../services/cotizacionesService';
 import CrearProductosCotizacionModal from './CrearProductosCotizacionModal';
 import ConversionResultModal from './ConversionResultModal';
+import RechazoModal, { MOTIVOS_RECHAZO } from './RechazoModal';
 
 const CotizacionDetalle = () => {
   const { id } = useParams();
@@ -66,6 +67,18 @@ const CotizacionDetalle = () => {
     moneda: 'PEN',
   });
   const [convResult, setConvResult] = useState({ isOpen: false, result: null });
+  const [rechazoOpen, setRechazoOpen] = useState(false);
+
+  const handleRechazarConfirm = async (motivoData) => {
+    try {
+      await cotizacionesService.cambiarEstado(id, 'rechazada', motivoData);
+      toast({ title: 'Cotización rechazada', status: 'success', duration: 3000 });
+      setRechazoOpen(false);
+      cargarCotizacion();
+    } catch (error) {
+      toast({ title: 'No se pudo rechazar', description: error.response?.data?.error || error.message, status: 'error', duration: 5000, isClosable: true });
+    }
+  };
 
   const cardBg = useColorModeValue('white', 'gray.800');
   const borderColor = useColorModeValue('gray.200', 'gray.600');
@@ -299,7 +312,14 @@ const CotizacionDetalle = () => {
             <Heading size="lg">Cotización {cotizacion.numero}</Heading>
             <Text color="gray.500">{cotizacion.asunto}</Text>
           </VStack>
-          {getEstadoBadge(cotizacion.estado)}
+          <HStack spacing={2}>
+            {getEstadoBadge(cotizacion.estado)}
+            {cotizacion.esta_vencida && (
+              <Badge colorScheme="orange" fontSize="md" px={3} py={1} borderRadius="full">
+                VENCIDA
+              </Badge>
+            )}
+          </HStack>
         </HStack>
 
         <HStack spacing={3}>
@@ -340,13 +360,30 @@ const CotizacionDetalle = () => {
               <MenuItem icon={<FaCheck />} onClick={() => handleCambiarEstado('aceptada')}>
                 Marcar como Aceptada
               </MenuItem>
-              <MenuItem icon={<FaTimes />} onClick={() => handleCambiarEstado('rechazada')}>
-                Marcar como Rechazada
-              </MenuItem>
+              {!['convertida', 'rechazada'].includes(cotizacion.estado) && (
+                <MenuItem icon={<FaTimes />} color="orange.600" onClick={() => setRechazoOpen(true)}>
+                  Rechazar
+                </MenuItem>
+              )}
             </MenuList>
           </Menu>
         </HStack>
       </Flex>
+
+      {/* Banner de motivo de rechazo (F4) */}
+      {cotizacion.estado === 'rechazada' && cotizacion.motivo_rechazo && (
+        <Alert status="warning" borderRadius="lg" mb={4} variant="left-accent">
+          <AlertIcon />
+          <Box flex="1">
+            <Text fontWeight="bold">
+              Rechazada — motivo: {MOTIVOS_RECHAZO.find((m) => m.value === cotizacion.motivo_rechazo)?.label || cotizacion.motivo_rechazo}
+            </Text>
+            {cotizacion.motivo_rechazo_nota && (
+              <Text fontSize="sm" color="gray.600">{cotizacion.motivo_rechazo_nota}</Text>
+            )}
+          </Box>
+        </Alert>
+      )}
 
       {/* Banner de venta enlazada */}
       {cotizacion.venta_info && (
@@ -562,6 +599,13 @@ const CotizacionDetalle = () => {
         onClose={() => setConvResult((prev) => ({ ...prev, isOpen: false }))}
         result={convResult.result}
         cotizacionId={parseInt(id)}
+      />
+
+      <RechazoModal
+        isOpen={rechazoOpen}
+        onClose={() => setRechazoOpen(false)}
+        onConfirm={handleRechazarConfirm}
+        numero={cotizacion.numero}
       />
     </Box>
   );

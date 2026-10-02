@@ -7,6 +7,7 @@ import {
 import { MoonIcon, SunIcon } from '@chakra-ui/icons';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate, Link as RouterLink } from 'react-router-dom';
+import { useModoInventario } from '../../hooks/useModoInventario';
 
 // Matches the same set shown in AnimatedSidebar's CORE + AVANZADO sections
 // so mobile top-bar has a fast-access strip for the most important routes.
@@ -23,6 +24,9 @@ const Navbar = () => {
   const { colorMode, toggleColorMode } = useColorMode();
   const { logout, user } = useAuth();
   const navigate = useNavigate();
+  // D6 — ocultar Inventario del nav superior en empresas sin_stock.
+  const { conStock } = useModoInventario();
+  const topLinks = conStock ? TOP_LINKS : TOP_LINKS.filter((l) => l.text !== 'Inventario');
 
   const bg          = useColorModeValue('white', 'gray.800');
   const borderColor = useColorModeValue('neutral.200', 'gray.700');
@@ -51,7 +55,7 @@ const Navbar = () => {
           display={{ base: 'none', md: 'flex' }}
           flex="1"
         >
-          {TOP_LINKS.map((link) => (
+          {topLinks.map((link) => (
             <Button
               key={link.text}
               as={RouterLink}

@@ -281,6 +281,9 @@ class OrdenCompraDetalleSerializer(serializers.ModelSerializer):
 class OrdenCompraSerializer(serializers.ModelSerializer):
     detalles = OrdenCompraDetalleSerializer(many=True, required=False)
     proveedor_info = serializers.SerializerMethodField()
+    # F2 — trazabilidad al origen de la conversión.
+    venta_origen = serializers.SerializerMethodField()
+    cotizacion_origen_info = serializers.SerializerMethodField()
 
     class Meta:
         model = OrdenCompra
@@ -289,9 +292,17 @@ class OrdenCompraSerializer(serializers.ModelSerializer):
             'fecha_emision', 'fecha_creacion', 'fecha_entrega',
             'moneda', 'forma_pago', 'contacto_nombre', 'contacto_email',
             'subtotal', 'igv', 'total', 'estado', 'notas', 'detalles',
-            'proveedor_info',
+            'proveedor_info', 'venta_origen', 'cotizacion_origen_info',
         ]
         read_only_fields = ['id', 'numero', 'empresa', 'fecha_creacion']
+
+    def get_venta_origen(self, obj):
+        v = obj.venta
+        return {'id': v.id, 'numero': v.numero} if v else None
+
+    def get_cotizacion_origen_info(self, obj):
+        c = obj.cotizacion_origen
+        return {'id': c.id, 'numero': c.numero} if c else None
 
     def get_proveedor_info(self, obj):
         p = obj.proveedor

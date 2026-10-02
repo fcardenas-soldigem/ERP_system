@@ -14,6 +14,7 @@ import {
 } from '@chakra-ui/icons';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
+import { useModoInventario } from '../../hooks/useModoInventario';
 import {
   FaChartBar, FaShoppingCart, FaBox, FaUsers, FaIndustry,
   FaFileInvoice, FaMoneyBillWave, FaRobot, FaBrain, FaCog,
@@ -290,6 +291,15 @@ const SidebarContent = ({ isCollapsed, onToggleCollapse }) => {
     inteligencia: false,
   });
   const { user } = useAuth();
+  // D6 — en empresas sin_stock se oculta el menú Inventario (y submenús).
+  const { conStock } = useModoInventario();
+  const secciones = React.useMemo(() => {
+    if (conStock) return MENU_SECTIONS;
+    return MENU_SECTIONS.map((s) => ({
+      ...s,
+      items: s.items.filter((it) => it.name !== 'Inventario'),
+    }));
+  }, [conStock]);
 
   const bgColor     = useColorModeValue('white', 'gray.800');
   const borderColor = useColorModeValue('neutral.200', 'gray.700');
@@ -372,7 +382,7 @@ const SidebarContent = ({ isCollapsed, onToggleCollapse }) => {
           '&::-webkit-scrollbar-thumb': { background: borderColor, borderRadius: '24px' },
         }}
       >
-        {MENU_SECTIONS.map((section) => {
+        {secciones.map((section) => {
           const isExpanded = expandedSections[section.id];
           const showItems = !section.collapsible || isExpanded;
 

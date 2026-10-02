@@ -37,11 +37,14 @@ import {
   FaTools,
   FaChevronLeft,
   FaChevronRight,
+  FaBan,
 } from 'react-icons/fa';
 import { useNavigate } from 'react-router-dom';
 import cotizacionesService from '../../services/cotizacionesService';
 import CrearProductosCotizacionModal from './CrearProductosCotizacionModal';
 import ConversionResultModal from './ConversionResultModal';
+import RechazoModal from './RechazoModal';
+import { useSearchParams } from 'react-router-dom';
 
 const PAGE_SIZE = 20;
 
@@ -55,7 +58,12 @@ const CotizacionList = () => {
     hasPrev: false,
     hasNext: false,
   });
-  const [filtros, setFiltros] = useState({ search: '', estado: '' });
+  const [searchParams] = useSearchParams();
+  const [filtros, setFiltros] = useState({
+    search: '',
+    estado: searchParams.get('estado') || '',
+    vencida: searchParams.get('vencida') === 'true' ? 'true' : '',
+  });
   const [modalProductos, setModalProductos] = useState({
     isOpen: false,
     productos: [],
@@ -63,6 +71,7 @@ const CotizacionList = () => {
     cotizacionId: null,
   });
   const [convResult, setConvResult] = useState({ isOpen: false, result: null, cotizacionId: null });
+  const [rechazo, setRechazo] = useState({ isOpen: false, cotizacion: null });
   const navigate = useNavigate();
   const toast = useToast();
 
@@ -187,6 +196,23 @@ const CotizacionList = () => {
     }
   };
 
+  const handleRechazarConfirm = async (motivoData) => {
+    const cot = rechazo.cotizacion;
+    if (!cot) return;
+    try {
+      await cotizacionesService.cambiarEstado(cot.id, 'rechazada', motivoData);
+      toast({ title: `Cotización ${cot.numero} rechazada`, status: 'success', duration: 3000 });
+      setRechazo({ isOpen: false, cotizacion: null });
+      cargarCotizaciones(paginacion.page);
+    } catch (error) {
+      toast({
+        title: 'No se pudo rechazar',
+        description: error.response?.data?.error || error.message,
+        status: 'error', duration: 5000, isClosable: true,
+      });
+    }
+  };
+
   const handleEliminar = async (id) => {
     if (window.confirm('¿Está seguro de eliminar esta cotización?')) {
       try {
@@ -267,9 +293,16 @@ const CotizacionList = () => {
           <option value="enviada">Enviada</option>
           <option value="aceptada">Aceptada</option>
           <option value="rechazada">Rechazada</option>
-          <option value="vencida">Vencida</option>
           <option value="convertida">Convertida</option>
         </Select>
+        <Button
+          size="md"
+          variant={filtros.vencida === 'true' ? 'solid' : 'outline'}
+          colorScheme="orange"
+          onClick={() => setFiltros({ ...filtros, vencida: filtros.vencida === 'true' ? '' : 'true' })}
+        >
+          Vencidas
+        </Button>
       </HStack>
 
       {/* Tabla */}
@@ -302,7 +335,14 @@ const CotizacionList = () => {
                   <Td maxW="300px" isTruncated>{cotizacion.asunto}</Td>
                   <Td>{new Date(cotizacion.fecha_emision).toLocaleDateString()}</Td>
                   <Td>{new Date(cotizacion.fecha_vencimiento).toLocaleDateString()}</Td>
-                  <Td>{getEstadoBadge(cotizacion.estado)}</Td>
+                  <Td>
+                    <HStack spacing={1}>
+                      {getEstadoBadge(cotizacion.estado)}
+                      {cotizacion.esta_vencida && (
+                        <Badge colorScheme="orange" variant="subtle">Vencida</Badge>
+                      )}
+                    </HStack>
+                  </Td>
                   <Td isNumeric fontWeight="bold">
                     {cotizacion.moneda === 'PEN' ? 'S/' : '$'} {parseFloat(cotizacion.total || 0).toFixed(2)}
                   </Td>
@@ -357,6 +397,15 @@ const CotizacionList = () => {
                             onClick={() => handleConvertirVenta(cotizacion.id)}
                           >
                             Convertir a Venta
+                          </MenuItem>
+                        )}
+                        {!['convertida', 'rechazada'].includes(cotizacion.estado) && (
+                          <MenuItem
+                            icon={<FaBan />}
+                            color="orange.600"
+                            onClick={() => setRechazo({ isOpen: true, cotizacion })}
+                          >
+                            Rechazar
                           </MenuItem>
                         )}
                         <MenuItem
@@ -461,6 +510,13 @@ const CotizacionList = () => {
         onClose={() => setConvResult((prev) => ({ ...prev, isOpen: false }))}
         result={convResult.result}
         cotizacionId={convResult.cotizacionId}
+      />
+
+      <RechazoModal
+        isOpen={rechazo.isOpen}
+        onClose={() => setRechazo({ isOpen: false, cotizacion: null })}
+        onConfirm={handleRechazarConfirm}
+        numero={rechazo.cotizacion?.numero}
       />
     </Box>
   );

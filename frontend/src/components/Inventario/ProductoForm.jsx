@@ -44,6 +44,7 @@ const ProductoForm = ({ isOpen, onClose, productoInicial = null }) => {
     almacen: '',
     activo: true,
     unidad_medida: 'unidad',
+    controla_stock: true,
     ...(productoInicial || {})
   });
 
@@ -362,6 +363,22 @@ const ProductoForm = ({ isOpen, onClose, productoInicial = null }) => {
                     <NumberDecrementStepper />
                   </NumberInputStepper>
                 </NumberInput>
+              </FormControl>
+
+              {/* D6f — Controla stock (OFF para servicios). */}
+              <FormControl display="flex" flexDirection="column" justifyContent="flex-end">
+                <HStack spacing={3} mb={1}>
+                  <FormLabel mb="0">Controla stock</FormLabel>
+                  <Switch
+                    name="controla_stock"
+                    isChecked={producto.controla_stock}
+                    onChange={(e) => handleChange({ target: { name: 'controla_stock', value: e.target.checked } })}
+                    colorScheme="blue"
+                  />
+                </HStack>
+                <Text fontSize="xs" color="gray.500">
+                  Desactívalo para servicios o ítems no inventariables (nunca mueven stock).
+                </Text>
               </FormControl>
 
               <FormControl isRequired>

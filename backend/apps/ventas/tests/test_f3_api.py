@@ -62,3 +62,17 @@ class F3EndpointTests(TestCase):
         emp, u, cli, v = _setup('20700000003')
         resp = self._post(v, u, {'estado': 'cobrado'})
         self.assertEqual(resp.status_code, 400)
+
+
+class OCTrazabilidadTests(TestCase):
+    def test_oc_expone_venta_y_cotizacion_origen(self):
+        from apps.compras.serializers import OrdenCompraSerializer
+        from apps.cotizaciones.models import Cotizacion
+        emp, u, cli, v = _setup('20700000004')
+        cot = Cotizacion.objects.create(empresa=emp, cliente=cli, usuario_creador=u,
+                                        asunto='x', fecha_vencimiento=date.today())
+        oc = OrdenCompra.objects.create(empresa=emp, venta=v, cotizacion_origen=cot,
+                                        proveedor_nombre='ACME', fecha_entrega=date.today())
+        data = OrdenCompraSerializer(oc).data
+        self.assertEqual(data['venta_origen']['numero'], v.numero)
+        self.assertEqual(data['cotizacion_origen_info']['numero'], cot.numero)

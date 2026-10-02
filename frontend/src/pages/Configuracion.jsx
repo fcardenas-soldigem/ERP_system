@@ -26,6 +26,7 @@ import {
     AlertIcon,
 } from '@chakra-ui/react';
 import { FaImage, FaBuilding, FaPhone, FaEnvelope, FaMapMarkerAlt, FaIdCard, FaTrash, FaSignature } from 'react-icons/fa';
+import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 
 const Configuracion = () => {
@@ -34,6 +35,22 @@ const Configuracion = () => {
     const [saving, setSaving] = useState(false);
     const [uploadingLogo, setUploadingLogo] = useState(false);
     const [empresaInfo, setEmpresaInfo] = useState(null);
+    const [modoInventario, setModoInventario] = useState('con_stock');
+    const queryClient = useQueryClient();
+    useEffect(() => {
+        if (empresaInfo?.modo_inventario) setModoInventario(empresaInfo.modo_inventario);
+    }, [empresaInfo]);
+    const handleGuardarModoInventario = async () => {
+        if (!window.confirm('Cambiar el modo de inventario afecta el comportamiento de las VENTAS FUTURAS (reserva y descuento de stock) y muestra/oculta el menú Inventario. ¿Continuar?')) return;
+        try {
+            const r = await api.patch(`/api/empresas/${empresaInfo.id}/`, { modo_inventario: modoInventario });
+            setEmpresaInfo(r.data);
+            queryClient.invalidateQueries(['empresa-modo-inventario']);
+            toast({ title: 'Modo de inventario actualizado', status: 'success', duration: 3000 });
+        } catch (error) {
+            toast({ title: 'Error al guardar', description: error.message, status: 'error', duration: 5000 });
+        }
+    };
     
     // Solo estas configuraciones son editables
     const [configFacturacion, setConfigFacturacion] = useState({
@@ -479,6 +496,36 @@ const Configuracion = () => {
                                         _hover={{ bg: 'gray.100' }}
                                     />
                             </FormControl>
+                            </HStack>
+                        </VStack>
+                    </CardBody>
+                </Card>
+
+                {/* D6 — Modo de inventario */}
+                <Card>
+                    <CardBody>
+                        <Heading size="md" mb={2}>Modo de inventario</Heading>
+                        <Text fontSize="sm" color="gray.600" mb={4}>
+                            Define cómo se comportan las ventas respecto al stock.
+                        </Text>
+                        <VStack align="stretch" spacing={3} maxW="520px">
+                            <FormControl>
+                                <Select value={modoInventario} onChange={(e) => setModoInventario(e.target.value)}>
+                                    <option value="con_stock">Con control de stock</option>
+                                    <option value="sin_stock">Sin control de stock (back-to-back)</option>
+                                </Select>
+                            </FormControl>
+                            <Text fontSize="xs" color="gray.500">
+                                {modoInventario === 'con_stock'
+                                    ? 'Con control: las ventas reservan y descuentan inventario; el menú Inventario está disponible.'
+                                    : 'Sin control: cada compra existe por una venta (no se mantiene stock); el menú Inventario se oculta.'}
+                            </Text>
+                            <HStack justify="flex-end">
+                                <Button colorScheme="blue"
+                                    isDisabled={!empresaInfo || modoInventario === empresaInfo?.modo_inventario}
+                                    onClick={handleGuardarModoInventario}>
+                                    Guardar modo
+                                </Button>
                             </HStack>
                         </VStack>
                     </CardBody>

@@ -219,6 +219,22 @@ const OrdenCompraDetalle = () => {
                 </InfoRow>
                 <InfoRow label="Fecha de Emisión" value={formatDate(orden.fecha_creacion)} />
                 <InfoRow label="Fecha de Entrega Esperada" value={formatDate(orden.fecha_entrega)} />
+                {orden.venta_origen && (
+                  <InfoRow label="Venta de origen">
+                    <Text fontSize="sm" color="blue.600" fontWeight="semibold" cursor="pointer"
+                      onClick={() => navigate(`/app/ventas/${orden.venta_origen.id}`)}>
+                      {orden.venta_origen.numero}
+                    </Text>
+                  </InfoRow>
+                )}
+                {orden.cotizacion_origen_info && (
+                  <InfoRow label="Cotización de origen">
+                    <Text fontSize="sm" color="blue.600" fontWeight="semibold" cursor="pointer"
+                      onClick={() => navigate(`/app/cotizaciones/${orden.cotizacion_origen_info.id}`)}>
+                      {orden.cotizacion_origen_info.numero}
+                    </Text>
+                  </InfoRow>
+                )}
                 {orden.notas && (
                   <Box gridColumn={{ sm: 'span 2' }}>
                     <InfoRow label="Notas / Observaciones" value={orden.notas} />

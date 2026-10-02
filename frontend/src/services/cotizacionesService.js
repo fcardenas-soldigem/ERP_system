@@ -32,8 +32,8 @@ const cotizacionesService = {
   },
 
   // Cambiar estado de cotización
-  cambiarEstado: async (id, estado) => {
-    const response = await api.post(`/api/cotizaciones/${id}/cambiar-estado/`, { estado });
+  cambiarEstado: async (id, estado, extra = {}) => {
+    const response = await api.post(`/api/cotizaciones/${id}/cambiar-estado/`, { estado, ...extra });
     return response.data;
   },
 

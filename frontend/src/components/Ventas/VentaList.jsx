@@ -31,7 +31,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ventasService } from '../../services/ventas.service';
 import guiasService from '../../services/guiasService';
 import ImportExcelModal from '../common/ImportExcelModal';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ESTADOS_VENTA, TIPOS_VENTA, METODOS_PAGO, ESTADOS_DISPLAY, TIPOS_VENTA_DISPLAY, METODOS_PAGO_DISPLAY } from './constants';
 import { Select } from '@chakra-ui/react';
 import {
@@ -65,6 +65,8 @@ const VentaList = () => {
   const queryClient = useQueryClient();
   const { isOpen, onOpen, onClose } = useDisclosure();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const slaFiltro = searchParams.get('sla') || '';  // ej. ?sla=vencido (desde dashboard)
   const [page, setPage] = useState(1);
   const [filtroOperativo, setFiltroOperativo] = useState('');
   const pageSize = 10;
@@ -402,7 +404,9 @@ const VentaList = () => {
           </Tr>
         </Thead>
         <Tbody>
-          {ventas?.results?.map((venta) => (
+          {(ventas?.results || [])
+            .filter((venta) => !slaFiltro || venta.estado_sla_operativo === slaFiltro)
+            .map((venta) => (
             <Tr key={venta.id}>
               <Td>{venta.numero}</Td>
               <Td>{venta.cliente_nombre}</Td>
