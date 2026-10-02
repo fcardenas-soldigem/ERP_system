@@ -24,4 +24,17 @@ export const formatCurrencyIntl = (amount, moneda = 'PEN') => {
     style: 'currency',
     currency: moneda
   }).format(Number(amount) || 0);
+};
+
+// Normaliza lo que el usuario teclea en un campo de monto MIENTRAS edita.
+// - Acepta coma o punto como separador decimal (teclado numérico en Perú);
+//   normaliza la coma a punto.
+// - Permite estados intermedios: "" y "6371." (no bloquear mientras se escribe).
+// - Rechaza cualquier otro caracter devolviendo null, para que el caller
+//   IGNORE la pulsación y no borre lo ya escrito.
+// La conversión a número se hace al enviar (parseFloat), no aquí.
+export const sanitizeMontoInput = (value) => {
+  const v = String(value ?? '').replace(/,/g, '.');
+  if (v === '' || /^\d*\.?\d*$/.test(v)) return v;
+  return null;
 }; 

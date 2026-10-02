@@ -25,7 +25,7 @@ import { cuentasService } from '../../services/cuentas.service';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { ventasService } from '../../services/ventas.service';
-import { getSimboloMoneda } from '../../utils/currency';
+import { getSimboloMoneda, sanitizeMontoInput } from '../../utils/currency';
 
 const VentaPagoForm = () => {
   const { id } = useParams();
@@ -44,7 +44,7 @@ const VentaPagoForm = () => {
 
   // Mutation para registrar el pago
   const registrarPagoMutation = useMutation({
-    mutationFn: (data) => cuentasService.registrarPago(id, data),
+    mutationFn: (data) => cuentasService.registrarPagoCuentaPorCobrar(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries(['cuenta-por-cobrar', id]);
       queryClient.invalidateQueries(['cuentas-por-cobrar']);
@@ -129,18 +129,13 @@ const VentaPagoForm = () => {
         [name]: files[0]
       }));
     } else if (name === 'monto') {
-      const montoNumerico = parseFloat(value);
-      if (!isNaN(montoNumerico)) {
-        if (montoNumerico > montoMaximo) {
-          setError(`El monto no puede ser mayor a ${cuentasService.formatCurrency(montoMaximo, venta?.moneda)}`);
-        } else {
-          setError('');
-        }
+      // Edición libre: dígitos + un separador decimal (coma o punto). Se valida
+      // al enviar, no mientras se teclea; no bloquear "" ni "6371.".
+      const limpio = sanitizeMontoInput(value);
+      if (limpio !== null) {
+        setFormData(prev => ({ ...prev, monto: limpio }));
+        setError('');
       }
-      setFormData(prev => ({
-        ...prev,
-        [name]: value
-      }));
     } else {
       setFormData(prev => ({
         ...prev,
@@ -228,14 +223,12 @@ const VentaPagoForm = () => {
                     {getSimboloMoneda(venta?.moneda)}
                   </InputLeftElement>
                   <Input
-                    type="number"
+                    type="text"
+                    inputMode="decimal"
                     name="monto"
                     value={formData.monto}
                     onChange={handleInputChange}
                     placeholder="0.00"
-                    step="0.01"
-                    min="0"
-                    max={montoMaximo}
                   />
                 </InputGroup>
                 <Text fontSize="sm" color="gray.600">

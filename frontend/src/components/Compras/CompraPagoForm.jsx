@@ -20,6 +20,7 @@ import {
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { comprasService } from '../../services/compras.service';
+import { sanitizeMontoInput } from '../../utils/currency';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { METODOS_PAGO, METODOS_PAGO_DISPLAY } from './constants';
@@ -246,16 +247,16 @@ const CompraPagoForm = () => {
                   <FormLabel>
                     Monto ({formData.moneda_pago === 'USD' ? 'Dólares' : 'Soles'})
                   </FormLabel>
-                  <NumberInput
-                    min={0}
+                  <Input
+                    type="text"
+                    inputMode="decimal"
                     value={formData.monto}
-                    onChange={(value) => setFormData(prev => ({
-                      ...prev,
-                      monto: value
-                    }))}
-                  >
-                    <NumberInputField placeholder={`Ingrese monto en ${formData.moneda_pago}`} />
-                  </NumberInput>
+                    onChange={(e) => {
+                      const limpio = sanitizeMontoInput(e.target.value);
+                      if (limpio !== null) setFormData(prev => ({ ...prev, monto: limpio }));
+                    }}
+                    placeholder={`Ingrese monto en ${formData.moneda_pago}`}
+                  />
                   <FormHelperText>
                     {formData.monto && compra && formData.moneda_pago !== compra.moneda && (
                       <Text color="blue.600">

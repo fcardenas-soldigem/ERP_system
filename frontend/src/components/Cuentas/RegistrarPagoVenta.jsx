@@ -22,6 +22,7 @@ import {
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { cuentasService } from '../../services/cuentas.service';
+import { sanitizeMontoInput } from '../../utils/currency';
 import { format } from 'date-fns';
 
 const RegistrarPagoVenta = () => {
@@ -133,18 +134,12 @@ const RegistrarPagoVenta = () => {
         [name]: files[0]
       }));
     } else if (name === 'monto') {
-      const montoNumerico = parseFloat(value);
-      if (!isNaN(montoNumerico)) {
-        if (montoNumerico > montoMaximo) {
-          setError(`El monto no puede ser mayor a ${formatCurrency(montoMaximo, cuenta?.moneda)}`);
-        } else {
-          setError('');
-        }
+      // Edición libre; se valida al enviar, no mientras se teclea.
+      const limpio = sanitizeMontoInput(value);
+      if (limpio !== null) {
+        setFormData(prev => ({ ...prev, monto: limpio }));
+        setError('');
       }
-      setFormData(prev => ({
-        ...prev,
-        [name]: value
-      }));
     } else {
       setFormData(prev => ({
         ...prev,
@@ -265,13 +260,12 @@ const RegistrarPagoVenta = () => {
                     children={formData.moneda_pago === 'USD' ? '$' : 'S/'}
                   />
                   <Input
-                    type="number"
-                    step="0.01"
+                    type="text"
+                    inputMode="decimal"
                     name="monto"
                     value={formData.monto}
                     onChange={handleInputChange}
                     placeholder="0.00"
-                    max={montoMaximo}
                   />
                 </InputGroup>
                 <Text fontSize="xs" color="gray.500">
