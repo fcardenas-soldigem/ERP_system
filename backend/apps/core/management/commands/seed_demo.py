@@ -5,6 +5,7 @@ Siembra datos DEMO en la BD local. Idempotente. SOLO corre contra BD local
 Uso:  python manage.py seed_demo
 """
 from decimal import Decimal
+from datetime import date
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connection, transaction
@@ -124,4 +125,54 @@ class Command(BaseCommand):
                     ipt.cantidad_reservada = Decimal('0')
                     ipt.save(update_fields=['cantidad_disponible', 'cantidad_reservada'])
 
-        self.stdout.write(f'  ✓ {nombre} ({modo}): 3 proveedores, 2 clientes, 6 productos.')
+        self._seed_ventas(empresa)
+
+        self.stdout.write(f'  ✓ {nombre} ({modo}): 3 proveedores, 2 clientes, 6 productos, ventas USD/PEN.')
+
+    def _seed_ventas(self, empresa):
+        """
+        Ventas DEMO pagadas en USD y PEN de distintos meses, para ejercitar la
+        consolidación a PEN con TC histórico por documento. Idempotente por
+        referencia. El TC de cada venta USD se fija en save() con el TC SBS de
+        su fecha_emision (histórico).
+        """
+        from apps.ventas.models import Cliente, Venta
+
+        clientes = list(Cliente.objects.filter(empresa=empresa).order_by('id')[:2])
+        if not clientes:
+            return
+        c0 = clientes[0]
+        c1 = clientes[1] if len(clientes) > 1 else clientes[0]
+
+        hoy = date.today()
+        anio = hoy.year
+        # (ref, cliente, fecha, moneda, total con IGV)
+        plan = [
+            ('SEED-V-USD-JUN', c0, date(anio, 6, 15), 'USD', '10000.00'),
+            ('SEED-V-PEN-JUN', c1, date(anio, 6, 20), 'PEN', '35000.00'),
+            ('SEED-V-USD-AGO', c0, date(anio, 8, 10), 'USD', '5000.00'),
+            ('SEED-V-PEN-SET', c1, date(anio, 9, 5),  'PEN', '12000.00'),
+            # Mes actual: una USD y una PEN (para el dashboard "mes actual")
+            ('SEED-V-USD-ACT', c0, hoy.replace(day=min(hoy.day, 2)), 'USD', '3000.00'),
+            ('SEED-V-PEN-ACT', c1, hoy.replace(day=min(hoy.day, 3)), 'PEN', '8000.00'),
+        ]
+
+        creadas = 0
+        for ref, cliente, fecha, moneda, total in plan:
+            if Venta.objects.filter(empresa=empresa, referencia=ref).exists():
+                continue
+            v = Venta.objects.create(
+                empresa=empresa, cliente=cliente, fecha_emision=fecha,
+                tipo_venta='contado', moneda=moneda, estado='pagado',
+                metodo_pago='efectivo', referencia=ref, igv_incluido=True,
+            )
+            total_d = Decimal(total)
+            subtotal = (total_d / Decimal('1.18')).quantize(Decimal('0.01'))
+            igv = total_d - subtotal
+            # El pre_save pone totales en 0; los fijamos directo sin re-save.
+            Venta.objects.filter(id=v.id).update(
+                total=total_d, subtotal=subtotal, igv=igv, pagos_total=total_d,
+            )
+            creadas += 1
+        if creadas:
+            self.stdout.write(f'    + {creadas} ventas demo (USD/PEN, varios meses)')
