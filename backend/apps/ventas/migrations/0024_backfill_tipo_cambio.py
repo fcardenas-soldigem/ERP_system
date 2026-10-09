@@ -1,13 +1,17 @@
 from django.db import migrations
 
 
-def backfill(apps, schema_editor):
-    from apps.core.services.tipo_cambio import backfill_tipo_cambio
-    Venta = apps.get_model('ventas', 'Venta')
-    backfill_tipo_cambio(Venta)
-
-
 def noop(apps, schema_editor):
+    """
+    No-op deliberado. El backfill de tipo_cambio depende de una API externa
+    (apis.net.pe/SBS): una migración no debe poder bloquear un deploy por una
+    falla de red. El backfill real es idempotente y reintentable:
+
+        python manage.py backfill_tipo_cambio
+
+    (Localmente esta migración ya corrió con la versión anterior; cambiar su
+    contenido es seguro porque Django solo registra el nombre.)
+    """
     pass
 
 
@@ -18,5 +22,5 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(backfill, noop),
+        migrations.RunPython(noop, noop),
     ]
