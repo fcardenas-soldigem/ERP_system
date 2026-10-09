@@ -992,40 +992,46 @@ class VentaViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'])
     def productos_mas_vendidos(self, request):
+        """
+        Top productos del MES actual (devengo). Si el mes no tiene ventas,
+        cae a últimos 90 días y lo indica en 'periodo' para que el frontend
+        etiquete la card ("últimos 90 días").
+        """
+        from calendar import monthrange
+        from datetime import date
+        from apps.dashboard.services.metricas import MetricasService
+
         empresa = request.user.empresa
-        productos = (
-            DetalleVenta.objects
-            .filter(venta__empresa=empresa, venta__estado='pagado')
-            .values('producto__nombre')
-            .annotate(total_vendido=Sum('cantidad'))
-            .order_by('-total_vendido')[:10]
-        )
-        labels = [p['producto__nombre'] for p in productos]
-        data = [int(p['total_vendido']) for p in productos]
-        return Response({'labels': labels, 'data': data})
+        hoy = date.today()
+        _, ultimo = monthrange(hoy.year, hoy.month)
+        metricas = MetricasService(empresa, hoy.replace(day=1), hoy.replace(day=ultimo))
+        return Response(metricas.top_productos())
 
     @action(detail=False, methods=['get'])
     def mejores_clientes(self, request):
+        """Ranking de clientes con facturación consolidada a PEN (TC por documento)."""
+        from django.db.models import Case, When, F, Value, DecimalField
+        from apps.core.services.tipo_cambio import get_tc_actual
+        from apps.dashboard.services.metricas import ESTADOS_EXCLUIDOS_VENTA
+
         empresa = request.user.empresa
-        # Ranking por facturación
-        ranking_facturacion = (
+        fallback_tc = get_tc_actual(empresa)
+        total_pen_expr = Sum(Case(
+            When(tipo_cambio__isnull=False, then=F('total') * F('tipo_cambio')),
+            When(moneda='PEN', then=F('total')),
+            default=F('total') * Value(fallback_tc),
+            output_field=DecimalField(max_digits=18, decimal_places=4),
+        ))
+        base = (
             Venta.objects
-            .filter(empresa=empresa, estado='pagado')
+            .filter(empresa=empresa)
+            .exclude(estado__in=ESTADOS_EXCLUIDOS_VENTA)
             .values('cliente__id', 'cliente__nombre', 'cliente__documento', 'cliente__email')
-            .annotate(total_facturado=Sum('total'), cantidad_compras=models.Count('id'))
-            .order_by('-total_facturado')[:10]
-        )
-        # Ranking por cantidad de compras
-        ranking_recurrencia = (
-            Venta.objects
-            .filter(empresa=empresa, estado='pagado')
-            .values('cliente__id', 'cliente__nombre', 'cliente__documento', 'cliente__email')
-            .annotate(total_facturado=Sum('total'), cantidad_compras=models.Count('id'))
-            .order_by('-cantidad_compras')[:10]
+            .annotate(total_facturado=total_pen_expr, cantidad_compras=models.Count('id'))
         )
         return Response({
-            'ranking_facturacion': list(ranking_facturacion),
-            'ranking_recurrencia': list(ranking_recurrencia)
+            'ranking_facturacion': list(base.order_by('-total_facturado')[:10]),
+            'ranking_recurrencia': list(base.order_by('-cantidad_compras')[:10]),
         })
 
     @transaction.atomic

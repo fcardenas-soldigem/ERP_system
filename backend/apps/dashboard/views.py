@@ -7,6 +7,9 @@ from apps.inventario.models.producto import Producto
 from apps.inventario.models.stock import Stock
 from apps.core.services.documento_service import DocumentoService
 from apps.core.services.tipo_cambio import desglose_pen, get_tc_actual
+from apps.dashboard.services.metricas import (
+    MetricasService, ESTADOS_DEVENGO_VENTA, ESTADOS_DEVENGO_COMPRA,
+)
 from django.core.cache import cache
 from django.db.models import Sum, Count, F, Q, ExpressionWrapper, DecimalField, Case, When, Value
 from django.utils import timezone
@@ -104,31 +107,24 @@ class DashboardResumen(APIView):
 
             logger.info(f"Rango de fechas: {primer_dia_mes} - {ultimo_dia_mes}")
 
-            # Ventas del mes actual
-            ventas = Venta.objects.filter(
-                empresa=empresa,
-                fecha_emision__range=(primer_dia_mes, ultimo_dia_mes),
-                estado='pagado'
-            )
-            
-            # TC de fallback SOLO para documentos sin tipo_cambio guardado.
-            # Las cifras usan el TC histórico guardado en cada documento.
-            fallback_tc = get_tc_actual(empresa)
+            # ÚNICO servicio de métricas (devengo/caja) — compartido con Finanzas.
+            metricas = MetricasService(empresa, primer_dia_mes.date(), ultimo_dia_mes.date())
+            fallback_tc = metricas.fallback_tc
 
-            # Ventas del mes consolidadas a PEN (TC por documento) + desglose
-            ventas_desglose = desglose_pen(ventas, 'total', fallback_tc=fallback_tc)
+            # VENTAS del mes por DEVENGO: todo lo emitido salvo borrador/anulado,
+            # independiente del pago. TC histórico por documento.
+            ventas = metricas.ventas_qs()
+            ventas_desglose = metricas.ventas_devengo('total')
             ventas_totales = ventas_desglose['total_pen']
-            logger.info(f"Ventas totales (PEN, TC por documento): {ventas_totales}")
+            logger.info(f"Ventas del mes (devengo, PEN): {ventas_totales}")
 
-            # Compras del mes consolidadas a PEN
-            compras = Compra.objects.filter(
-                empresa=empresa,
-                fecha_emision__range=(primer_dia_mes, ultimo_dia_mes),
-                estado='pagada'
-            )
+            # COBROS del mes (caja): pagos valorizados con el TC de su venta.
+            cobros_mes = metricas.cobros()
+
+            # Compras del mes por devengo
+            compras = metricas.compras_qs()
             compras_desglose = desglose_pen(compras, 'total', fallback_tc=fallback_tc)
             compras_totales = compras_desglose['total_pen']
-            logger.info(f"Compras totales (PEN, TC por documento): {compras_totales}")
 
             tipo_cambio = fallback_tc  # compat: valor mostrado como TC de referencia
 
@@ -155,21 +151,29 @@ class DashboardResumen(APIView):
             igv_compras = _total_pen(compras, 'igv', fallback_tc)
             logger.info(f"IGV ventas/compras (PEN): {igv_ventas} / {igv_compras}")
 
-            # Obtener datos de inventario
-            productos_stock = Stock.objects.filter(
-                producto__empresa=empresa
-            ).aggregate(
-                total_productos=Count('producto', distinct=True),
-                total_cantidad=Sum('cantidad')
-            )
-
-            # Productos bajos en stock
-            productos_bajo_stock = Producto.objects.filter(
-                empresa=empresa,
-                is_active=True,
-                stock_total__lte=F('stock_minimo'),
-                stock_total__gt=0
-            ).count()
+            # Inventario SOLO si la empresa maneja stock. Para sin_stock el
+            # payload lleva inventario=None y el frontend no renderiza la card.
+            if metricas.maneja_stock():
+                productos_stock = Stock.objects.filter(
+                    producto__empresa=empresa
+                ).aggregate(
+                    total_productos=Count('producto', distinct=True),
+                    total_cantidad=Sum('cantidad')
+                )
+                productos_bajo_stock = Producto.objects.filter(
+                    empresa=empresa,
+                    is_active=True,
+                    stock_total__lte=F('stock_minimo'),
+                    stock_total__gt=0
+                ).count()
+                inventario_payload = {
+                    'total_productos': productos_stock['total_productos'] or 0,
+                    'total_cantidad': float(productos_stock['total_cantidad'] or 0),
+                    'productos_bajo_stock': productos_bajo_stock,
+                }
+            else:
+                productos_bajo_stock = 0
+                inventario_payload = None
 
             # Cuentas por cobrar: ventas pendientes de pago (PEN, TC por documento)
             ventas_pendientes = Venta.objects.filter(empresa=empresa, estado='pendiente')
@@ -202,8 +206,15 @@ class DashboardResumen(APIView):
             response_data = {
                 'ventas': {
                     'total': float(ventas_totales),
-                    'cantidad': ventas.count(),
+                    'cantidad': ventas_desglose['cantidad'],
                     'desglose': ventas_desglose,
+                    'criterio': 'devengo',  # emitidas en el mes, sin borrador/anulado
+                },
+                'cobros': {
+                    'total': cobros_mes['total_pen'],
+                    'cantidad': cobros_mes['cantidad'],
+                    'desglose': cobros_mes,
+                    'criterio': 'caja',  # pagos recibidos en el mes, TC de la venta
                 },
                 'compras': {
                     'total': float(compras_totales),
@@ -229,11 +240,7 @@ class DashboardResumen(APIView):
                     'compras_borrador_count': compras_borrador_count,
                     'compras_borrador_total': float(compras_borrador_total),
                 },
-                'inventario': {
-                    'total_productos': productos_stock['total_productos'] or 0,
-                    'total_cantidad': float(productos_stock['total_cantidad'] or 0),
-                    'productos_bajo_stock': productos_bajo_stock,
-                },
+                'inventario': inventario_payload,
                 'alertas': {
                     'cotizaciones_sin_respuesta': cotizaciones_sin_respuesta,
                     'ventas_fuera_sla': ventas_fuera_sla,
@@ -289,7 +296,7 @@ class DashboardStatsView(APIView):
             for r in Venta.objects.filter(
                 empresa=empresa,
                 fecha_emision__range=(fecha_inicio_date, fecha_fin_date),
-                estado='pagado',
+                estado__in=ESTADOS_DEVENGO_VENTA,
             ).values('fecha_emision').annotate(t=Sum(_pen_expr(fallback_tc)))
         }
         compras_por_fecha = {
@@ -297,7 +304,7 @@ class DashboardStatsView(APIView):
             for r in Compra.objects.filter(
                 empresa=empresa,
                 fecha_emision__range=(fecha_inicio_date, fecha_fin_date),
-                estado='pagada',
+                estado__in=ESTADOS_DEVENGO_COMPRA,
             ).values('fecha_emision').annotate(t=Sum(_pen_expr(fallback_tc)))
         }
 
@@ -333,14 +340,14 @@ class DashboardResumenView(APIView):
         tipo_cambio = float(fallback_tc)
 
         # Ventas históricas — consolidadas con el TC guardado por documento
-        ventas = Venta.objects.filter(empresa=empresa, estado='pagado')
+        ventas = Venta.objects.filter(empresa=empresa, estado__in=ESTADOS_DEVENGO_VENTA)
         ventas_desglose = desglose_pen(ventas, 'total', fallback_tc=fallback_tc)
         total_ventas = ventas_desglose['total_pen']
         total_igv_ventas = _total_pen(ventas, 'igv', fallback_tc)
         cantidad_ventas = ventas.count()
 
         # Compras históricas
-        compras = Compra.objects.filter(empresa=empresa, estado='pagada')
+        compras = Compra.objects.filter(empresa=empresa, estado__in=ESTADOS_DEVENGO_COMPRA)
         compras_desglose = desglose_pen(compras, 'total', fallback_tc=fallback_tc)
         total_compras = compras_desglose['total_pen']
         total_igv_compras = _total_pen(compras, 'igv', fallback_tc)
@@ -424,11 +431,13 @@ def get_dashboard_stats(request):
     try:
         fallback_tc = get_tc_actual(empresa)
         total_compras = _total_pen(
-            Compra.objects.filter(empresa=empresa, fecha_emision__gte=fecha_30_dias),
+            Compra.objects.filter(empresa=empresa, fecha_emision__gte=fecha_30_dias,
+                                  estado__in=ESTADOS_DEVENGO_COMPRA),
             'total', fallback_tc,
         )
         total_ventas = _total_pen(
-            Venta.objects.filter(empresa=empresa, fecha_emision__gte=fecha_30_dias),
+            Venta.objects.filter(empresa=empresa, fecha_emision__gte=fecha_30_dias,
+                                 estado__in=ESTADOS_DEVENGO_VENTA),
             'total', fallback_tc,
         )
 
@@ -475,10 +484,10 @@ class UtilityDashboardView(APIView):
             fallback_tc = get_tc_actual(empresa)
             tipo_cambio = float(fallback_tc)
 
-            ventas_mes = _total_pen(Venta.objects.filter(empresa=empresa, fecha_emision__range=(start_date, end_date), estado='pagado'), 'total', fallback_tc)
-            ventas_mes_anterior = _total_pen(Venta.objects.filter(empresa=empresa, fecha_emision__range=(prev_start_date, prev_end_date), estado='pagado'), 'total', fallback_tc)
-            compras_mes = _total_pen(Compra.objects.filter(empresa=empresa, fecha_emision__range=(start_date, end_date), estado='pagada'), 'total', fallback_tc)
-            compras_mes_anterior = _total_pen(Compra.objects.filter(empresa=empresa, fecha_emision__range=(prev_start_date, prev_end_date), estado='pagada'), 'total', fallback_tc)
+            ventas_mes = _total_pen(Venta.objects.filter(empresa=empresa, fecha_emision__range=(start_date, end_date), estado__in=ESTADOS_DEVENGO_VENTA), 'total', fallback_tc)
+            ventas_mes_anterior = _total_pen(Venta.objects.filter(empresa=empresa, fecha_emision__range=(prev_start_date, prev_end_date), estado__in=ESTADOS_DEVENGO_VENTA), 'total', fallback_tc)
+            compras_mes = _total_pen(Compra.objects.filter(empresa=empresa, fecha_emision__range=(start_date, end_date), estado__in=ESTADOS_DEVENGO_COMPRA), 'total', fallback_tc)
+            compras_mes_anterior = _total_pen(Compra.objects.filter(empresa=empresa, fecha_emision__range=(prev_start_date, prev_end_date), estado__in=ESTADOS_DEVENGO_COMPRA), 'total', fallback_tc)
 
             # Calcular utilidad (ventas - compras antes de IGV)
             utilidad_mes = (ventas_mes / 1.18) - (compras_mes / 1.18)
@@ -499,7 +508,7 @@ class UtilityDashboardView(APIView):
             # Agrupar por día en la BD valorizando cada documento con su TC
             ventas_por_dia = {}
             for r in Venta.objects.filter(
-                empresa=empresa, fecha_emision__range=(start_date, end_date), estado='pagado',
+                empresa=empresa, fecha_emision__range=(start_date, end_date), estado__in=ESTADOS_DEVENGO_VENTA,
             ).values('fecha_emision').annotate(t=Sum(_pen_expr(fallback_tc))):
                 f = r['fecha_emision']
                 d = f.day if hasattr(f, 'day') else f
@@ -507,7 +516,7 @@ class UtilityDashboardView(APIView):
 
             compras_por_dia = {}
             for r in Compra.objects.filter(
-                empresa=empresa, fecha_emision__range=(start_date, end_date), estado='pagada',
+                empresa=empresa, fecha_emision__range=(start_date, end_date), estado__in=ESTADOS_DEVENGO_COMPRA,
             ).values('fecha_emision').annotate(t=Sum(_pen_expr(fallback_tc))):
                 f = r['fecha_emision']
                 d = f.day if hasattr(f, 'day') else f
@@ -554,14 +563,14 @@ class IGVDashboardView(APIView):
         ventas = Venta.objects.filter(
             empresa=empresa,
             fecha_emision__gte=hace_30_dias,
-            estado='pagado'
+            estado__in=ESTADOS_DEVENGO_VENTA
         )
         igv_ventas = _total_pen(ventas, 'igv', fallback_tc)
 
         compras = Compra.objects.filter(
             empresa=empresa,
             fecha_emision__gte=hace_30_dias,
-            estado='pagada'
+            estado__in=ESTADOS_DEVENGO_COMPRA
         )
         igv_compras = _total_pen(compras, 'igv', fallback_tc)
 
@@ -592,7 +601,7 @@ class VentasAnualView(APIView):
         por_mes = {
             r['m']: float(r['t'] or 0)
             for r in Venta.objects.filter(
-                empresa=empresa, fecha_emision__year=year, estado='pagado',
+                empresa=empresa, fecha_emision__year=year, estado__in=ESTADOS_DEVENGO_VENTA,
             ).annotate(m=ExtractMonth('fecha_emision')).values('m').annotate(t=Sum(_pen_expr(fallback_tc)))
         }
         ventas_data = [por_mes.get(m, 0.0) for m in range(1, 13)]
@@ -621,7 +630,7 @@ class ComprasAnualView(APIView):
         por_mes = {
             r['m']: float(r['t'] or 0)
             for r in Compra.objects.filter(
-                empresa=empresa, fecha_emision__year=year, estado='pagada',
+                empresa=empresa, fecha_emision__year=year, estado__in=ESTADOS_DEVENGO_COMPRA,
             ).annotate(m=ExtractMonth('fecha_emision')).values('m').annotate(t=Sum(_pen_expr(fallback_tc)))
         }
         compras_data = [por_mes.get(m, 0.0) for m in range(1, 13)]
@@ -650,13 +659,13 @@ class UtilidadAnualView(APIView):
         ventas_por_mes = {
             r['m']: float(r['t'] or 0)
             for r in Venta.objects.filter(
-                empresa=empresa, fecha_emision__year=year, estado='pagado',
+                empresa=empresa, fecha_emision__year=year, estado__in=ESTADOS_DEVENGO_VENTA,
             ).annotate(m=ExtractMonth('fecha_emision')).values('m').annotate(t=Sum(_pen_expr(fallback_tc)))
         }
         compras_por_mes = {
             r['m']: float(r['t'] or 0)
             for r in Compra.objects.filter(
-                empresa=empresa, fecha_emision__year=year, estado='pagada',
+                empresa=empresa, fecha_emision__year=year, estado__in=ESTADOS_DEVENGO_COMPRA,
             ).annotate(m=ExtractMonth('fecha_emision')).values('m').annotate(t=Sum(_pen_expr(fallback_tc)))
         }
 
@@ -690,7 +699,7 @@ class VentasMensualView(APIView):
         # Agrupar por día en la BD valorizando cada venta con su TC histórico
         por_dia = {}
         for r in Venta.objects.filter(
-            empresa=empresa, fecha_emision__year=year, fecha_emision__month=month, estado='pagado',
+            empresa=empresa, fecha_emision__year=year, fecha_emision__month=month, estado__in=ESTADOS_DEVENGO_VENTA,
         ).values('fecha_emision').annotate(t=Sum(_pen_expr(fallback_tc))):
             f = r['fecha_emision']
             por_dia[f.day if hasattr(f, 'day') else f] = float(r['t'] or 0)
