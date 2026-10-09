@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Heading, Spinner, Table, Thead, Tbody, Tr, Th, Td } from '@chakra-ui/react';
 import { dashboardService } from '../../services/dashboard.service';
+import { formatPEN } from '../common/MontoConsolidado';
 
 const UtilidadStats = () => {
   const [utilidades, setUtilidades] = useState([]);
@@ -33,7 +34,7 @@ const UtilidadStats = () => {
           {utilidades.map((item, idx) => (
             <Tr key={idx}>
               <Td>{item.dia}</Td>
-              <Td isNumeric>S/ {item.utilidad}</Td>
+              <Td isNumeric>{formatPEN(item.utilidad)}</Td>
             </Tr>
           ))}
         </Tbody>

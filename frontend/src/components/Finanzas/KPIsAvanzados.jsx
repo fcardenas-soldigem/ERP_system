@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { formatPEN } from '../common/MontoConsolidado';
 import {
   Box, Flex, Text, SimpleGrid, HStack, VStack, Icon, Badge, Button,
   Divider, Collapse, useColorModeValue,
@@ -51,7 +52,7 @@ const MetricaCard = ({ titulo, valor, unit, subtexto, tooltip, semaforo, alerta,
 
       {delta !== undefined && delta !== null && (
         <Text fontSize="xs" mt={1} color={delta >= 0 ? 'green.500' : 'red.400'} fontWeight="medium">
-          {delta >= 0 ? '▲' : '▼'} {deltaLabel ?? `S/ ${fmtK(Math.abs(delta))} vs mes anterior`}
+          {delta >= 0 ? '▲' : '▼'} {deltaLabel ?? `${formatPEN(Math.abs(delta), 0)} vs mes anterior`}
         </Text>
       )}
 
@@ -180,7 +181,7 @@ const KPIsAvanzados = ({ avanzados }) => {
             {/* Saldo neto */}
             <MetricaCard
               titulo="Saldo neto del mes"
-              valor={`S/ ${fmtK(saldo_neto_mes)}`}
+              valor={`${formatPEN(saldo_neto_mes, 0)}`}
               semaforo={saldoSemaforo}
               delta={saldoDelta}
               subtexto="Cobros reales menos pagos reales del período. No incluye sueldos ni gastos fuera del sistema."
@@ -216,7 +217,7 @@ const KPIsAvanzados = ({ avanzados }) => {
                       <Box key={i}>
                         <Text fontSize="10px" color="gray.400">#{i + 1}</Text>
                         <Text fontSize="sm" fontWeight="medium" color="gray.700" noOfLines={1}>{c.nombre}</Text>
-                        <Text fontSize="xs" color="gray.500">S/ {fmtK(c.total)}</Text>
+                        <Text fontSize="xs" color="gray.500">{formatPEN(c.total, 0)}</Text>
                       </Box>
                     ))}
                   </HStack>

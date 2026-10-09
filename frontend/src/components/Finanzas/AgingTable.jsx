@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { formatPEN } from '../common/MontoConsolidado';
 import {
   Box, Flex, Text, SimpleGrid, Progress, Table, Tbody, Tr, Td, Th, Thead,
   Badge, Button, HStack, VStack, Icon, useColorModeValue, useDisclosure,
@@ -27,7 +28,7 @@ const AgingBar = ({ aging = {}, total }) => {
         return (
           <Box key={key} bg={bg} borderRadius="lg" p={3} border="1px solid" borderColor={`${color}30`}>
             <Text fontSize="10px" fontWeight="semibold" color="gray.500" textTransform="uppercase" letterSpacing="wider" mb={1}>{label}</Text>
-            <Text fontSize="lg" fontWeight="bold" color="gray.900" fontVariantNumeric="tabular-nums">S/ {fmtK(val)}</Text>
+            <Text fontSize="lg" fontWeight="bold" color="gray.900" fontVariantNumeric="tabular-nums">{formatPEN(val, 0)}</Text>
             <Progress value={pct} size="xs" mt={2} borderRadius="full"
               sx={{ '& > div': { background: color, borderRadius: 'full' } }} />
           </Box>
@@ -44,6 +45,7 @@ const AgingTable = ({ cxc, cxp }) => {
   const [waTarget, setWaTarget] = useState([]);
 
   const morososVencidos = (cxc?.morosos ?? []).filter(m => m.dias > 0);
+  // Sumas sobre saldos YA consolidados a PEN por el backend (get_saldo_pendiente).
   const totalVencido = morososVencidos.reduce((s, m) => s + m.monto, 0);
   const proximosPagos = cxp?.proximos_pagos ?? [];
   const totalSemana = proximosPagos.reduce((s, p) => s + p.monto, 0);
@@ -70,7 +72,7 @@ const AgingTable = ({ cxc, cxp }) => {
                     : 'Lo que te deben tus clientes'}
                 </Text>
                 <Text fontSize="xs" color="gray.400">
-                  Total pendiente: S/ {fmt(cxc?.total)}
+                  Total pendiente: {formatPEN(cxc?.total)}
                   {cxc?.dso != null && (
                     <Text as="span" color="gray.300"> · DSO: {cxc.dso} días</Text>
                   )}
@@ -89,8 +91,8 @@ const AgingTable = ({ cxc, cxp }) => {
                     <Icon as={FiAlertCircle} color="orange.500" boxSize="14px" flexShrink={0} />
                     <Text fontSize="xs" color="orange.700" fontWeight="medium">
                       {morososVencidos.length === 1
-                        ? `1 cliente te debe S/ ${fmtK(totalVencido)} con más de 30 días`
-                        : `${morososVencidos.length} clientes te deben S/ ${fmtK(totalVencido)} por más de 30 días`}
+                        ? `1 cliente te debe ${formatPEN(totalVencido, 0)} con más de 30 días`
+                        : `${morososVencidos.length} clientes te deben ${formatPEN(totalVencido, 0)} por más de 30 días`}
                     </Text>
                   </HStack>
                   <Button
@@ -134,7 +136,7 @@ const AgingTable = ({ cxc, cxp }) => {
                           {m.venta_num && <Text fontSize="10px" color="gray.400">{m.venta_num}</Text>}
                         </Td>
                         <Td px={0} py={2.5} isNumeric>
-                          <Text fontSize="xs" fontWeight="semibold" fontVariantNumeric="tabular-nums">S/ {fmtK(m.monto)}</Text>
+                          <Text fontSize="xs" fontWeight="semibold" fontVariantNumeric="tabular-nums">{formatPEN(m.monto, 0)}</Text>
                         </Td>
                         <Td px={0} py={2.5} isNumeric>
                           <Badge colorScheme={m.dias > 60 ? 'red' : m.dias > 30 ? 'orange' : 'yellow'} variant="subtle" fontSize="10px" borderRadius="sm">
@@ -173,7 +175,7 @@ const AgingTable = ({ cxc, cxp }) => {
                     : 'Lo que les debes a tus proveedores'}
                 </Text>
                 <Text fontSize="xs" color="gray.400">
-                  Total pendiente: S/ {fmt(cxp?.total)}
+                  Total pendiente: {formatPEN(cxp?.total)}
                   {cxp?.dpo != null && (
                     <Text as="span" color="gray.300"> · DPO: {cxp.dpo} días</Text>
                   )}
@@ -192,7 +194,7 @@ const AgingTable = ({ cxc, cxp }) => {
                   <HStack spacing={2}>
                     <Icon as={FiCalendar} color={cxp?.alerta_esta_semana ? 'red.500' : 'green.500'} boxSize="14px" flexShrink={0} />
                     <Text fontSize="xs" color={cxp?.alerta_esta_semana ? 'red.700' : 'green.700'} fontWeight="medium">
-                      {`Tienes ${proximosPagos.length} factura${proximosPagos.length > 1 ? 's' : ''} que vence${proximosPagos.length === 1 ? '' : 'n'} esta semana por S/ ${fmtK(totalSemana)}`}
+                      {`Tienes ${proximosPagos.length} factura${proximosPagos.length > 1 ? 's' : ''} que vence${proximosPagos.length === 1 ? '' : 'n'} esta semana por ${formatPEN(totalSemana, 0)}`}
                     </Text>
                   </HStack>
                   <Button
@@ -234,7 +236,7 @@ const AgingTable = ({ cxc, cxp }) => {
                           <Text fontSize="10px" color="gray.400">{p.vence}</Text>
                         </Td>
                         <Td px={0} py={2.5} isNumeric>
-                          <Text fontSize="xs" fontWeight="semibold" fontVariantNumeric="tabular-nums">S/ {fmtK(p.monto)}</Text>
+                          <Text fontSize="xs" fontWeight="semibold" fontVariantNumeric="tabular-nums">{formatPEN(p.monto, 0)}</Text>
                         </Td>
                         <Td px={0} py={2.5} isNumeric>
                           <Badge colorScheme={p.urgente ? 'red' : 'orange'} variant="subtle" fontSize="10px" borderRadius="sm">

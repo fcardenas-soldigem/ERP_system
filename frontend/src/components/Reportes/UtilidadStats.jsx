@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Box, Heading, Spinner, Select, HStack, Button, ButtonGroup } from '@chakra-ui/react';
 import { Line } from 'react-chartjs-2';
 import { dashboardService } from '../../services/dashboard.service';
+import { formatPEN } from '../common/MontoConsolidado';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -156,7 +157,7 @@ const UtilidadStats = () => {
                 beginAtZero: true,
                 ticks: {
                   callback: function(value) {
-                    return 'S/ ' + value.toLocaleString('es-PE');
+                    return formatPEN(value, 0);
                   }
                 }
               }

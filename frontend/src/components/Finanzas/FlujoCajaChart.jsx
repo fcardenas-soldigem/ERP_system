@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react';
+import { formatPEN } from '../common/MontoConsolidado';
 import {
   Box, Flex, Text, SimpleGrid, Tooltip as ChakraTooltip,
   useColorModeValue,
@@ -17,9 +18,9 @@ const CustomTooltip = ({ active, payload }) => {
   return (
     <Box bg="gray.900" color="white" px={3} py={2} borderRadius="md" fontSize="xs" boxShadow="lg">
       <Text fontWeight="semibold">{d.fecha}</Text>
-      <Text color="green.300">↑ Cobros: S/ {fmt(d.cobros)}</Text>
-      <Text color="red.300">↓ Pagos: S/ {fmt(d.pagos)}</Text>
-      <Text fontWeight="bold" mt={1}>Saldo: S/ {fmt(d.saldo)}</Text>
+      <Text color="green.300">↑ Cobros: {formatPEN(d.cobros)}</Text>
+      <Text color="red.300">↓ Pagos: {formatPEN(d.pagos)}</Text>
+      <Text fontWeight="bold" mt={1}>Saldo: {formatPEN(d.saldo)}</Text>
     </Box>
   );
 };
@@ -61,7 +62,7 @@ const FlujoCajaChart = ({ flujo }) => {
             Lo que cobras menos lo que pagas este mes
           </Text>
           <Text fontSize="3xl" fontWeight="bold" color={isPositive ? 'green.600' : 'red.500'} fontVariantNumeric="tabular-nums" lineHeight="1">
-            S/ {fmt(saldo_actual)}
+            {formatPEN(saldo_actual)}
           </Text>
           <Text fontSize="xs" color="gray.400" mt={1}>{disclaimer}</Text>
         </Box>
@@ -95,25 +96,25 @@ const FlujoCajaChart = ({ flujo }) => {
       <SimpleGrid columns={{ base: 2, md: 4 }} spacing={3}>
         <MetaCard
           label="Entraron de clientes"
-          value={`S/ ${fmt(cobros_periodo)}`}
+          value={`${formatPEN(cobros_periodo)}`}
           color="green.600"
           tooltip="Total que cobraste de tus clientes en este período"
         />
         <MetaCard
           label="Salieron a proveedores"
-          value={`S/ ${fmt(pagos_periodo)}`}
+          value={`${formatPEN(pagos_periodo)}`}
           color="red.500"
           tooltip="Total que pagaste a tus proveedores en este período"
         />
         <MetaCard
           label="Pendiente de cobrar"
-          value={`S/ ${fmt(flujo.cxc_pendiente)}`}
+          value={`${formatPEN(flujo.cxc_pendiente)}`}
           color="orange.500"
           tooltip="Lo que tus clientes todavía te deben de ventas a crédito"
         />
         <MetaCard
           label="Si cobras todo en 30 días"
-          value={`S/ ${fmt(proyeccion_30_dias)}`}
+          value={`${formatPEN(proyeccion_30_dias)}`}
           color={proyeccion_30_dias >= 0 ? 'blue.600' : 'red.600'}
           tooltip="Estimado de tu caja si cobras todo lo pendiente y pagas todo lo que debes"
           sub={proyeccion_30_dias < 0 ? '⚠️ Proyección negativa' : ''}

@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { formatPEN } from '../common/MontoConsolidado';
 import {
   Modal, ModalOverlay, ModalContent, ModalHeader, ModalBody, ModalFooter, ModalCloseButton,
   Button, Select, Textarea, Text, VStack, HStack, Box, Badge, Icon, useToast,
@@ -12,7 +13,7 @@ const buildMessage = (moroso) => {
   const fecha = moroso.vencimiento
     ? new Date(moroso.vencimiento + 'T00:00:00').toLocaleDateString('es-PE', { day: 'numeric', month: 'long', year: 'numeric' })
     : 'fecha pendiente';
-  return `Hola ${moroso.cliente}, te recordamos que tienes una factura pendiente de pago por S/ ${fmt(moroso.monto)} con vencimiento del ${fecha}. Cualquier consulta estamos atentos.`;
+  return `Hola ${moroso.cliente}, te recordamos que tienes una factura pendiente de pago por ${formatPEN(moroso.monto)} con vencimiento del ${fecha}. Cualquier consulta estamos atentos.`;
 };
 
 const WhatsAppModal = ({ isOpen, onClose, morosos = [] }) => {
@@ -83,7 +84,7 @@ const WhatsAppModal = ({ isOpen, onClose, morosos = [] }) => {
                 >
                   {morosos.map((m, i) => (
                     <option key={i} value={i}>
-                      {m.cliente} — S/ {fmt(m.monto)} ({m.dias}d)
+                      {m.cliente} — {formatPEN(m.monto)} ({m.dias}d)
                     </option>
                   ))}
                 </Select>
@@ -98,7 +99,7 @@ const WhatsAppModal = ({ isOpen, onClose, morosos = [] }) => {
                   <Badge colorScheme="orange" variant="subtle">{moroso.dias} días de atraso</Badge>
                 </HStack>
                 <Text fontSize="xs" color="orange.600" mt={1}>
-                  Deuda: S/ {fmt(moroso.monto)}
+                  Deuda: {formatPEN(moroso.monto)}
                   {moroso.vencimiento ? ` · venció el ${moroso.vencimiento}` : ''}
                 </Text>
                 {!telefono && (

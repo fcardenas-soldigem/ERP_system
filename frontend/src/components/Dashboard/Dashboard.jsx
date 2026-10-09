@@ -4,6 +4,7 @@ import {
 } from '@chakra-ui/react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../lib/api';
+import { formatPEN } from '../common/MontoConsolidado';
 
 // Dashboard sub-components
 import QuickActions       from './QuickActions';
@@ -65,7 +66,7 @@ const buildAlerts = (resumen) => {
   if ((ig.por_pagar ?? 0) > 500) {
     alerts.push({
       level: 'warning',
-      message: `IGV por declarar: S/ ${fmt(ig.por_pagar)} (ventas − compras del mes)`,
+      message: `IGV por declarar: ${formatPEN(ig.por_pagar)} (ventas − compras del mes)`,
       actionLabel: 'Ver cuentas',
       actionPath: '/app/cuentas/por-cobrar',
     });
@@ -74,7 +75,7 @@ const buildAlerts = (resumen) => {
   if ((cuentas.compras_borrador_count ?? 0) > 0) {
     alerts.push({
       level: 'warning',
-      message: `${cuentas.compras_borrador_count} compra${cuentas.compras_borrador_count > 1 ? 's' : ''} en borrador (S/ ${fmt(cuentas.compras_borrador_total ?? 0)}) no están incluidas en la utilidad. Apruébalas para ver la utilidad real.`,
+      message: `${cuentas.compras_borrador_count} compra${cuentas.compras_borrador_count > 1 ? 's' : ''} en borrador (${formatPEN(cuentas.compras_borrador_total ?? 0)}) no están incluidas en la utilidad. Apruébalas para ver la utilidad real.`,
       actionLabel: 'Ver compras',
       actionPath: '/app/compras',
     });
@@ -142,21 +143,21 @@ const Dashboard = () => {
   const statCards = [
     {
       label:       'Por cobrar',
-      value:       `S/ ${fmt(cuentas.por_cobrar ?? 0)}`,
+      value:       `${formatPEN(cuentas.por_cobrar ?? 0)}`,
       sub:         'Ventas pendientes de cobro',
       sparkData:   ventasSpark,
       accentColor: '#f59e0b',
     },
     {
       label:       'Por pagar',
-      value:       `S/ ${fmt(cuentas.por_pagar ?? 0)}`,
+      value:       `${formatPEN(cuentas.por_pagar ?? 0)}`,
       sub:         'Compras pendientes de pago',
       sparkData:   comprasSpark,
       accentColor: '#7c3aed',
     },
     {
       label:       'Utilidad del mes',
-      value:       `S/ ${fmt(utilidadDisplay)}`,
+      value:       `${formatPEN(utilidadDisplay)}`,
       sub:         utilidadLabel,
       sparkData:   utilSpark,
       trend:       hayGastos ? (resumenFinanzas?.margen_neto_pct ?? undefined) : (u.margen ?? undefined),

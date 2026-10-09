@@ -4,6 +4,7 @@ import {
   Tooltip as ChakraTooltip, useColorModeValue,
 } from '@chakra-ui/react';
 import { FiArrowUpRight, FiArrowDownRight, FiUsers, FiShoppingCart, FiTrendingUp, FiStar } from 'react-icons/fi';
+import MontoConsolidado, { formatPEN } from '../common/MontoConsolidado';
 
 const fmt  = (n, d = 2) => Number(n ?? 0).toLocaleString('es-PE', { minimumFractionDigits: d, maximumFractionDigits: d });
 const fmtI = (n) => Number(n ?? 0).toLocaleString('es-PE', { maximumFractionDigits: 0 });
@@ -48,7 +49,7 @@ const CrecimientoSection = ({ crecimiento }) => {
 
   const {
     revenue_growth_pct,
-    ventas_mes, ventas_anterior,
+    ventas_mes, ventas_mes_desglose, ventas_anterior,
     transacciones_mes, transacciones_anterior,
     ticket_promedio, ticket_promedio_anterior, ticket_variacion_pct,
     nuevos_clientes,
@@ -65,7 +66,7 @@ const CrecimientoSection = ({ crecimiento }) => {
         icono={FiTrendingUp}
         titulo="Tus ventas crecieron"
         valor={`${revenue_growth_pct >= 0 ? '+' : ''}${revenue_growth_pct.toFixed(1)}%`}
-        sub={`S/ ${fmt(ventas_mes, 0)} este mes vs S/ ${fmt(ventas_anterior, 0)} el anterior`}
+        sub={<><MontoConsolidado value={ventas_mes} desglose={ventas_mes_desglose} decimals={0} fontSize="xs" /> este mes vs {formatPEN(ventas_anterior, 0)} el anterior</>}
         delta={revenue_growth_pct}
         tooltip="Cuánto más (o menos) vendiste vs el mes anterior"
       />
@@ -73,8 +74,8 @@ const CrecimientoSection = ({ crecimiento }) => {
       <CrecCard
         icono={FiShoppingCart}
         titulo="Cada venta fue de"
-        valor={`S/ ${fmt(ticket_promedio, 0)}`}
-        sub={`El mes pasado: S/ ${fmt(ticket_promedio_anterior, 0)}`}
+        valor={formatPEN(ticket_promedio, 0)}
+        sub={`El mes pasado: ${formatPEN(ticket_promedio_anterior, 0)}`}
         delta={ticket_variacion_pct}
         tooltip="Cuánto gasta cada cliente en promedio por visita. Sube cuando vendes más o productos más caros."
       />
