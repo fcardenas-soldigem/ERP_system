@@ -18,13 +18,20 @@ const TopProducts = () => {
       .then(r => {
         const labels = r.data?.labels ?? [];
         const vals   = r.data?.data   ?? [];
-        return labels.map((name, i) => ({ name, qty: vals[i] ?? 0 }));
+        return {
+          periodo: r.data?.periodo ?? 'mes',
+          items: labels.map((name, i) => ({ name, qty: vals[i] ?? 0 })),
+        };
       }),
     staleTime: 5 * 60 * 1000,
   });
 
-  const products = (data ?? []).slice(0, 5);
+  const products = (data?.items ?? []).slice(0, 5);
   const maxQty   = products[0]?.qty ?? 1;
+  // El backend cae a 90 días cuando el mes no tiene ventas — etiquetarlo
+  const titulo = data?.periodo === 'ultimos_90_dias'
+    ? 'Top productos · últimos 90 días'
+    : 'Top productos del mes';
 
   return (
     <Box
@@ -36,7 +43,7 @@ const TopProducts = () => {
     >
       <Flex px={5} py={4} borderBottom="1px solid" borderColor={border}>
         <Text fontSize="sm" fontWeight="semibold" color="gray.700">
-          Top productos del mes
+          {titulo}
         </Text>
       </Flex>
 

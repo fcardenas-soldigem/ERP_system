@@ -5,6 +5,7 @@ import {
 } from '@chakra-ui/react';
 import { useQuery } from '@tanstack/react-query';
 import { finanzasService } from '../../services/finanzas.service';
+import { formatFecha, formatRango } from '../../utils/fechas';
 
 import IGVCard             from '../../components/Finanzas/IGVCard';
 import SemaforoFinanciero  from '../../components/Finanzas/SemaforoFinanciero';
@@ -144,7 +145,7 @@ const FinanzasPage = () => {
 
           {/* Footer */}
           <Text fontSize="xs" color="gray.300" textAlign="center" pb={2}>
-            Datos al {data.meta?.generado_en} · Período: {data.meta?.fecha_inicio} → {data.meta?.fecha_fin}
+            Datos al {formatFecha(data.meta?.generado_en)} · Período: {formatRango(data.meta?.fecha_inicio, data.meta?.fecha_fin)}
           </Text>
 
         </VStack>

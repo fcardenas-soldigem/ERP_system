@@ -110,19 +110,24 @@ const RentabilidadSection = ({ rentabilidad }) => {
     ventas_mes, ventas_mes_desglose, costo_ventas_mes, utilidad_bruta, margen_bruto_pct,
     semaforo_margen, vs_mes_anterior_pct, por_producto = [], nota,
     tiene_gastos_registrados, gastos_operativos, utilidad_neta, margen_neto_pct,
+    sin_datos_costo,
   } = rentabilidad;
 
-  const isUp    = vs_mes_anterior_pct >= 0;
+  // Sin costos registrados: margen/utilidad vienen null — estado vacío neutro,
+  // nunca 0.0% ni mensajes de "subió/bajó".
+  const sinCostos  = sin_datos_costo === true || margen_bruto_pct == null;
+  const tieneComparativo = vs_mes_anterior_pct != null;
+  const isUp    = (vs_mes_anterior_pct ?? 0) >= 0;
   const mc      = MARGEN[semaforo_margen] ?? MARGEN.amarillo;
   const maxUtil = Math.max(...por_producto.map(p => p.utilidad), 1);
 
   // "De cada S/100 que vendes, te quedan S/X.XX"
   const gananciaCada100 = fmt(margen_bruto_pct, 2);
 
-  // Insight por margen
-  const insightMargen = isUp
+  // Insight por margen — solo con comparativo real
+  const insightMargen = !tieneComparativo ? null : (isUp
     ? `Tu margen subió ${fmt(Math.abs(vs_mes_anterior_pct), 1)}% vs el mes pasado`
-    : `Tu margen bajó ${fmt(Math.abs(vs_mes_anterior_pct), 1)}%. Revisa precios de tus productos más vendidos`;
+    : `Tu margen bajó ${fmt(Math.abs(vs_mes_anterior_pct), 1)}%. Revisa precios de tus productos más vendidos`);
 
   // Top 3 con peor margen para el botón de acción
   const productosMenorMargen = [...por_producto].sort((a, b) => a.margen_pct - b.margen_pct).slice(0, 3);
@@ -131,13 +136,13 @@ const RentabilidadSection = ({ rentabilidad }) => {
     <Box>
       <SimpleGrid columns={{ base: 1, sm: 3 }} spacing={4} mb={6}>
 
-        {/* Ventas del mes */}
+        {/* Ventas del mes (devengo) */}
         <Box bg="white" border="1px solid" borderColor={border} borderRadius="xl" p={5}>
           <HStack mb={2} justify="space-between">
             <Text fontSize="10px" fontWeight="semibold" color="gray.400" textTransform="uppercase" letterSpacing="wider">
-              Ventas cobradas
+              Ventas del mes
             </Text>
-            <InfoTip label="Total facturado y cobrado en el período, sin IGV" />
+            <InfoTip label="Emitidas en el período (devengo); el cobro se ve en 'Cobrado este mes'" />
           </HStack>
           <MontoConsolidado
             value={ventas_mes}
@@ -147,71 +152,111 @@ const RentabilidadSection = ({ rentabilidad }) => {
             fontWeight="bold"
             color="gray.900"
           />
-          <HStack mt={1} spacing={1}>
-            <Icon as={isUp ? FiArrowUpRight : FiArrowDownRight} color={isUp ? 'green.500' : 'red.500'} boxSize="14px" />
-            <Text fontSize="xs" fontWeight="semibold" color={isUp ? 'green.500' : 'red.500'}>
-              {Math.abs(vs_mes_anterior_pct).toFixed(1)}% vs mes anterior
-            </Text>
-          </HStack>
+          {tieneComparativo && (
+            <HStack mt={1} spacing={1}>
+              <Icon as={isUp ? FiArrowUpRight : FiArrowDownRight} color={isUp ? 'green.500' : 'red.500'} boxSize="14px" />
+              <Text fontSize="xs" fontWeight="semibold" color={isUp ? 'green.500' : 'red.500'}>
+                {Math.abs(vs_mes_anterior_pct).toFixed(1)}% vs mes anterior
+              </Text>
+            </HStack>
+          )}
         </Box>
 
-        {/* Costo de lo vendido */}
-        <Box bg="white" border="1px solid" borderColor={border} borderRadius="xl" p={5}>
-          <HStack mb={2} justify="space-between">
-            <Text fontSize="10px" fontWeight="semibold" color="gray.400" textTransform="uppercase" letterSpacing="wider">
-              Lo que te costó venderlo
-            </Text>
-            <InfoTip label={nota ?? 'Estimado por precio de catálogo de cada producto'} />
-          </HStack>
-          <Text fontSize="2xl" fontWeight="bold" color="gray.700" fontVariantNumeric="tabular-nums">
-            S/ {fmtK(costo_ventas_mes)}
-          </Text>
-          <Text fontSize="xs" color="gray.400" mt={1}>Estimado por catálogo</Text>
-        </Box>
+        {sinCostos ? (
+          /* Estado vacío neutro: sin %, sin rojo/verde, con CTA */
+          <Box
+            gridColumn={{ sm: 'span 2' }}
+            bg="gray.50"
+            border="1px dashed"
+            borderColor="gray.300"
+            borderRadius="xl"
+            p={5}
+            display="flex"
+            alignItems="center"
+          >
+            <HStack justify="space-between" align="center" w="full" wrap="wrap" gap={3}>
+              <VStack align="flex-start" spacing={1}>
+                <Text fontSize="sm" fontWeight="semibold" color="gray.600">
+                  Sin datos de costo
+                </Text>
+                <Text fontSize="xs" color="gray.500">
+                  Registra el costo de tus productos para ver tu margen real
+                </Text>
+              </VStack>
+              <Button
+                size="sm"
+                variant="outline"
+                colorScheme="gray"
+                rightIcon={<FiExternalLink size={12} />}
+                onClick={() => navigate('/app/inventario')}
+              >
+                Registrar costos
+              </Button>
+            </HStack>
+          </Box>
+        ) : (
+          <>
+            {/* Costo de lo vendido */}
+            <Box bg="white" border="1px solid" borderColor={border} borderRadius="xl" p={5}>
+              <HStack mb={2} justify="space-between">
+                <Text fontSize="10px" fontWeight="semibold" color="gray.400" textTransform="uppercase" letterSpacing="wider">
+                  Lo que te costó venderlo
+                </Text>
+                <InfoTip label={nota ?? 'Estimado por precio de catálogo de cada producto'} />
+              </HStack>
+              <Text fontSize="2xl" fontWeight="bold" color="gray.700" fontVariantNumeric="tabular-nums">
+                S/ {fmtK(costo_ventas_mes)}
+              </Text>
+              <Text fontSize="xs" color="gray.400" mt={1}>Estimado por catálogo</Text>
+            </Box>
 
-        {/* Margen — el KPI principal */}
-        <Box bg={mc.bg} border="1px solid" borderColor={mc.border} borderRadius="xl" p={5}>
-          <HStack mb={1} justify="space-between">
-            <Text fontSize="10px" fontWeight="semibold" color={mc.text} textTransform="uppercase" letterSpacing="wider">
-              Lo que te queda después de costos
-            </Text>
-            <InfoTip label={`De cada S/100 que vendes, S/${gananciaCada100} es tuyo después de pagar lo que vendiste. El resto son costos.`} />
-          </HStack>
+            {/* Margen — el KPI principal */}
+            <Box bg={mc.bg} border="1px solid" borderColor={mc.border} borderRadius="xl" p={5}>
+              <HStack mb={1} justify="space-between">
+                <Text fontSize="10px" fontWeight="semibold" color={mc.text} textTransform="uppercase" letterSpacing="wider">
+                  Lo que te queda después de costos
+                </Text>
+                <InfoTip label={`De cada S/100 que vendes, S/${gananciaCada100} es tuyo después de pagar lo que vendiste. El resto son costos. Solo líneas con costo registrado.`} />
+              </HStack>
 
-          <Text fontSize="2xl" fontWeight="bold" color={mc.text} fontVariantNumeric="tabular-nums" mt={1}>
-            S/{gananciaCada100} de cada S/100
-          </Text>
+              <Text fontSize="2xl" fontWeight="bold" color={mc.text} fontVariantNumeric="tabular-nums" mt={1}>
+                S/{gananciaCada100} de cada S/100
+              </Text>
 
-          <Text fontSize="10px" color={mc.text} opacity={0.7} mt={0.5}>
-            Margen bruto: {fmt(margen_bruto_pct, 1)}% · Utilidad: S/ {fmtK(utilidad_bruta)}
-          </Text>
+              <Text fontSize="10px" color={mc.text} opacity={0.7} mt={0.5}>
+                Margen bruto: {fmt(margen_bruto_pct, 1)}% · Utilidad: S/ {fmtK(utilidad_bruta)}
+              </Text>
 
-          <Progress value={margen_bruto_pct} max={100} size="xs" mt={3} borderRadius="full"
-            sx={{ '& > div': { background: mc.bar, borderRadius: 'full' } }} />
+              <Progress value={margen_bruto_pct ?? 0} max={100} size="xs" mt={3} borderRadius="full"
+                sx={{ '& > div': { background: mc.bar, borderRadius: 'full' } }} />
 
-          <HStack mt={2} spacing={1.5}>
-            <Icon
-              as={isUp ? FiArrowUpRight : FiAlertTriangle}
-              color={isUp ? 'green.500' : mc.text}
-              boxSize="12px"
-            />
-            <Text fontSize="xs" color={isUp ? 'green.600' : mc.text} fontWeight="medium">
-              {insightMargen}
-            </Text>
-          </HStack>
-        </Box>
+              {insightMargen && (
+                <HStack mt={2} spacing={1.5}>
+                  <Icon
+                    as={isUp ? FiArrowUpRight : FiAlertTriangle}
+                    color={isUp ? 'green.500' : mc.text}
+                    boxSize="12px"
+                  />
+                  <Text fontSize="xs" color={isUp ? 'green.600' : mc.text} fontWeight="medium">
+                    {insightMargen}
+                  </Text>
+                </HStack>
+              )}
+            </Box>
+          </>
+        )}
 
       </SimpleGrid>
 
-      {/* ── Cascada de utilidades ── */}
-      {tiene_gastos_registrados ? (
+      {/* ── Cascada de utilidades — solo con datos de costo ── */}
+      {sinCostos ? null : tiene_gastos_registrados && utilidad_neta != null ? (
         <Box mb={6}>
           <CascadaUtilidad
             ventas={ventas_mes}
             costo={costo_ventas_mes}
             utilidadBruta={utilidad_bruta}
             gastos={gastos_operativos ?? 0}
-            utilidadNeta={utilidad_neta ?? 0}
+            utilidadNeta={utilidad_neta}
             border={border}
           />
         </Box>

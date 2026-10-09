@@ -1,9 +1,9 @@
 import React from 'react';
 import {
-  Box, Flex, Text, Badge, Icon,
+  Box, Flex, Text, Badge, Icon, Tooltip,
   useColorModeValue,
 } from '@chakra-ui/react';
-import { FiArrowUpRight, FiArrowDownRight } from 'react-icons/fi';
+import { FiArrowUpRight, FiArrowDownRight, FiInfo } from 'react-icons/fi';
 import Sparkline from './Sparkline';
 
 /**
@@ -18,6 +18,7 @@ import Sparkline from './Sparkline';
  *  accentColor  string   — CSS color for sparkline
  *  alert        string?  — red badge text if urgent
  *  pulseBadge   boolean  — pulsing red dot for critical alerts
+ *  tooltip      string?  — 1-línea de contexto (ícono ⓘ junto al label)
  */
 const StatCard = ({
   label,
@@ -28,6 +29,7 @@ const StatCard = ({
   accentColor = '#3b6feb',
   alert,
   pulseBadge = false,
+  tooltip,
 }) => {
   const bg     = useColorModeValue('white', 'gray.800');
   const border = useColorModeValue('gray.100', 'gray.700');
@@ -62,15 +64,24 @@ const StatCard = ({
     >
       {/* Label row */}
       <Flex justify="space-between" align="center">
-        <Text
-          fontSize="10px"
-          fontWeight="semibold"
-          color={subCol}
-          textTransform="uppercase"
-          letterSpacing="wider"
-        >
-          {label}
-        </Text>
+        <Flex align="center" gap={1}>
+          <Text
+            fontSize="10px"
+            fontWeight="semibold"
+            color={subCol}
+            textTransform="uppercase"
+            letterSpacing="wider"
+          >
+            {label}
+          </Text>
+          {tooltip && (
+            <Tooltip hasArrow placement="top" label={tooltip} fontSize="xs">
+              <span style={{ display: 'inline-flex' }}>
+                <Icon as={FiInfo} boxSize="11px" color={subCol} aria-label={`Info: ${label}`} />
+              </span>
+            </Tooltip>
+          )}
+        </Flex>
         {pulseBadge && alert && (
           <Box position="relative" display="inline-flex">
             <Box
