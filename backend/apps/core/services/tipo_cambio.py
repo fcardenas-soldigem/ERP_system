@@ -118,6 +118,32 @@ def tipo_cambio_para_documento(moneda: str, fecha) -> Optional[Decimal]:
     return None
 
 
+def backfill_tipo_cambio(Model, *, fecha_field: str = 'fecha_emision') -> dict:
+    """
+    Backfill idempotente: rellena tipo_cambio en documentos que lo tienen null.
+    - PEN → 1.0 (bulk, sin red).
+    - USD → TC histórico por fecha_emision, UNA llamada por fecha distinta
+      (muchos documentos comparten fecha). Si una fecha no tiene dato, el
+      servicio ya retrocede al día hábil anterior. Si la API falla del todo,
+      se deja null y se reintentará en la próxima corrida (idempotente).
+
+    Apto para RunPython: recibe el modelo (histórico o real). Con tablas vacías
+    (p.ej. en tests) no hace ninguna llamada de red.
+    """
+    pendientes = Model.objects.filter(tipo_cambio__isnull=True)
+    n_pen = pendientes.filter(moneda='PEN').update(tipo_cambio=Decimal('1.0'))
+
+    usd = pendientes.filter(moneda='USD')
+    dias = usd.values_list(fecha_field, flat=True).distinct()
+    n_usd = 0
+    for dia in dias:
+        fecha = dia or date.today()
+        tc = get_tc_venta(fecha)
+        if tc is not None:
+            n_usd += usd.filter(**{fecha_field: dia}).update(tipo_cambio=tc)
+    return {'pen': n_pen, 'usd': n_usd}
+
+
 class TipoCambioMixin:
     """
     Comportamiento compartido para documentos con moneda + fecha_emision.
