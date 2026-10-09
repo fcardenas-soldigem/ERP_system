@@ -5,9 +5,10 @@ from django.conf import settings
 from apps.empresas.models import Empresa
 from apps.ventas.models import Cliente
 from apps.inventario.models import Producto
+from apps.core.services.tipo_cambio import TipoCambioMixin
 
 
-class Cotizacion(models.Model):
+class Cotizacion(TipoCambioMixin, models.Model):
     """
     Modelo para gestionar cotizaciones de productos/servicios
     """
@@ -60,7 +61,12 @@ class Cotizacion(models.Model):
     # Estado y moneda
     estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default='borrador')
     moneda = models.CharField(max_length=3, choices=MONEDA_CHOICES, default='PEN')
-    
+    tipo_cambio = models.DecimalField(
+        max_digits=10, decimal_places=4, null=True, blank=True,
+        verbose_name='Tipo de cambio',
+        help_text='TC venta SBS de la fecha de emisión. PEN = 1.0. Se fija al emitir y no cambia.'
+    )
+
     # Valores monetarios
     subtotal = models.DecimalField(
         max_digits=12,
@@ -236,6 +242,7 @@ class Cotizacion(models.Model):
             self.numero = self._siguiente_numero()
 
     def save(self, *args, **kwargs):
+        self.asegurar_tipo_cambio()
         from apps.core.numbering import guardar_con_numero
         guardar_con_numero(
             self, self._siguiente_numero,

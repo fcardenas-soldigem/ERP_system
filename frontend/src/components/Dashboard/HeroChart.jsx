@@ -7,6 +7,7 @@ import {
   ResponsiveContainer, AreaChart, Area, XAxis, Tooltip,
 } from 'recharts';
 import { api } from '../../lib/api';
+import MontoConsolidado from '../common/MontoConsolidado';
 
 const PERIODS = [
   { label: '7D',  mode: 'weekly' },
@@ -110,16 +111,15 @@ const HeroChart = ({ resumen }) => {
     return () => { cancelled = true; };
   }, [period]);
 
-  // ── Compute trend from data: compare second half vs first half ────────────
-  const { isPositive, totalFromData } = useMemo(() => {
-    if (!data.length) return { isPositive: true, totalFromData: 0 };
-    const mid  = Math.floor(data.length / 2);
+  // ── Tendencia (dirección de la línea): compara 2ª mitad vs 1ª mitad.
+  // NO suma montos para mostrarlos: el total mostrado viene del backend
+  // (resumen.ventas.total, ya consolidado a PEN con el TC por documento).
+  const isPositive = useMemo(() => {
+    if (!data.length) return true;
+    const mid    = Math.floor(data.length / 2);
     const first  = data.slice(0, mid).reduce((s, d) => s + d.value, 0);
     const second = data.slice(mid).reduce((s, d) => s + d.value, 0);
-    return {
-      isPositive: second >= first,
-      totalFromData: data.reduce((s, d) => s + d.value, 0),
-    };
+    return second >= first;
   }, [data]);
 
   const lineColor = isPositive ? '#22c55e' : '#ef4444';
@@ -158,16 +158,13 @@ const HeroChart = ({ resumen }) => {
           >
             Ventas del mes
           </Text>
-          <Text
+          <MontoConsolidado
+            value={displayValue}
+            desglose={hovered !== null ? null : ventas.desglose}
             fontSize="3xl"
             fontWeight="bold"
             color={lineColor}
-            fontVariantNumeric="tabular-nums"
-            lineHeight="1"
-            transition="color 0.3s"
-          >
-            S/ {Number(displayValue).toLocaleString('es-PE', { minimumFractionDigits: 2 })}
-          </Text>
+          />
           <Text fontSize="xs" color="gray.400" mt={1}>
             {cantidad} transacciones este mes
           </Text>

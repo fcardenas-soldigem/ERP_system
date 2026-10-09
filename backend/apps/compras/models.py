@@ -12,6 +12,7 @@ from django.core.exceptions import ValidationError
 import os
 from django.utils import timezone
 from datetime import date, timedelta
+from apps.core.services.tipo_cambio import TipoCambioMixin
 from django.core.validators import MinValueValidator, MaxValueValidator
 
 logger = logging.getLogger(__name__)
@@ -55,7 +56,7 @@ class Proveedor(models.Model):
         self.full_clean()
         super().save(*args, **kwargs)
 
-class Compra(models.Model):
+class Compra(TipoCambioMixin, models.Model):
     ESTADO_CHOICES = [
         ('borrador', 'Borrador'),
         ('pendiente', 'Pendiente'),
@@ -152,6 +153,11 @@ class Compra(models.Model):
         choices=MONEDA_CHOICES,
         default='PEN',
         verbose_name='Moneda'
+    )
+    tipo_cambio = models.DecimalField(
+        max_digits=10, decimal_places=4, null=True, blank=True,
+        verbose_name='Tipo de cambio',
+        help_text='TC venta SBS de la fecha de emisión. PEN = 1.0. Se fija al emitir y no cambia.'
     )
 
     # Campos adicionales
@@ -287,6 +293,8 @@ class Compra(models.Model):
                     self.metodo_pago = 'efectivo'
                     self.estado = 'pagada'
             # Si hay pagos reales, el estado se actualizará via actualizar_estado_pago()
+
+        self.asegurar_tipo_cambio()
 
         super().save(*args, **kwargs)
 
@@ -617,7 +625,7 @@ class ComprobantePago(models.Model):
                 os.remove(self.archivo.path)
         super().delete(*args, **kwargs)
 
-class OrdenCompra(models.Model):
+class OrdenCompra(TipoCambioMixin, models.Model):
     ESTADO_CHOICES = [
         ('borrador', 'Borrador'),
         ('enviada', 'Enviada'),
@@ -675,6 +683,11 @@ class OrdenCompra(models.Model):
         choices=MONEDA_CHOICES,
         default='USD',
         verbose_name='Moneda'
+    )
+    tipo_cambio = models.DecimalField(
+        max_digits=10, decimal_places=4, null=True, blank=True,
+        verbose_name='Tipo de cambio',
+        help_text='TC venta SBS de la fecha de emisión. PEN = 1.0. Se fija al emitir y no cambia.'
     )
     forma_pago = models.CharField(
         max_length=100,
@@ -755,6 +768,7 @@ class OrdenCompra(models.Model):
         return '000001'
 
     def save(self, *args, **kwargs):
+        self.asegurar_tipo_cambio()
         from apps.core.numbering import guardar_con_numero
         guardar_con_numero(
             self, self._siguiente_numero,
@@ -846,7 +860,7 @@ class RecepcionCompra(models.Model):
             self.orden.estado = 'aprobada'
             self.orden.save()
 
-class OrdenServicioCompra(models.Model):
+class OrdenServicioCompra(TipoCambioMixin, models.Model):
     """
     Orden de Compra de Servicio (reparaciones) emitida a un PROVEEDOR.
 
@@ -887,6 +901,11 @@ class OrdenServicioCompra(models.Model):
     fecha_entrega = models.DateField(null=True, blank=True)
     estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default='borrador')
     moneda = models.CharField(max_length=3, choices=MONEDA_CHOICES, default='USD')
+    tipo_cambio = models.DecimalField(
+        max_digits=10, decimal_places=4, null=True, blank=True,
+        verbose_name='Tipo de cambio',
+        help_text='TC venta SBS de la fecha de emisión. PEN = 1.0. Se fija al emitir y no cambia.'
+    )
     forma_pago = models.CharField(max_length=100, blank=True, null=True)
     referencia = models.CharField(max_length=200, blank=True, null=True)
 
@@ -933,6 +952,7 @@ class OrdenServicioCompra(models.Model):
             raise ValidationError('La orden debe tener una empresa asignada')
 
     def save(self, *args, **kwargs):
+        self.asegurar_tipo_cambio()
         from apps.core.numbering import guardar_con_numero
         guardar_con_numero(
             self, lambda: self.generar_numero(self.empresa),

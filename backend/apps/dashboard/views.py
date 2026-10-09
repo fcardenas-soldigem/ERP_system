@@ -6,8 +6,9 @@ from apps.compras.models import OrdenCompra, Proveedor, Compra
 from apps.inventario.models.producto import Producto
 from apps.inventario.models.stock import Stock
 from apps.core.services.documento_service import DocumentoService
+from apps.core.services.tipo_cambio import desglose_pen, get_tc_actual
 from django.core.cache import cache
-from django.db.models import Sum, Count, F, Q, ExpressionWrapper, DecimalField
+from django.db.models import Sum, Count, F, Q, ExpressionWrapper, DecimalField, Case, When, Value
 from django.utils import timezone
 from django.shortcuts import render
 from rest_framework.permissions import IsAuthenticated
@@ -55,6 +56,25 @@ def convertir_a_pen(monto, moneda, tipo_cambio):
     else:  # PEN o cualquier otra
         return float(monto)
 
+
+def _pen_expr(fallback_tc, campo='total'):
+    """
+    Expresión SQL que valoriza un documento a PEN usando SU tipo_cambio guardado
+    (TC histórico de su fecha_emision). Si falta: PEN→×1, USD→×fallback_tc.
+    Para usar en annotate()/aggregate() y agrupar en la propia BD.
+    """
+    return Case(
+        When(tipo_cambio__isnull=False, then=F(campo) * F('tipo_cambio')),
+        When(moneda='PEN', then=F(campo)),
+        default=F(campo) * Value(fallback_tc),
+        output_field=DecimalField(max_digits=18, decimal_places=4),
+    )
+
+
+def _total_pen(qs, campo='total', fallback_tc=None):
+    """Total consolidado a PEN con el TC por documento."""
+    return desglose_pen(qs, campo, fallback_tc=fallback_tc)['total_pen']
+
 class DashboardResumen(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -91,30 +111,26 @@ class DashboardResumen(APIView):
                 estado='pagado'
             )
             
-            # Obtener tipo de cambio del día
-            tipo_cambio = obtener_tipo_cambio_venta()
-            
-            # Calcular ventas totales convirtiendo USD a PEN
-            ventas_totales = 0.0
-            for venta in ventas:
-                monto_en_pen = convertir_a_pen(venta.total, venta.moneda, tipo_cambio)
-                ventas_totales += monto_en_pen
-            
-            logger.info(f"Ventas totales (convertidas a PEN): {ventas_totales}")
+            # TC de fallback SOLO para documentos sin tipo_cambio guardado.
+            # Las cifras usan el TC histórico guardado en cada documento.
+            fallback_tc = get_tc_actual(empresa)
 
-            # Calcular compras totales del período convirtiendo USD a PEN
+            # Ventas del mes consolidadas a PEN (TC por documento) + desglose
+            ventas_desglose = desglose_pen(ventas, 'total', fallback_tc=fallback_tc)
+            ventas_totales = ventas_desglose['total_pen']
+            logger.info(f"Ventas totales (PEN, TC por documento): {ventas_totales}")
+
+            # Compras del mes consolidadas a PEN
             compras = Compra.objects.filter(
                 empresa=empresa,
                 fecha_emision__range=(primer_dia_mes, ultimo_dia_mes),
                 estado='pagada'
             )
-            
-            compras_totales = 0.0
-            for compra in compras:
-                monto_en_pen = convertir_a_pen(compra.total, compra.moneda, tipo_cambio)
-                compras_totales += monto_en_pen
-            
-            logger.info(f"Compras totales (convertidas a PEN): {compras_totales}")
+            compras_desglose = desglose_pen(compras, 'total', fallback_tc=fallback_tc)
+            compras_totales = compras_desglose['total_pen']
+            logger.info(f"Compras totales (PEN, TC por documento): {compras_totales}")
+
+            tipo_cambio = fallback_tc  # compat: valor mostrado como TC de referencia
 
             # Calcular utilidad bruta = Ventas - Compras (antes de impuestos)
             # Convertir ventas y compras a valores antes de IGV
@@ -134,19 +150,10 @@ class DashboardResumen(APIView):
             margen = (utilidad_neta / ventas_sin_igv * 100) if ventas_sin_igv > 0 else 0
             logger.info(f"Margen: {margen}")
 
-            # Calcular IGV de ventas convirtiendo USD a PEN
-            igv_ventas = 0.0
-            for venta in ventas:
-                igv_en_pen = convertir_a_pen(venta.igv, venta.moneda, tipo_cambio)
-                igv_ventas += igv_en_pen
-            logger.info(f"IGV ventas (convertido a PEN): {igv_ventas}")
-
-            # Calcular IGV de compras convirtiendo USD a PEN
-            igv_compras = 0.0
-            for compra in compras:
-                igv_en_pen = convertir_a_pen(compra.igv, compra.moneda, tipo_cambio)
-                igv_compras += igv_en_pen
-            logger.info(f"IGV compras (convertido a PEN): {igv_compras}")
+            # IGV consolidado a PEN (TC por documento)
+            igv_ventas = _total_pen(ventas, 'igv', fallback_tc)
+            igv_compras = _total_pen(compras, 'igv', fallback_tc)
+            logger.info(f"IGV ventas/compras (PEN): {igv_ventas} / {igv_compras}")
 
             # Obtener datos de inventario
             productos_stock = Stock.objects.filter(
@@ -164,24 +171,18 @@ class DashboardResumen(APIView):
                 stock_total__gt=0
             ).count()
 
-            # Cuentas por cobrar: ventas pendientes de pago
+            # Cuentas por cobrar: ventas pendientes de pago (PEN, TC por documento)
             ventas_pendientes = Venta.objects.filter(empresa=empresa, estado='pendiente')
-            por_cobrar = sum(
-                convertir_a_pen(v.total, v.moneda, tipo_cambio) for v in ventas_pendientes
-            )
+            por_cobrar = _total_pen(ventas_pendientes, 'total', fallback_tc)
 
             # Cuentas por pagar: compras pendientes de pago
             compras_pendientes = Compra.objects.filter(empresa=empresa, estado='pendiente')
-            por_pagar = sum(
-                convertir_a_pen(c.total, c.moneda, tipo_cambio) for c in compras_pendientes
-            )
+            por_pagar = _total_pen(compras_pendientes, 'total', fallback_tc)
 
             # Compras en borrador (no contadas en la utilidad — advertencia)
             compras_borrador = Compra.objects.filter(empresa=empresa, estado='borrador')
             compras_borrador_count = compras_borrador.count()
-            compras_borrador_total = sum(
-                convertir_a_pen(c.total, c.moneda, tipo_cambio) for c in compras_borrador
-            )
+            compras_borrador_total = _total_pen(compras_borrador, 'total', fallback_tc)
 
             # F4 #13 — Alertas operativas/comerciales.
             from apps.cotizaciones.models import Cotizacion
@@ -202,10 +203,12 @@ class DashboardResumen(APIView):
                 'ventas': {
                     'total': float(ventas_totales),
                     'cantidad': ventas.count(),
+                    'desglose': ventas_desglose,
                 },
                 'compras': {
                     'total': float(compras_totales),
                     'cantidad': compras.count(),
+                    'desglose': compras_desglose,
                 },
                 'utilidad': {
                     'total': float(utilidad_neta),
@@ -238,7 +241,7 @@ class DashboardResumen(APIView):
                 'tipo_cambio': {
                     'valor': tipo_cambio,
                     'moneda_base': 'PEN',
-                    'nota': 'Todas las cifras mostradas están en soles peruanos. Las ventas/compras en USD han sido convertidas usando el tipo de cambio del día.'
+                    'nota': 'Cifras en soles. Cada documento en USD se valoriza con el tipo de cambio SBS de su fecha de emisión (histórico), no con el de hoy.'
                 }
             }
 
@@ -273,35 +276,30 @@ class DashboardStatsView(APIView):
         fecha_fin = timezone.now()
         fecha_inicio = fecha_fin - timedelta(days=days)
 
-        # Tipo de cambio: preferir el configurado en empresa, luego API del día
-        tipo_cambio = float(getattr(empresa, 'tipo_cambio_usd', None) or obtener_tipo_cambio_venta())
+        # TC de fallback; las cifras usan el TC guardado por documento.
+        fallback_tc = get_tc_actual(empresa)
+        tipo_cambio = float(fallback_tc)
 
-        # Fetch all ventas and compras in range at once (evita 60 queries en el loop)
         fecha_inicio_date = fecha_inicio.date()
         fecha_fin_date = fecha_fin.date()
 
-        todas_ventas = Venta.objects.filter(
-            empresa=empresa,
-            fecha_emision__range=(fecha_inicio_date, fecha_fin_date),
-            estado='pagado',
-        ).values('fecha_emision', 'moneda', 'total')
-
-        todas_compras = Compra.objects.filter(
-            empresa=empresa,
-            fecha_emision__range=(fecha_inicio_date, fecha_fin_date),
-            estado='pagada',
-        ).values('fecha_emision', 'moneda', 'total')
-
-        # Build date→PEN total dicts
-        ventas_por_fecha = {}
-        for v in todas_ventas:
-            dia = v['fecha_emision']
-            ventas_por_fecha[dia] = ventas_por_fecha.get(dia, 0.0) + convertir_a_pen(v['total'], v['moneda'], tipo_cambio)
-
-        compras_por_fecha = {}
-        for c in todas_compras:
-            dia = c['fecha_emision']
-            compras_por_fecha[dia] = compras_por_fecha.get(dia, 0.0) + convertir_a_pen(c['total'], c['moneda'], tipo_cambio)
+        # Agrupar por fecha en la BD valorizando cada documento a PEN con su TC
+        ventas_por_fecha = {
+            r['fecha_emision']: float(r['t'] or 0)
+            for r in Venta.objects.filter(
+                empresa=empresa,
+                fecha_emision__range=(fecha_inicio_date, fecha_fin_date),
+                estado='pagado',
+            ).values('fecha_emision').annotate(t=Sum(_pen_expr(fallback_tc)))
+        }
+        compras_por_fecha = {
+            r['fecha_emision']: float(r['t'] or 0)
+            for r in Compra.objects.filter(
+                empresa=empresa,
+                fecha_emision__range=(fecha_inicio_date, fecha_fin_date),
+                estado='pagada',
+            ).values('fecha_emision').annotate(t=Sum(_pen_expr(fallback_tc)))
+        }
 
         labels = []
         ventas_data = []
@@ -331,24 +329,21 @@ class DashboardResumenView(APIView):
         if cached:
             return Response(cached)
 
-        tipo_cambio = float(getattr(empresa, 'tipo_cambio_usd', None) or obtener_tipo_cambio_venta())
+        fallback_tc = get_tc_actual(empresa)
+        tipo_cambio = float(fallback_tc)
 
-        def _sum_con_conversion(qs, campo):
-            """Suma un campo monetario agrupando por moneda y convirtiendo a PEN."""
-            pen = float(qs.filter(moneda='PEN').aggregate(t=Sum(campo, output_field=FloatField()))['t'] or 0)
-            usd = float(qs.filter(moneda='USD').aggregate(t=Sum(campo, output_field=FloatField()))['t'] or 0)
-            return pen + usd * tipo_cambio
-
-        # Ventas históricas
+        # Ventas históricas — consolidadas con el TC guardado por documento
         ventas = Venta.objects.filter(empresa=empresa, estado='pagado')
-        total_ventas = _sum_con_conversion(ventas, 'total')
-        total_igv_ventas = _sum_con_conversion(ventas, 'igv')
+        ventas_desglose = desglose_pen(ventas, 'total', fallback_tc=fallback_tc)
+        total_ventas = ventas_desglose['total_pen']
+        total_igv_ventas = _total_pen(ventas, 'igv', fallback_tc)
         cantidad_ventas = ventas.count()
 
         # Compras históricas
         compras = Compra.objects.filter(empresa=empresa, estado='pagada')
-        total_compras = _sum_con_conversion(compras, 'total')
-        total_igv_compras = _sum_con_conversion(compras, 'igv')
+        compras_desglose = desglose_pen(compras, 'total', fallback_tc=fallback_tc)
+        total_compras = compras_desglose['total_pen']
+        total_igv_compras = _total_pen(compras, 'igv', fallback_tc)
         cantidad_compras = compras.count()
 
         # Productos en stock
@@ -375,18 +370,18 @@ class DashboardResumenView(APIView):
 
         # Cuentas por cobrar / pagar reales (pendientes de pago)
         ventas_pendientes_h = Venta.objects.filter(empresa=empresa, estado='pendiente')
-        por_cobrar_h = float(_sum_con_conversion(ventas_pendientes_h, 'total'))
+        por_cobrar_h = float(_total_pen(ventas_pendientes_h, 'total', fallback_tc))
         compras_pendientes_h = Compra.objects.filter(empresa=empresa, estado='pendiente')
-        por_pagar_h = float(_sum_con_conversion(compras_pendientes_h, 'total'))
+        por_pagar_h = float(_total_pen(compras_pendientes_h, 'total', fallback_tc))
         compras_borrador_h = Compra.objects.filter(empresa=empresa, estado='borrador')
         compras_borrador_count_h = compras_borrador_h.count()
-        compras_borrador_total_h = float(_sum_con_conversion(compras_borrador_h, 'total'))
+        compras_borrador_total_h = float(_total_pen(compras_borrador_h, 'total', fallback_tc))
 
         logger.info('DashboardResumenView — ventas=%s compras=%s tc=%s', total_ventas, total_compras, tipo_cambio)
 
         payload = {
-            'ventas': {'total': total_ventas, 'cantidad': cantidad_ventas},
-            'compras': {'total': total_compras, 'cantidad': cantidad_compras},
+            'ventas': {'total': total_ventas, 'cantidad': cantidad_ventas, 'desglose': ventas_desglose},
+            'compras': {'total': total_compras, 'cantidad': cantidad_compras, 'desglose': compras_desglose},
             'utilidad': {
                 'total': utilidad_bruta,
                 'margen': round(margen, 2),
@@ -427,15 +422,15 @@ def get_dashboard_stats(request):
 
     fecha_30_dias = datetime.now() - timedelta(days=30)
     try:
-        total_compras = Compra.objects.filter(
-            empresa=empresa,
-            fecha_emision__gte=fecha_30_dias
-        ).aggregate(total=Sum('total'))['total'] or 0
-
-        total_ventas = Venta.objects.filter(
-            empresa=empresa,
-            fecha_emision__gte=fecha_30_dias
-        ).aggregate(total=Sum('total'))['total'] or 0
+        fallback_tc = get_tc_actual(empresa)
+        total_compras = _total_pen(
+            Compra.objects.filter(empresa=empresa, fecha_emision__gte=fecha_30_dias),
+            'total', fallback_tc,
+        )
+        total_ventas = _total_pen(
+            Venta.objects.filter(empresa=empresa, fecha_emision__gte=fecha_30_dias),
+            'total', fallback_tc,
+        )
 
         data = {
             'total_compras': float(total_compras),
@@ -476,19 +471,14 @@ class UtilityDashboardView(APIView):
             prev_start_date = datetime(prev_year, prev_month, 1)
             prev_end_date = datetime(prev_year, prev_month, prev_last_day, 23, 59, 59)
 
-            # Tipo de cambio configurable (empresa) con fallback a API del día
-            tipo_cambio = float(getattr(empresa, 'tipo_cambio_usd', None) or obtener_tipo_cambio_venta())
+            # TC de fallback; las cifras usan el TC guardado por documento.
+            fallback_tc = get_tc_actual(empresa)
+            tipo_cambio = float(fallback_tc)
 
-            def _total_pen(qs_class, filters, tc):
-                """Suma total convirtiendo USD a PEN."""
-                pen = float(qs_class.objects.filter(**filters, moneda='PEN').aggregate(t=Sum('total', output_field=FloatField()))['t'] or 0)
-                usd = float(qs_class.objects.filter(**filters, moneda='USD').aggregate(t=Sum('total', output_field=FloatField()))['t'] or 0)
-                return pen + usd * tc
-
-            ventas_mes = _total_pen(Venta, {'empresa': empresa, 'fecha_emision__range': (start_date, end_date), 'estado': 'pagado'}, tipo_cambio)
-            ventas_mes_anterior = _total_pen(Venta, {'empresa': empresa, 'fecha_emision__range': (prev_start_date, prev_end_date), 'estado': 'pagado'}, tipo_cambio)
-            compras_mes = _total_pen(Compra, {'empresa': empresa, 'fecha_emision__range': (start_date, end_date), 'estado': 'pagada'}, tipo_cambio)
-            compras_mes_anterior = _total_pen(Compra, {'empresa': empresa, 'fecha_emision__range': (prev_start_date, prev_end_date), 'estado': 'pagada'}, tipo_cambio)
+            ventas_mes = _total_pen(Venta.objects.filter(empresa=empresa, fecha_emision__range=(start_date, end_date), estado='pagado'), 'total', fallback_tc)
+            ventas_mes_anterior = _total_pen(Venta.objects.filter(empresa=empresa, fecha_emision__range=(prev_start_date, prev_end_date), estado='pagado'), 'total', fallback_tc)
+            compras_mes = _total_pen(Compra.objects.filter(empresa=empresa, fecha_emision__range=(start_date, end_date), estado='pagada'), 'total', fallback_tc)
+            compras_mes_anterior = _total_pen(Compra.objects.filter(empresa=empresa, fecha_emision__range=(prev_start_date, prev_end_date), estado='pagada'), 'total', fallback_tc)
 
             # Calcular utilidad (ventas - compras antes de IGV)
             utilidad_mes = (ventas_mes / 1.18) - (compras_mes / 1.18)
@@ -506,28 +496,22 @@ class UtilityDashboardView(APIView):
             compras_diarias = []
             utilidades_diarias = []
 
-            # Pre-fetch all ventas/compras del mes para evitar N queries en el loop
-            todas_ventas_mes = Venta.objects.filter(
-                empresa=empresa,
-                fecha_emision__range=(start_date, end_date),
-                estado='pagado',
-            ).values('fecha_emision', 'moneda', 'total')
-
-            todas_compras_mes = Compra.objects.filter(
-                empresa=empresa,
-                fecha_emision__range=(start_date, end_date),
-                estado='pagada',
-            ).values('fecha_emision', 'moneda', 'total')
-
+            # Agrupar por día en la BD valorizando cada documento con su TC
             ventas_por_dia = {}
-            for v in todas_ventas_mes:
-                d = v['fecha_emision'].day if hasattr(v['fecha_emision'], 'day') else v['fecha_emision']
-                ventas_por_dia[d] = ventas_por_dia.get(d, 0.0) + convertir_a_pen(v['total'], v['moneda'], tipo_cambio)
+            for r in Venta.objects.filter(
+                empresa=empresa, fecha_emision__range=(start_date, end_date), estado='pagado',
+            ).values('fecha_emision').annotate(t=Sum(_pen_expr(fallback_tc))):
+                f = r['fecha_emision']
+                d = f.day if hasattr(f, 'day') else f
+                ventas_por_dia[d] = ventas_por_dia.get(d, 0.0) + float(r['t'] or 0)
 
             compras_por_dia = {}
-            for c in todas_compras_mes:
-                d = c['fecha_emision'].day if hasattr(c['fecha_emision'], 'day') else c['fecha_emision']
-                compras_por_dia[d] = compras_por_dia.get(d, 0.0) + convertir_a_pen(c['total'], c['moneda'], tipo_cambio)
+            for r in Compra.objects.filter(
+                empresa=empresa, fecha_emision__range=(start_date, end_date), estado='pagada',
+            ).values('fecha_emision').annotate(t=Sum(_pen_expr(fallback_tc))):
+                f = r['fecha_emision']
+                d = f.day if hasattr(f, 'day') else f
+                compras_por_dia[d] = compras_por_dia.get(d, 0.0) + float(r['t'] or 0)
 
             for dia in range(1, last_day + 1):
                 dias_mes.append(dia)
@@ -565,21 +549,21 @@ class IGVDashboardView(APIView):
         hoy = timezone.now()
         hace_30_dias = hoy - timedelta(days=30)
 
-        # Calcular IGV de ventas
+        fallback_tc = get_tc_actual(empresa)
+        # IGV consolidado a PEN (TC por documento)
         ventas = Venta.objects.filter(
             empresa=empresa,
             fecha_emision__gte=hace_30_dias,
             estado='pagado'
         )
-        igv_ventas = sum(venta.igv or Decimal('0.0') for venta in ventas)
+        igv_ventas = _total_pen(ventas, 'igv', fallback_tc)
 
-        # Calcular IGV de compras
         compras = Compra.objects.filter(
             empresa=empresa,
             fecha_emision__gte=hace_30_dias,
             estado='pagada'
         )
-        igv_compras = sum(compra.igv or Decimal('0.0') for compra in compras)
+        igv_compras = _total_pen(compras, 'igv', fallback_tc)
 
         # IGV por pagar = IGV ventas - IGV compras
         igv_por_pagar = igv_ventas - igv_compras
@@ -597,37 +581,21 @@ class VentasAnualView(APIView):
         """Obtiene datos de ventas por mes para un año específico"""
         year = int(request.GET.get('year', datetime.now().year))
         empresa = request.user.empresa
-        
-        # Obtener tipo de cambio del día
-        tipo_cambio = obtener_tipo_cambio_venta()
-        
-        # Crear estructura de datos mensuales
+
+        fallback_tc = get_tc_actual(empresa)
+        tipo_cambio = float(fallback_tc)
+
         months = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
                   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
-        
-        ventas_data = []
-        
-        # Generar datos para cada mes del año
-        for month in range(1, 13):
-            # Calcular el primer y último día del mes
-            _, last_day = monthrange(year, month)
-            start_date = datetime(year, month, 1)
-            end_date = datetime(year, month, last_day, 23, 59, 59)
-            
-            # Obtener ventas del mes
-            ventas_mes = Venta.objects.filter(
-                empresa=empresa,
-                fecha_emision__range=(start_date, end_date),
-                estado='pagado'
-            )
-            
-            # Calcular total convirtiendo USD a PEN
-            total_mes = 0.0
-            for venta in ventas_mes:
-                monto_en_pen = convertir_a_pen(venta.total, venta.moneda, tipo_cambio)
-                total_mes += monto_en_pen
-            
-            ventas_data.append(float(total_mes))
+
+        # Agrupar por mes en la BD, valorizando cada venta con su TC histórico
+        por_mes = {
+            r['m']: float(r['t'] or 0)
+            for r in Venta.objects.filter(
+                empresa=empresa, fecha_emision__year=year, estado='pagado',
+            ).annotate(m=ExtractMonth('fecha_emision')).values('m').annotate(t=Sum(_pen_expr(fallback_tc)))
+        }
+        ventas_data = [por_mes.get(m, 0.0) for m in range(1, 13)]
 
         return Response({
             'labels': months,
@@ -643,37 +611,20 @@ class ComprasAnualView(APIView):
         """Obtiene datos de compras por mes para un año específico"""
         year = int(request.GET.get('year', datetime.now().year))
         empresa = request.user.empresa
-        
-        # Obtener tipo de cambio del día
-        tipo_cambio = obtener_tipo_cambio_venta()
-        
-        # Crear estructura de datos mensuales
+
+        fallback_tc = get_tc_actual(empresa)
+        tipo_cambio = float(fallback_tc)
+
         months = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
                   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
-        
-        compras_data = []
-        
-        # Generar datos para cada mes del año
-        for month in range(1, 13):
-            # Calcular el primer y último día del mes
-            _, last_day = monthrange(year, month)
-            start_date = datetime(year, month, 1)
-            end_date = datetime(year, month, last_day, 23, 59, 59)
-            
-            # Obtener compras del mes
-            compras_mes = Compra.objects.filter(
-                empresa=empresa,
-                fecha_emision__range=(start_date, end_date),
-                estado='pagada'
-            )
-            
-            # Calcular total convirtiendo USD a PEN
-            total_mes = 0.0
-            for compra in compras_mes:
-                monto_en_pen = convertir_a_pen(compra.total, compra.moneda, tipo_cambio)
-                total_mes += monto_en_pen
-            
-            compras_data.append(float(total_mes))
+
+        por_mes = {
+            r['m']: float(r['t'] or 0)
+            for r in Compra.objects.filter(
+                empresa=empresa, fecha_emision__year=year, estado='pagada',
+            ).annotate(m=ExtractMonth('fecha_emision')).values('m').annotate(t=Sum(_pen_expr(fallback_tc)))
+        }
+        compras_data = [por_mes.get(m, 0.0) for m in range(1, 13)]
 
         return Response({
             'labels': months,
@@ -689,59 +640,29 @@ class UtilidadAnualView(APIView):
         """Obtiene datos de utilidad por mes para un año específico"""
         year = int(request.GET.get('year', datetime.now().year))
         empresa = request.user.empresa
-        
-        # Obtener tipo de cambio del día
-        tipo_cambio = obtener_tipo_cambio_venta()
-        
-        # Crear estructura de datos mensuales
+
+        fallback_tc = get_tc_actual(empresa)
+        tipo_cambio = float(fallback_tc)
+
         months = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
                   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
-        
-        utilidades_data = []
-        ventas_data = []
-        compras_data = []
-        
-        # Generar datos para cada mes del año
-        for month in range(1, 13):
-            # Calcular el primer y último día del mes
-            _, last_day = monthrange(year, month)
-            start_date = datetime(year, month, 1)
-            end_date = datetime(year, month, last_day, 23, 59, 59)
-            
-            # Obtener ventas del mes
-            ventas_mes = Venta.objects.filter(
-                empresa=empresa,
-                fecha_emision__range=(start_date, end_date),
-                estado='pagado'
-            )
-            
-            # Calcular total de ventas convirtiendo USD a PEN
-            total_ventas_mes = 0.0
-            for venta in ventas_mes:
-                monto_en_pen = convertir_a_pen(venta.total, venta.moneda, tipo_cambio)
-                total_ventas_mes += monto_en_pen
-            
-            # Obtener compras del mes
-            compras_mes = Compra.objects.filter(
-                empresa=empresa,
-                fecha_emision__range=(start_date, end_date),
-                estado='pagada'
-            )
-            
-            # Calcular total de compras convirtiendo USD a PEN
-            total_compras_mes = 0.0
-            for compra in compras_mes:
-                monto_en_pen = convertir_a_pen(compra.total, compra.moneda, tipo_cambio)
-                total_compras_mes += monto_en_pen
-            
-            # Calcular utilidad (ventas - compras antes de IGV)
-            ventas_sin_igv = total_ventas_mes / 1.18
-            compras_sin_igv = total_compras_mes / 1.18
-            utilidad_mes = ventas_sin_igv - compras_sin_igv
-            
-            utilidades_data.append(float(utilidad_mes))
-            ventas_data.append(float(total_ventas_mes))
-            compras_data.append(float(total_compras_mes))
+
+        ventas_por_mes = {
+            r['m']: float(r['t'] or 0)
+            for r in Venta.objects.filter(
+                empresa=empresa, fecha_emision__year=year, estado='pagado',
+            ).annotate(m=ExtractMonth('fecha_emision')).values('m').annotate(t=Sum(_pen_expr(fallback_tc)))
+        }
+        compras_por_mes = {
+            r['m']: float(r['t'] or 0)
+            for r in Compra.objects.filter(
+                empresa=empresa, fecha_emision__year=year, estado='pagada',
+            ).annotate(m=ExtractMonth('fecha_emision')).values('m').annotate(t=Sum(_pen_expr(fallback_tc)))
+        }
+
+        ventas_data = [ventas_por_mes.get(m, 0.0) for m in range(1, 13)]
+        compras_data = [compras_por_mes.get(m, 0.0) for m in range(1, 13)]
+        utilidades_data = [round((v / 1.18) - (c / 1.18), 2) for v, c in zip(ventas_data, compras_data)]
 
         return Response({
             'labels': months,
@@ -760,35 +681,22 @@ class VentasMensualView(APIView):
         year = int(request.GET.get('year', datetime.now().year))
         month = int(request.GET.get('month', datetime.now().month))
         empresa = request.user.empresa
-        
-        # Obtener tipo de cambio del día
-        tipo_cambio = obtener_tipo_cambio_venta()
-        
-        # Calcular el primer y último día del mes
+
+        fallback_tc = get_tc_actual(empresa)
+        tipo_cambio = float(fallback_tc)
+
         _, last_day = monthrange(year, month)
-        
-        labels = []
-        ventas_data = []
-        
-        # Generar datos para cada día del mes
-        for day in range(1, last_day + 1):
-            fecha = datetime(year, month, day).date()
-            labels.append(f"{day:02d}")
-            
-            # Obtener ventas del día
-            ventas_dia = Venta.objects.filter(
-                empresa=empresa,
-                fecha_emision=fecha,
-                estado='pagado'
-            )
-            
-            # Calcular total convirtiendo USD a PEN
-            total_dia = 0.0
-            for venta in ventas_dia:
-                monto_en_pen = convertir_a_pen(venta.total, venta.moneda, tipo_cambio)
-                total_dia += monto_en_pen
-                
-            ventas_data.append(float(total_dia))
+
+        # Agrupar por día en la BD valorizando cada venta con su TC histórico
+        por_dia = {}
+        for r in Venta.objects.filter(
+            empresa=empresa, fecha_emision__year=year, fecha_emision__month=month, estado='pagado',
+        ).values('fecha_emision').annotate(t=Sum(_pen_expr(fallback_tc))):
+            f = r['fecha_emision']
+            por_dia[f.day if hasattr(f, 'day') else f] = float(r['t'] or 0)
+
+        labels = [f"{day:02d}" for day in range(1, last_day + 1)]
+        ventas_data = [por_dia.get(day, 0.0) for day in range(1, last_day + 1)]
 
         return Response({
             'labels': labels,

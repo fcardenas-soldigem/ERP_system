@@ -26,6 +26,7 @@ from apps.ventas.models import Venta, DetalleVenta, PagoVenta, Cliente
 from apps.compras.models import Compra, CompraDetalle, PagoCompra
 from apps.inventario.models.producto import Producto
 from apps.inventario.models.stock import Stock
+from apps.core.services.tipo_cambio import desglose_pen
 
 logger = logging.getLogger(__name__)
 
@@ -50,10 +51,17 @@ class FinanzasService:
         return monto
 
     def _sum_pen(self, qs, campo: str) -> Decimal:
-        """Suma un campo monetario de un queryset con conversión por moneda."""
-        pen = qs.filter(moneda='PEN').aggregate(t=Sum(campo, output_field=DecimalField()))['t'] or Decimal('0')
-        usd = qs.filter(moneda='USD').aggregate(t=Sum(campo, output_field=DecimalField()))['t'] or Decimal('0')
-        return Decimal(str(pen)) + Decimal(str(usd)) * self.tipo_cambio_usd
+        """
+        Suma un campo monetario consolidando a PEN con el TC guardado por
+        documento (histórico de su fecha_emision). Solo cae al TC actual
+        (tipo_cambio_usd) para documentos sin TC guardado.
+        """
+        d = desglose_pen(qs, campo, fallback_tc=self.tipo_cambio_usd)
+        return Decimal(str(d['total_pen']))
+
+    def _desglose(self, qs, campo: str) -> dict:
+        """Desglose {pen, usd, tc_promedio, tiene_usd, tc_estimado} para el tooltip."""
+        return desglose_pen(qs, campo, fallback_tc=self.tipo_cambio_usd)
 
     # ──────────────────────────────────────────────────────────────────────────
     # FLUJO DE CAJA
@@ -301,8 +309,8 @@ class FinanzasService:
 
         return {
             'ventas_mes': float(ventas_neto),           # neto sin IGV
-            'ventas_mes_con_igv': float(ventas_qs.aggregate(  # para referencia
-                t=Sum('total', output_field=DecimalField()))['t'] or 0),
+            'ventas_mes_desglose': self._desglose(ventas_qs, 'subtotal'),
+            'ventas_mes_con_igv': float(self._sum_pen(ventas_qs, 'total')),  # ref, en PEN
             'costo_ventas_mes': float(cogs),
             'utilidad_bruta': float(utilidad_bruta),
             'margen_bruto_pct': round(margen_bruto_pct, 1),
@@ -582,6 +590,7 @@ class FinanzasService:
         return {
             'revenue_growth_pct': round(revenue_growth_pct, 1),
             'ventas_mes': float(total_actual),
+            'ventas_mes_desglose': self._desglose(ventas_actual_qs, 'total'),
             'ventas_anterior': float(total_anterior),
             'transacciones_mes': count_actual,
             'transacciones_anterior': count_anterior,

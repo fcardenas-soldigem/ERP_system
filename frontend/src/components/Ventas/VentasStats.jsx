@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Heading, Spinner, Table, Thead, Tbody, Tr, Th, Td } from '@chakra-ui/react';
 import { dashboardService } from '../../services/dashboard.service';
+import { formatPEN } from '../common/MontoConsolidado';
 
 const VentasStats = () => {
   const [ventas, setVentas] = useState([]);
@@ -32,7 +33,7 @@ const VentasStats = () => {
           {ventas.map((venta, idx) => (
             <Tr key={idx}>
               <Td>{venta.fecha}</Td>
-              <Td isNumeric>S/ {venta.total}</Td>
+              <Td isNumeric>{formatPEN(venta.total)}</Td>
             </Tr>
           ))}
         </Tbody>

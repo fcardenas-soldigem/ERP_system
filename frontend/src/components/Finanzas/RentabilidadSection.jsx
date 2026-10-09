@@ -5,6 +5,7 @@ import {
 } from '@chakra-ui/react';
 import { FiArrowUpRight, FiArrowDownRight, FiInfo, FiAlertTriangle, FiExternalLink } from 'react-icons/fi';
 import { useNavigate } from 'react-router-dom';
+import MontoConsolidado from '../common/MontoConsolidado';
 
 const fmt  = (n, d = 2) => Number(n ?? 0).toLocaleString('es-PE', { minimumFractionDigits: d, maximumFractionDigits: d });
 const fmtK = (n) => Number(n ?? 0).toLocaleString('es-PE', { maximumFractionDigits: 0 });
@@ -106,7 +107,7 @@ const RentabilidadSection = ({ rentabilidad }) => {
   if (!rentabilidad) return null;
 
   const {
-    ventas_mes, costo_ventas_mes, utilidad_bruta, margen_bruto_pct,
+    ventas_mes, ventas_mes_desglose, costo_ventas_mes, utilidad_bruta, margen_bruto_pct,
     semaforo_margen, vs_mes_anterior_pct, por_producto = [], nota,
     tiene_gastos_registrados, gastos_operativos, utilidad_neta, margen_neto_pct,
   } = rentabilidad;
@@ -138,9 +139,14 @@ const RentabilidadSection = ({ rentabilidad }) => {
             </Text>
             <InfoTip label="Total facturado y cobrado en el período, sin IGV" />
           </HStack>
-          <Text fontSize="2xl" fontWeight="bold" color="gray.900" fontVariantNumeric="tabular-nums">
-            S/ {fmtK(ventas_mes)}
-          </Text>
+          <MontoConsolidado
+            value={ventas_mes}
+            desglose={ventas_mes_desglose}
+            decimals={0}
+            fontSize="2xl"
+            fontWeight="bold"
+            color="gray.900"
+          />
           <HStack mt={1} spacing={1}>
             <Icon as={isUp ? FiArrowUpRight : FiArrowDownRight} color={isUp ? 'green.500' : 'red.500'} boxSize="14px" />
             <Text fontSize="xs" fontWeight="semibold" color={isUp ? 'green.500' : 'red.500'}>
@@ -205,7 +211,7 @@ const RentabilidadSection = ({ rentabilidad }) => {
             costo={costo_ventas_mes}
             utilidadBruta={utilidad_bruta}
             gastos={gastos_operativos ?? 0}
-            utilidadNeta={utilidad_neta ?? (utilidad_bruta - (gastos_operativos ?? 0))}
+            utilidadNeta={utilidad_neta ?? 0}
             border={border}
           />
         </Box>

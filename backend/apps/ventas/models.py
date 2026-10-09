@@ -7,6 +7,7 @@ from apps.inventario.models.stock import Stock
 from apps.inventario.models.inventario_productos_terminados import InventarioProductosTerminados
 from apps.inventario.models.inventario_materias_primas import InventarioMateriasPrimas
 from apps.inventario.models.movimiento_inventario import MovimientoInventario
+from apps.core.services.tipo_cambio import TipoCambioMixin
 from decimal import Decimal
 from django.db import transaction
 from django.core.exceptions import ValidationError
@@ -75,7 +76,7 @@ class ComprobantePago(models.Model):
                 os.remove(self.archivo.path)
         super().delete(*args, **kwargs)
 
-class Venta(models.Model):
+class Venta(TipoCambioMixin, models.Model):
     ESTADO_CHOICES = [
         ('borrador', 'Borrador'),
         ('pendiente', 'Pendiente'),
@@ -155,6 +156,11 @@ class Venta(models.Model):
         default='PEN',
         verbose_name='Moneda'
     )
+    tipo_cambio = models.DecimalField(
+        max_digits=10, decimal_places=4, null=True, blank=True,
+        verbose_name='Tipo de cambio',
+        help_text='TC venta SBS de la fecha de emisión. PEN = 1.0. Se fija al emitir y no cambia.'
+    )
     notas = models.TextField(blank=True)
     referencia = models.CharField(max_length=100, blank=True)
     comprobante = models.FileField(upload_to='comprobantes/', null=True, blank=True)
@@ -220,6 +226,8 @@ class Venta(models.Model):
             dias = int(self.tipo_venta.split('_')[1])
             if not self.fecha_vencimiento:
                 self.fecha_vencimiento = self.fecha_emision + timezone.timedelta(days=dias)
+
+        self.asegurar_tipo_cambio()
 
         from apps.core.numbering import guardar_con_numero
         guardar_con_numero(
