@@ -3,10 +3,9 @@ import {
   Box, SimpleGrid, Text, HStack, VStack, Icon,
   Tooltip as ChakraTooltip, useColorModeValue,
 } from '@chakra-ui/react';
-import { FiArrowUpRight, FiArrowDownRight, FiUsers, FiShoppingCart, FiTrendingUp, FiStar } from 'react-icons/fi';
+import { FiArrowUpRight, FiArrowDownRight, FiUsers, FiShoppingCart, FiTrendingUp } from 'react-icons/fi';
 import MontoConsolidado, { formatPEN } from '../common/MontoConsolidado';
 
-const fmt  = (n, d = 2) => Number(n ?? 0).toLocaleString('es-PE', { minimumFractionDigits: d, maximumFractionDigits: d });
 const fmtI = (n) => Number(n ?? 0).toLocaleString('es-PE', { maximumFractionDigits: 0 });
 
 const DeltaBadge = ({ pct }) => {
@@ -55,20 +54,21 @@ const CrecimientoSection = ({ crecimiento }) => {
     nuevos_clientes,
   } = crecimiento;
 
-  const txVariacion = transacciones_anterior > 0
-    ? ((transacciones_mes - transacciones_anterior) / transacciones_anterior * 100)
-    : 0;
-
   return (
-    <SimpleGrid columns={{ base: 1, sm: 2, lg: 4 }} spacing={4}>
+    <SimpleGrid columns={{ base: 1, sm: 3 }} spacing={4}>
 
+      {/* La cantidad de ventas vive aquí como sub-línea — la card
+          "Ventas que hiciste" se eliminó por duplicar esta métrica */}
       <CrecCard
         icono={FiTrendingUp}
         titulo="Tus ventas crecieron"
         valor={`${revenue_growth_pct >= 0 ? '+' : ''}${revenue_growth_pct.toFixed(1)}%`}
-        sub={<><MontoConsolidado value={ventas_mes} desglose={ventas_mes_desglose} decimals={0} fontSize="xs" /> este mes vs {formatPEN(ventas_anterior, 0)} el anterior</>}
+        sub={<>
+          <MontoConsolidado value={ventas_mes} desglose={ventas_mes_desglose} decimals={0} fontSize="xs" /> este mes vs {formatPEN(ventas_anterior, 0)} el anterior
+          {' · '}{fmtI(transacciones_mes)} venta{transacciones_mes === 1 ? '' : 's'} vs {fmtI(transacciones_anterior)}
+        </>}
         delta={revenue_growth_pct}
-        tooltip="Cuánto más (o menos) vendiste vs el mes anterior"
+        tooltip="Ventas emitidas (devengo) vs el mes anterior"
       />
 
       <CrecCard
@@ -78,15 +78,6 @@ const CrecimientoSection = ({ crecimiento }) => {
         sub={`El mes pasado: ${formatPEN(ticket_promedio_anterior, 0)}`}
         delta={ticket_variacion_pct}
         tooltip="Cuánto gasta cada cliente en promedio por visita. Sube cuando vendes más o productos más caros."
-      />
-
-      <CrecCard
-        icono={FiShoppingCart}
-        titulo="Ventas que hiciste"
-        valor={fmtI(transacciones_mes)}
-        sub={`${fmtI(transacciones_anterior)} el mes pasado`}
-        delta={txVariacion}
-        tooltip="Cuántas ventas cobraste en el período"
       />
 
       <CrecCard

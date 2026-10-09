@@ -5,19 +5,23 @@ import {
   FaPlus, FaShoppingCart, FaBox, FaFileInvoice,
   FaMoneyBillWave, FaWarehouse, FaTruck,
 } from 'react-icons/fa';
+import { useModoInventario } from '../../hooks/useModoInventario';
 
+// requiereStock: acciones de inventario, ocultas para empresas sin_stock
 const ACTIONS = [
   { label: 'Nueva Venta',      icon: FaPlus,           path: '/app/ventas/nueva',        color: '#3b6feb' },
   { label: 'Nueva Compra',     icon: FaShoppingCart,   path: '/app/compras/nueva',        color: '#7c3aed' },
-  { label: 'Nuevo Producto',   icon: FaBox,            path: '/app/inventario/nuevo',     color: '#0891b2' },
+  { label: 'Nuevo Producto',   icon: FaBox,            path: '/app/inventario/nuevo',     color: '#0891b2', requiereStock: true },
   { label: 'Nueva Cotización', icon: FaFileInvoice,    path: '/app/cotizaciones/nueva',   color: '#059669' },
   { label: 'Registrar Cobro',  icon: FaMoneyBillWave,  path: '/app/cuentas/por-cobrar',   color: '#d97706' },
   { label: 'Nueva Guía',       icon: FaTruck,          path: '/app/guias/nueva',          color: '#0e7490' },
-  { label: 'Ver Inventario',   icon: FaWarehouse,      path: '/app/inventario',           color: '#64748b' },
+  { label: 'Ver Inventario',   icon: FaWarehouse,      path: '/app/inventario',           color: '#64748b', requiereStock: true },
 ];
 
 const QuickActions = () => {
   const navigate = useNavigate();
+  const { conStock } = useModoInventario();
+  const acciones = ACTIONS.filter(a => !a.requiereStock || conStock);
   // Match the Dashboard background so the fade blends correctly (F-008 fix)
   const dashBg = useColorModeValue('gray.50', 'gray.900');
 
@@ -48,7 +52,7 @@ const QuickActions = () => {
           scrollbarWidth: 'none',
         }}
       >
-        {ACTIONS.map(({ label, icon, path, color }) => (
+        {acciones.map(({ label, icon, path, color }) => (
           <Flex
             key={label}
             as="button"

@@ -4,7 +4,7 @@ import {
 } from '@chakra-ui/react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../lib/api';
-import { formatPEN } from '../common/MontoConsolidado';
+import { formatPEN, composicionTexto } from '../common/MontoConsolidado';
 
 // Dashboard sub-components
 import QuickActions       from './QuickActions';
@@ -120,8 +120,11 @@ const Dashboard = () => {
   if (isLoading) return <DashboardSkeleton />;
 
   const v      = resumen?.ventas    ?? {};
+  const cobros = resumen?.cobros    ?? {};
   const c      = resumen?.compras   ?? {};
   const u      = resumen?.utilidad  ?? {};
+  // inventario === null ⇒ empresa sin_stock: no se renderiza nada de inventario
+  const manejaStock = resumen?.inventario != null;
   const ig     = resumen?.impuestos ?? {};
   const iv     = resumen?.inventario ?? {};
   const cuentas = resumen?.cuentas  ?? {};
@@ -140,7 +143,20 @@ const Dashboard = () => {
     ? `Margen neto ${resumenFinanzas?.margen_neto_pct ?? 0}%`
     : `Utilidad bruta* · sin gastos op.`;
 
+  // Tooltip de "Cobrado este mes": composición S/+$ cuando hay cobros en USD
+  const cobrosTooltip = cobros?.desglose?.tiene_usd
+    ? `Dinero que entró este mes, al TC de cada venta · ${composicionTexto(cobros.desglose)}`
+    : 'Dinero que entró este mes, al TC de cada venta';
+
   const statCards = [
+    {
+      label:       'Cobrado este mes',
+      value:       `${formatPEN(cobros.total ?? 0)}`,
+      sub:         'Pagos recibidos (caja)',
+      tooltip:     cobrosTooltip,
+      sparkData:   [],
+      accentColor: '#0891b2',
+    },
     {
       label:       'Por cobrar',
       value:       `${formatPEN(cuentas.por_cobrar ?? 0)}`,
@@ -163,7 +179,8 @@ const Dashboard = () => {
       trend:       hayGastos ? (resumenFinanzas?.margen_neto_pct ?? undefined) : (u.margen ?? undefined),
       accentColor: '#22c55e',
     },
-    {
+    // Stock SOLO para empresas que manejan inventario (sin_stock ⇒ inventario null)
+    ...(manejaStock ? [{
       label:      'Stock crítico',
       value:      `${fmtI(iv.total_productos ?? 0)} productos`,
       sub:        `${fmtI(iv.total_cantidad ?? 0)} unidades totales`,
@@ -171,7 +188,7 @@ const Dashboard = () => {
       alert:      stockNum > 0 ? `${stockNum} bajo mínimo` : undefined,
       pulseBadge: stockNum > 0,
       accentColor:'#ef4444',
-    },
+    }] : []),
   ];
 
   const alerts = buildAlerts(resumen);

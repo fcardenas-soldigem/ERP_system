@@ -1,9 +1,10 @@
 import React, { useMemo } from 'react';
-import { formatPEN } from '../common/MontoConsolidado';
+import MontoConsolidado, { formatPEN } from '../common/MontoConsolidado';
 import {
-  Box, Flex, Text, SimpleGrid, Tooltip as ChakraTooltip,
+  Box, Flex, Text, SimpleGrid, Tooltip as ChakraTooltip, Icon,
   useColorModeValue,
 } from '@chakra-ui/react';
+import { FiInfo } from 'react-icons/fi';
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, Tooltip, ReferenceLine,
 } from 'recharts';
@@ -25,16 +26,18 @@ const CustomTooltip = ({ active, payload }) => {
   );
 };
 
-const MetaCard = ({ label, value, sub, color = 'gray.700', tooltip }) => {
+const MetaCard = ({ label, value, valueNode, sub, color = 'gray.700', tooltip }) => {
   const border = useColorModeValue('gray.100', 'gray.700');
   const card = (
     <Box bg="white" border="1px solid" borderColor={border} borderRadius="lg" p={4}>
       <Text fontSize="10px" fontWeight="semibold" color="gray.400" textTransform="uppercase" letterSpacing="wider" mb={2}>
         {label}
       </Text>
-      <Text fontSize="xl" fontWeight="bold" color={color} fontVariantNumeric="tabular-nums">
-        {value}
-      </Text>
+      {valueNode ?? (
+        <Text fontSize="xl" fontWeight="bold" color={color} fontVariantNumeric="tabular-nums">
+          {value}
+        </Text>
+      )}
       {sub && <Text fontSize="xs" color="gray.400" mt={1}>{sub}</Text>}
     </Box>
   );
@@ -58,9 +61,19 @@ const FlujoCajaChart = ({ flujo }) => {
     <Box bg="white" border="1px solid" borderColor={border} borderRadius="xl" p={6} mb={6}>
       <Flex justify="space-between" align="flex-start" mb={4} wrap="wrap" gap={3}>
         <Box>
-          <Text fontSize="10px" fontWeight="semibold" color="gray.400" textTransform="uppercase" letterSpacing="wider" mb={1}>
-            Lo que cobras menos lo que pagas este mes
-          </Text>
+          <Flex align="center" gap={1} mb={1}>
+            <Text fontSize="10px" fontWeight="semibold" color="gray.400" textTransform="uppercase" letterSpacing="wider">
+              Lo que cobras menos lo que pagas este mes
+            </Text>
+            <ChakraTooltip
+              hasArrow placement="top" fontSize="xs"
+              label="Caja: pagos recibidos y realizados en el período (al TC de cada documento)"
+            >
+              <span style={{ display: 'inline-flex' }}>
+                <Icon as={FiInfo} boxSize="11px" color="gray.400" aria-label="Criterio de caja" />
+              </span>
+            </ChakraTooltip>
+          </Flex>
           <Text fontSize="3xl" fontWeight="bold" color={isPositive ? 'green.600' : 'red.500'} fontVariantNumeric="tabular-nums" lineHeight="1">
             {formatPEN(saldo_actual)}
           </Text>
@@ -96,9 +109,17 @@ const FlujoCajaChart = ({ flujo }) => {
       <SimpleGrid columns={{ base: 2, md: 4 }} spacing={3}>
         <MetaCard
           label="Entraron de clientes"
-          value={`${formatPEN(cobros_periodo)}`}
+          valueNode={
+            <MontoConsolidado
+              value={cobros_periodo}
+              desglose={flujo.cobros_desglose}
+              fontSize="xl"
+              fontWeight="bold"
+              color="green.600"
+            />
+          }
           color="green.600"
-          tooltip="Total que cobraste de tus clientes en este período"
+          tooltip="Total que cobraste de tus clientes en este período, al TC de cada venta"
         />
         <MetaCard
           label="Salieron a proveedores"

@@ -1,8 +1,10 @@
 import React, { useState, useMemo } from 'react';
 import {
-  Box, Flex, Text, HStack, Button, Skeleton,
+  Box, Flex, Text, HStack, Button, Skeleton, Icon,
+  Tooltip as ChakraTooltip,
   useColorModeValue,
 } from '@chakra-ui/react';
+import { FiInfo } from 'react-icons/fi';
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, Tooltip,
 } from 'recharts';
@@ -148,16 +150,27 @@ const HeroChart = ({ resumen }) => {
         mb={1}
       >
         <Box>
-          <Text
-            fontSize="10px"
-            fontWeight="semibold"
-            color="gray.400"
-            textTransform="uppercase"
-            letterSpacing="wider"
-            mb={1}
-          >
-            Ventas del mes
-          </Text>
+          <Flex align="center" gap={1} mb={1}>
+            <Text
+              fontSize="10px"
+              fontWeight="semibold"
+              color="gray.400"
+              textTransform="uppercase"
+              letterSpacing="wider"
+            >
+              Ventas del mes
+            </Text>
+            <ChakraTooltip
+              hasArrow
+              placement="top"
+              fontSize="xs"
+              label="Ventas emitidas este mes (incluye pendientes de cobro)"
+            >
+              <span style={{ display: 'inline-flex' }}>
+                <Icon as={FiInfo} boxSize="11px" color="gray.400" aria-label="Criterio de ventas" />
+              </span>
+            </ChakraTooltip>
+          </Flex>
           <MontoConsolidado
             value={displayValue}
             desglose={hovered !== null ? null : ventas.desglose}

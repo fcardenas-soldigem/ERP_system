@@ -27,8 +27,16 @@ from apps.compras.models import Compra, CompraDetalle, PagoCompra
 from apps.inventario.models.producto import Producto
 from apps.inventario.models.stock import Stock
 from apps.core.services.tipo_cambio import desglose_pen
+from apps.dashboard.services.metricas import MetricasService, ESTADOS_EXCLUIDOS_VENTA
 
 logger = logging.getLogger(__name__)
+
+# Nombres de mes en español — strftime('%B') depende del locale del server
+# (en prod sale "October"). Fuente única para fechas legibles del backend.
+MESES_ES = {
+    1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril', 5: 'Mayo', 6: 'Junio',
+    7: 'Julio', 8: 'Agosto', 9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre',
+}
 
 
 class FinanzasService:
@@ -42,6 +50,8 @@ class FinanzasService:
         self.tipo_cambio_usd = (
             Decimal(str(getattr(empresa, 'tipo_cambio_usd', None) or tipo_cambio_usd or '3.70'))
         )
+        # Único servicio de métricas (devengo/caja) — mismas cifras que Dashboard.
+        self.metricas = MetricasService(empresa, fecha_inicio, fecha_fin)
 
     def _pen(self, monto, moneda: str) -> Decimal:
         """Convierte monto a PEN según la moneda. PEN → sin cambio. USD → × tipo_cambio_usd."""
@@ -75,50 +85,49 @@ class FinanzasService:
         Proyección 30 días = saldo_actual + cuentas_por_cobrar_vigentes
                            - cuentas_por_pagar_vigentes
         """
-        # Cobros realizados en el período
-        cobros = PagoVenta.objects.filter(
-            venta__empresa=self.empresa,
-            fecha__range=(self.fecha_inicio, self.fecha_fin),
-        ).exclude(metodo_pago='pendiente').aggregate(
-            total=Sum('monto', output_field=DecimalField())
-        )['total'] or Decimal('0')
+        # COBROS del período en PEN — cada pago valorizado con el TC de SU venta
+        # (PagoVenta no tiene moneda propia: hereda la de la venta).
+        cobros_info = self.metricas.cobros()
+        cobros = Decimal(str(cobros_info['total_pen']))
 
-        # Pagos realizados en el período
-        pagos = PagoCompra.objects.filter(
-            compra__empresa=self.empresa,
-            fecha__range=(self.fecha_inicio, self.fecha_fin),
-        ).exclude(metodo_pago='pendiente').aggregate(
-            total=Sum('monto', output_field=DecimalField())
-        )['total'] or Decimal('0')
+        # PAGOS a proveedores en PEN — PagoCompra PEN tal cual; USD × compra.tipo_cambio.
+        pagos = self.metricas.pagos_proveedores()
 
         saldo_actual = cobros - pagos
 
-        # Cuentas por cobrar vigentes (no vencidas o pendientes)
+        # Cuentas por cobrar vigentes, saldo valorizado al TC de cada venta
         cxc_pendiente = Venta.objects.filter(
             empresa=self.empresa,
             estado='pendiente',
             tipo_venta__in=['credito_30', 'credito_60'],
         ).aggregate(
-            total=Sum(F('total') - F('pagos_total'), output_field=DecimalField())
+            total=Sum(
+                (F('total') - F('pagos_total')) * Case(
+                    When(tipo_cambio__isnull=False, then=F('tipo_cambio')),
+                    When(moneda='PEN', then=Value(Decimal('1.0'))),
+                    default=Value(self.tipo_cambio_usd),
+                    output_field=DecimalField(max_digits=18, decimal_places=4),
+                ),
+                output_field=DecimalField(max_digits=18, decimal_places=4),
+            )
         )['total'] or Decimal('0')
 
-        # Cuentas por pagar vigentes
-        cxp_pendiente = Compra.objects.filter(
+        # Cuentas por pagar vigentes (PEN, TC por documento)
+        cxp_qs = Compra.objects.filter(
             empresa=self.empresa,
             estado='pendiente',
             tipo_compra__in=['credito_30', 'credito_60'],
-        ).aggregate(
-            total=Sum('total', output_field=DecimalField())
-        )['total'] or Decimal('0')
+        )
+        cxp_pendiente = Decimal(str(desglose_pen(cxp_qs, 'total', fallback_tc=self.tipo_cambio_usd)['total_pen']))
 
-        # Descuento los pagos ya realizados de compras crédito
+        # Descuento los pagos ya realizados de compras crédito (PEN)
         cxp_pagado = PagoCompra.objects.filter(
             compra__empresa=self.empresa,
             compra__estado='pendiente',
         ).exclude(metodo_pago='pendiente').aggregate(
-            total=Sum('monto', output_field=DecimalField())
+            total=Sum(self.metricas._pago_compra_pen_expr())
         )['total'] or Decimal('0')
-        cxp_real = max(Decimal('0'), cxp_pendiente - cxp_pagado)
+        cxp_real = max(Decimal('0'), cxp_pendiente - Decimal(str(cxp_pagado)))
 
         proyeccion_30 = saldo_actual + cxc_pendiente - cxp_real
 
@@ -128,6 +137,7 @@ class FinanzasService:
         return {
             'saldo_actual': float(saldo_actual),
             'cobros_periodo': float(cobros),
+            'cobros_desglose': cobros_info,   # {pen, usd, tc_promedio, tiene_usd, ...}
             'pagos_periodo': float(pagos),
             'proyeccion_30_dias': float(proyeccion_30),
             'cxc_pendiente': float(cxc_pendiente),
@@ -144,33 +154,9 @@ class FinanzasService:
         Construye el array de saldo acumulado día a día para el gráfico.
         Agrupa PagoVenta y PagoCompra por fecha y va acumulando.
         """
-        cobros_diarios = (
-            PagoVenta.objects
-            .filter(
-                venta__empresa=self.empresa,
-                fecha__range=(self.fecha_inicio, self.fecha_fin),
-            )
-            .exclude(metodo_pago='pendiente')
-            .values('fecha')
-            .annotate(total=Sum('monto', output_field=DecimalField()))
-            .order_by('fecha')
-        )
-
-        pagos_diarios = (
-            PagoCompra.objects
-            .filter(
-                compra__empresa=self.empresa,
-                fecha__range=(self.fecha_inicio, self.fecha_fin),
-            )
-            .exclude(metodo_pago='pendiente')
-            .values('fecha')
-            .annotate(total=Sum('monto', output_field=DecimalField()))
-            .order_by('fecha')
-        )
-
-        # Build lookup dicts
-        cobros_map = {r['fecha']: r['total'] for r in cobros_diarios}
-        pagos_map  = {r['fecha']: r['total'] for r in pagos_diarios}
+        # En PEN: cada pago valorizado con el TC de su documento (nunca el monto crudo)
+        cobros_map = self.metricas.cobros_por_fecha()
+        pagos_map  = self.metricas.pagos_por_fecha()
 
         # Walk every day in range
         resultado = []
@@ -205,34 +191,23 @@ class FinanzasService:
         Usamos Venta.subtotal que el modelo siempre almacena como base imponible neta,
         independientemente de si igv_incluido=True/False (ver Venta.actualizar_totales).
         """
-        ventas_qs = Venta.objects.filter(
-            empresa=self.empresa,
-            estado='pagado',
-            fecha_emision__range=(self.fecha_inicio, self.fecha_fin),
-        )
+        # VENTAS del período por DEVENGO (emitidas, sin borrador/anulado)
+        ventas_qs = self.metricas.ventas_qs()
 
-        # subtotal = base imponible neta sin IGV — convertido a PEN por moneda
+        # subtotal = base imponible neta sin IGV — PEN con TC por documento
         ventas_neto = self._sum_pen(ventas_qs, 'subtotal')
 
-        # COGS desde DetalleVenta — precio_compra ya es precio sin IGV
-        cogs = (
-            DetalleVenta.objects
-            .filter(
-                venta__empresa=self.empresa,
-                venta__estado='pagado',
-                venta__fecha_emision__range=(self.fecha_inicio, self.fecha_fin),
-            )
-            .select_related('producto')
-            .aggregate(
-                cogs=Sum(
-                    F('cantidad') * F('producto__precio_compra'),
-                    output_field=DecimalField()
-                )
-            )['cogs'] or Decimal('0')
-        )
-
-        utilidad_bruta = ventas_neto - cogs
-        margen_bruto_pct = float((utilidad_bruta / ventas_neto * 100) if ventas_neto > 0 else 0)
+        # MARGEN: solo sobre líneas con costo registrado. None = sin datos de
+        # costo → el frontend muestra estado vacío, nunca 0% ni semáforo.
+        margen_info = self.metricas.margen()
+        if margen_info is not None:
+            cogs = Decimal(str(margen_info['cogs']))
+            utilidad_bruta = Decimal(str(margen_info['utilidad_bruta']))
+            margen_bruto_pct = margen_info['margen_bruto_pct']
+        else:
+            cogs = Decimal('0')
+            utilidad_bruta = None
+            margen_bruto_pct = None
 
         # Gastos operativos del período
         from apps.finanzas.models import GastoOperativo
@@ -245,45 +220,39 @@ class FinanzasService:
             (g.monto * self.tipo_cambio_usd if g.moneda == 'USD' else g.monto)
             for g in gastos_qs
         )
-        utilidad_neta = utilidad_bruta - gastos_pen
-        margen_neto_pct = float((utilidad_neta / ventas_neto * 100) if ventas_neto > 0 else 0)
         tiene_gastos = gastos_qs.exists()
+        if utilidad_bruta is not None:
+            utilidad_neta = utilidad_bruta - gastos_pen
+            margen_neto_pct = float((utilidad_neta / ventas_neto * 100) if ventas_neto > 0 else 0)
+        else:
+            # Sin datos de costo: no hay utilidad calculable, no inventamos 0%.
+            utilidad_neta = None
+            margen_neto_pct = None
 
-        # Semáforo de margen
-        if margen_bruto_pct >= 30:
+        # Semáforo de margen — 'sin_datos' cuando no hay costos registrados
+        if margen_bruto_pct is None:
+            semaforo_margen = 'sin_datos'
+        elif margen_bruto_pct >= 30:
             semaforo_margen = 'verde'
         elif margen_bruto_pct >= 15:
             semaforo_margen = 'amarillo'
         else:
             semaforo_margen = 'rojo'
 
-        # Mes anterior para comparativo — también usa subtotal (neto sin IGV), convertido a PEN
+        # Mes anterior para comparativo — devengo, margen solo con costos
         mes_ant_inicio, mes_ant_fin = self._mes_anterior()
-        ventas_ant_qs = Venta.objects.filter(
-            empresa=self.empresa,
-            estado='pagado',
-            fecha_emision__range=(mes_ant_inicio, mes_ant_fin),
-        )
+        ventas_ant_qs = self.metricas.ventas_qs(mes_ant_inicio, mes_ant_fin)
         ventas_anterior_neto = self._sum_pen(ventas_ant_qs, 'subtotal')
 
-        cogs_anterior = (
-            DetalleVenta.objects
-            .filter(
-                venta__empresa=self.empresa,
-                venta__estado='pagado',
-                venta__fecha_emision__range=(mes_ant_inicio, mes_ant_fin),
-            )
-            .select_related('producto')
-            .aggregate(
-                cogs=Sum(F('cantidad') * F('producto__precio_compra'), output_field=DecimalField())
-            )['cogs'] or Decimal('0')
-        )
-        utilidad_anterior = ventas_anterior_neto - cogs_anterior
+        margen_ant = self.metricas.margen(mes_ant_inicio, mes_ant_fin)
+        utilidad_anterior = Decimal(str(margen_ant['utilidad_bruta'])) if margen_ant else None
 
-        vs_mes_anterior_pct = float(
-            ((utilidad_bruta - utilidad_anterior) / utilidad_anterior * 100)
-            if utilidad_anterior != 0 else 0
-        )
+        # Comparativo SOLO si ambos meses tienen datos de costo — sin datos,
+        # nada de "subió/bajó".
+        if utilidad_bruta is not None and utilidad_anterior not in (None, 0):
+            vs_mes_anterior_pct = float((utilidad_bruta - utilidad_anterior) / utilidad_anterior * 100)
+        else:
+            vs_mes_anterior_pct = None
 
         # Top productos por margen
         por_producto = self._rentabilidad_por_producto()
@@ -308,34 +277,37 @@ class FinanzasService:
                 })
 
         return {
-            'ventas_mes': float(ventas_neto),           # neto sin IGV
+            'ventas_mes': float(ventas_neto),           # neto sin IGV, DEVENGO
             'ventas_mes_desglose': self._desglose(ventas_qs, 'subtotal'),
             'ventas_mes_con_igv': float(self._sum_pen(ventas_qs, 'total')),  # ref, en PEN
+            'criterio_ventas': 'devengo',
             'costo_ventas_mes': float(cogs),
-            'utilidad_bruta': float(utilidad_bruta),
-            'margen_bruto_pct': round(margen_bruto_pct, 1),
+            'utilidad_bruta': float(utilidad_bruta) if utilidad_bruta is not None else None,
+            'margen_bruto_pct': round(margen_bruto_pct, 1) if margen_bruto_pct is not None else None,
+            'sin_datos_costo': margen_info is None,
             'semaforo_margen': semaforo_margen,
-            'vs_mes_anterior_pct': round(vs_mes_anterior_pct, 1),
+            'vs_mes_anterior_pct': round(vs_mes_anterior_pct, 1) if vs_mes_anterior_pct is not None else None,
             'ventas_anterior': float(ventas_anterior_neto),
-            'utilidad_anterior': float(utilidad_anterior),
+            'utilidad_anterior': float(utilidad_anterior) if utilidad_anterior is not None else None,
             'por_producto': por_producto,
             'gastos_operativos': float(gastos_pen),
-            'utilidad_neta': float(utilidad_neta),
-            'margen_neto_pct': round(margen_neto_pct, 1),
+            'utilidad_neta': float(utilidad_neta) if utilidad_neta is not None else None,
+            'margen_neto_pct': round(margen_neto_pct, 1) if margen_neto_pct is not None else None,
             'tiene_gastos_registrados': tiene_gastos,
             'desglose_gastos': desglose_gastos,
-            'nota': 'Ventas y márgenes calculados sobre base neta (sin IGV 18%). COGS estimado con precio de catálogo actual.',
+            'nota': 'Ventas por devengo (emitidas en el período), base neta sin IGV 18%. Margen solo sobre líneas con costo registrado.',
         }
 
     def _rentabilidad_por_producto(self) -> list:
-        """Top 10 productos por utilidad bruta en el período."""
+        """Top 10 productos por utilidad bruta en el período (devengo, solo con costo)."""
         rows = (
             DetalleVenta.objects
             .filter(
                 venta__empresa=self.empresa,
-                venta__estado='pagado',
                 venta__fecha_emision__range=(self.fecha_inicio, self.fecha_fin),
+                producto__precio_compra__gt=0,  # sin costo no hay margen que mostrar
             )
+            .exclude(venta__estado__in=ESTADOS_EXCLUIDOS_VENTA)
             .select_related('producto')
             .values('producto__id', 'producto__nombre')
             .annotate(
@@ -396,7 +368,8 @@ class FinanzasService:
         morosos = []
 
         for venta in ventas_credito:
-            saldo = venta.get_saldo_pendiente()
+            # Saldo en PEN con el TC del documento (nunca mezclar USD+PEN crudos)
+            saldo = venta.get_saldo_pendiente() * venta._tc_efectivo()
             if saldo <= 0:
                 continue
             total_pendiente += saldo
@@ -432,11 +405,9 @@ class FinanzasService:
         # DSO rolling 90 días: evita valores absurdos al inicio del mes
         # Fórmula: (CxC / Ventas_90d) × 90 — estable sin importar el día del mes
         ventana_90 = self.hoy - timedelta(days=90)
-        ventas_90d = Venta.objects.filter(
-            empresa=self.empresa,
-            estado='pagado',
-            fecha_emision__range=(ventana_90, self.hoy),
-        ).aggregate(total=Sum('subtotal', output_field=DecimalField()))['total'] or Decimal('0')
+        ventas_90d = self._sum_pen(
+            self.metricas.ventas_qs(ventana_90, self.hoy), 'subtotal',
+        )
 
         dso = int(total_pendiente / ventas_90d * 90) if ventas_90d > 0 else None
         indice_morosidad_pct = float(
@@ -481,7 +452,8 @@ class FinanzasService:
         proximos_pagos = []
 
         for compra in compras_credito:
-            saldo = compra.get_saldo_pendiente()
+            # Saldo en PEN con el TC del documento
+            saldo = compra.get_saldo_pendiente() * compra._tc_efectivo()
             if saldo <= 0:
                 continue
             total_pendiente += saldo
@@ -520,10 +492,9 @@ class FinanzasService:
         # DPO rolling 90 días: mismo principio que DSO — base estable de 90 días
         # Fórmula: (CxP / Compras_90d) × 90
         ventana_90 = self.hoy - timedelta(days=90)
-        compras_90d = Compra.objects.filter(
-            empresa=self.empresa,
-            fecha_emision__range=(ventana_90, self.hoy),
-        ).aggregate(total=Sum('total', output_field=DecimalField()))['total'] or Decimal('0')
+        compras_90d = self._sum_pen(
+            self.metricas.compras_qs(ventana_90, self.hoy), 'total',
+        )
 
         dpo = int(total_pendiente / compras_90d * 90) if compras_90d > 0 else None
 
@@ -547,21 +518,13 @@ class FinanzasService:
         """Revenue growth vs mes anterior. Ticket promedio. Nuevos clientes."""
         mes_ant_inicio, mes_ant_fin = self._mes_anterior()
 
-        # Ventas mes actual — convertidas a PEN por moneda
-        ventas_actual_qs = Venta.objects.filter(
-            empresa=self.empresa,
-            estado='pagado',
-            fecha_emision__range=(self.fecha_inicio, self.fecha_fin),
-        )
+        # Ventas mes actual — DEVENGO (emitidas, sin borrador/anulado), PEN por doc
+        ventas_actual_qs = self.metricas.ventas_qs()
         total_actual = self._sum_pen(ventas_actual_qs, 'total')
         count_actual = ventas_actual_qs.aggregate(count=Count('id'))['count'] or 0
 
-        # Ventas mes anterior — convertidas a PEN por moneda
-        ventas_ant_qs_crecimiento = Venta.objects.filter(
-            empresa=self.empresa,
-            estado='pagado',
-            fecha_emision__range=(mes_ant_inicio, mes_ant_fin),
-        )
+        # Ventas mes anterior — mismo criterio
+        ventas_ant_qs_crecimiento = self.metricas.ventas_qs(mes_ant_inicio, mes_ant_fin)
         total_anterior = self._sum_pen(ventas_ant_qs_crecimiento, 'total')
         count_anterior = ventas_ant_qs_crecimiento.aggregate(count=Count('id'))['count'] or 0
 
@@ -647,19 +610,23 @@ class FinanzasService:
         ratio_liquidez = round(numerador / denominador, 2) if denominador > 0 else 99.0
         semaforo_liquidez = 'verde' if ratio_liquidez >= 1.2 else ('amarillo' if ratio_liquidez >= 0.8 else 'rojo')
 
-        # Concentración top 3 clientes
+        # Concentración top 3 clientes — devengo, total en PEN por documento
         top3 = (
-            Venta.objects
-            .filter(
-                empresa=self.empresa,
-                estado='pagado',
-                fecha_emision__range=(self.fecha_inicio, self.fecha_fin),
-            )
+            self.metricas.ventas_qs()
             .values('cliente__nombre')
-            .annotate(total=Sum('total', output_field=DecimalField()))
+            .annotate(total=Sum(
+                F('total') * Case(
+                    When(tipo_cambio__isnull=False, then=F('tipo_cambio')),
+                    When(moneda='PEN', then=Value(Decimal('1.0'))),
+                    default=Value(self.tipo_cambio_usd),
+                    output_field=DecimalField(max_digits=18, decimal_places=4),
+                ),
+                output_field=DecimalField(max_digits=18, decimal_places=4),
+            ))
             .order_by('-total')[:3]
         )
-        ventas_mes = rent['ventas_mes'] or 1
+        # Comparar con ventas CON IGV (top3 también está con IGV)
+        ventas_mes = rent.get('ventas_mes_con_igv') or rent['ventas_mes'] or 1
         top3_total = sum(r['total'] or 0 for r in top3)
         concentracion_pct = round(float(top3_total) / ventas_mes * 100, 1)
         concentracion_alerta = concentracion_pct > 50
@@ -726,19 +693,14 @@ class FinanzasService:
         _, ultimo = monthrange(self.hoy.year, self.hoy.month)
         ultimo_dia = self.hoy.replace(day=ultimo)
 
-        ventas_mes_qs = Venta.objects.filter(
-            empresa=self.empresa,
-            fecha_emision__range=(primer_dia, ultimo_dia),
-            estado='pagado',
+        # IGV por DEVENGO: todo lo emitido en el mes (sin borrador/anulado),
+        # como lo declara SUNAT — no solo lo ya cobrado/pagado.
+        igv_ventas = self._sum_pen(
+            self.metricas.ventas_qs(primer_dia, ultimo_dia), 'igv',
         )
-        igv_ventas = self._sum_pen(ventas_mes_qs, 'igv')
-
-        compras_mes_qs = Compra.objects.filter(
-            empresa=self.empresa,
-            fecha_emision__range=(primer_dia, ultimo_dia),
-            estado='pagada',
+        igv_compras = self._sum_pen(
+            self.metricas.compras_qs(primer_dia, ultimo_dia), 'igv',
         )
-        igv_compras = self._sum_pen(compras_mes_qs, 'igv')
 
         igv_por_pagar = igv_ventas - igv_compras
 
@@ -764,7 +726,7 @@ class FinanzasService:
             'proximo_vencimiento': vencimiento.isoformat(),
             'dias_para_vencer':    dias_para_vencer,
             'estado':              estado,
-            'periodo':             primer_dia.strftime('%B %Y'),
+            'periodo':             f'{MESES_ES[primer_dia.month]} {primer_dia.year}',
         }
 
     # ──────────────────────────────────────────────────────────────────────────
