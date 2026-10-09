@@ -126,6 +126,7 @@ class Command(BaseCommand):
                     ipt.save(update_fields=['cantidad_disponible', 'cantidad_reservada'])
 
         self._seed_ventas(empresa)
+        self._seed_escenario_metricas(empresa)
 
         self.stdout.write(f'  ✓ {nombre} ({modo}): 3 proveedores, 2 clientes, 6 productos, ventas USD/PEN.')
 
@@ -159,20 +160,90 @@ class Command(BaseCommand):
 
         creadas = 0
         for ref, cliente, fecha, moneda, total in plan:
-            if Venta.objects.filter(empresa=empresa, referencia=ref).exists():
-                continue
-            v = Venta.objects.create(
-                empresa=empresa, cliente=cliente, fecha_emision=fecha,
-                tipo_venta='contado', moneda=moneda, estado='pagado',
-                metodo_pago='efectivo', referencia=ref, igv_incluido=True,
-            )
-            total_d = Decimal(total)
-            subtotal = (total_d / Decimal('1.18')).quantize(Decimal('0.01'))
-            igv = total_d - subtotal
-            # El pre_save pone totales en 0; los fijamos directo sin re-save.
-            Venta.objects.filter(id=v.id).update(
-                total=total_d, subtotal=subtotal, igv=igv, pagos_total=total_d,
-            )
-            creadas += 1
+            # delega en helper común
+            if self._crear_venta(empresa, cliente, fecha, moneda, total, 'pagado', ref):
+                creadas += 1
         if creadas:
             self.stdout.write(f'    + {creadas} ventas demo (USD/PEN, varios meses)')
+
+    def _crear_venta(self, empresa, cliente, fecha, moneda, total, estado, ref):
+        """Crea una venta con totales fijados (el pre_save los pone en 0). Idempotente por ref."""
+        from apps.ventas.models import Venta
+        from decimal import Decimal as D
+        if Venta.objects.filter(empresa=empresa, referencia=ref).exists():
+            return None
+        v = Venta.objects.create(
+            empresa=empresa, cliente=cliente, fecha_emision=fecha,
+            tipo_venta='contado', moneda=moneda, estado=estado,
+            metodo_pago='efectivo' if estado == 'pagado' else None,
+            referencia=ref, igv_incluido=True,
+        )
+        total_d = D(str(total))
+        subtotal = (total_d / D('1.18')).quantize(D('0.01'))
+        Venta.objects.filter(id=v.id).update(
+            total=total_d, subtotal=subtotal, igv=total_d - subtotal,
+            estado=estado,
+            pagos_total=total_d if estado == 'pagado' else D('0'),
+        )
+        v.refresh_from_db()
+        return v
+
+    def _seed_escenario_metricas(self, empresa):
+        """
+        Escenario QA de métricas (devengo vs caja), idempotente:
+        - 2 ventas PEN PENDIENTES emitidas este mes (cuentan en VENTAS, no en caja)
+        - 1 venta USD PAGADA el mes pasado, COBRADA este mes (cuenta en COBROS
+          de este mes al TC de la venta; en VENTAS del mes pasado)
+        - 1 compra pagada este mes
+        """
+        from datetime import timedelta
+        from apps.ventas.models import Cliente, Venta, PagoVenta
+        from apps.compras.models import Proveedor, Compra
+
+        clientes = list(Cliente.objects.filter(empresa=empresa).order_by('id')[:2])
+        if not clientes:
+            return
+        c0, c1 = clientes[0], clientes[-1]
+        hoy = date.today()
+        mes_pasado = (hoy.replace(day=1) - timedelta(days=1)).replace(day=15)
+
+        # 2 ventas PEN pendientes del mes (la evidencia del bug "S/ 0")
+        self._crear_venta(empresa, c0, hoy.replace(day=1), 'PEN', '6960.60', 'pendiente', 'SEED-QA-PEN-PEND-1')
+        self._crear_venta(empresa, c1, hoy.replace(day=1), 'PEN', '6960.60', 'pendiente', 'SEED-QA-PEN-PEND-2')
+
+        # Venta USD del mes pasado, cobrada este mes
+        v_usd = self._crear_venta(empresa, c0, mes_pasado, 'USD', '6371.68', 'pagado', 'SEED-QA-USD-COBRADA')
+        if v_usd is not None and not v_usd.pagos.exists():
+            PagoVenta.objects.create(
+                venta=v_usd, fecha=hoy.replace(day=3),
+                monto=Decimal('6371.68'), metodo_pago='transferencia',
+            )
+
+        # 1 compra pagada este mes — SOLO en la empresa con_stock: el numero de
+        # Compra tiene unique GLOBAL (no por empresa) y dos seeds colisionarian.
+        from apps.inventario.models.almacen import Almacen
+        prov = Proveedor.objects.filter(empresa=empresa).first()
+        almacen = Almacen.objects.filter(empresa=empresa).first()
+        if (empresa.modo_inventario == 'con_stock' and prov and almacen
+                and not Compra.objects.filter(empresa=empresa, referencia='SEED-QA-COMPRA').exists()):
+            comp = Compra.objects.create(
+                empresa=empresa, proveedor=prov, almacen=almacen,
+                fecha_emision=hoy.replace(day=2),
+                tipo_compra='contado', moneda='PEN', estado='pagada',
+                metodo_pago='efectivo', referencia='SEED-QA-COMPRA', igv_incluido=True,
+            )
+            Compra.objects.filter(id=comp.id).update(
+                total=Decimal('2360.00'), subtotal=Decimal('2000.00'), igv=Decimal('360.00'),
+                estado='pagada',
+            )
+            comp.refresh_from_db()
+            # Pago real para que la métrica de caja "Salieron a proveedores" tenga dato
+            from apps.compras.models import PagoCompra
+            if not comp.pagos.exists():
+                PagoCompra.objects.create(
+                    compra=comp, fecha=hoy.replace(day=2),
+                    monto=Decimal('2360.00'), moneda='PEN', metodo_pago='efectivo',
+                )
+        self.stdout.write('    + escenario QA métricas (2 PEN pendientes, 1 USD cobrada, 1 compra)')
+        return
+
