@@ -68,15 +68,22 @@ class CostoPrioridadTests(TestCase):
         self.cot = _cotizacion_con_costo(self.emp, self.cli, self.prov, self.user)
         venta = self._convertir()
 
-        # Con OC vinculada (subtotal 1200 = 2×600, sin IGV) → fuente 'oc'
+        # OC recién creada está en BORRADOR → aún no es compromiso:
+        # la fuente sigue siendo el snapshot de cotización.
+        info = venta.costo_info()
+        self.assertEqual(info['fuente'], 'cotizacion')
+        self.assertEqual(info['costo_pen'], Decimal('1200.00'))
+
+        # Aprobar la OC → fuente 'oc' (subtotal 1200 = 2×600, sin IGV)
+        oc = venta.ordenes_compra.first()
+        oc.estado = 'aprobada'
+        oc.save()
+        venta = Venta.objects.get(id=venta.id)
         info = venta.costo_info()
         self.assertEqual(info['fuente'], 'oc')
         self.assertEqual(info['costo_pen'], Decimal('1200.00'))
 
         # Registrar factura → fuente 'factura'
-        oc = venta.ordenes_compra.first()
-        oc.estado = 'aprobada'
-        oc.save()
         registrar_factura(oc, numero_factura='F001-123', fecha_factura=date.today())
         venta = Venta.objects.get(id=venta.id)
         info = venta.costo_info()

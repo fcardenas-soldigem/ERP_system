@@ -224,7 +224,9 @@ class Venta(TipoCambioMixin, models.Model):
         from apps.compras.models import Compra
 
         # 1/2 — OCs vinculadas (back-to-back). Factura le gana a OC.
-        ocs = list(self.ordenes_compra.all())
+        # Una OC en borrador aún no es compromiso de costo: mientras no se
+        # apruebe/envíe, la fuente sigue siendo el snapshot de cotización.
+        ocs = list(self.ordenes_compra.exclude(estado__in=('borrador', 'rechazada')))
         if ocs:
             total = Decimal('0')
             alguna_factura = False
