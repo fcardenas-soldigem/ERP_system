@@ -952,6 +952,43 @@ class OrdenCompraViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(empresa=self.request.user.empresa)
 
+    @action(detail=True, methods=['post'], url_path='registrar-factura')
+    def registrar_factura(self, request, pk=None):
+        """
+        POST /api/compras/ordenes/{id}/registrar-factura/
+        Body: {numero_factura, fecha_factura (YYYY-MM-DD), archivo?}
+        Crea la Compra vinculada (crédito fiscal IGV + cuenta por pagar).
+        Idempotente: una factura por OC → 400 si ya tiene.
+        """
+        from datetime import date as _date
+        from apps.compras.services.factura_service import registrar_factura, FacturaError
+
+        orden = self.get_object()
+        numero_factura = request.data.get('numero_factura')
+        fecha_raw = request.data.get('fecha_factura')
+        try:
+            fecha_factura = _date.fromisoformat(str(fecha_raw)) if fecha_raw else _date.today()
+        except ValueError:
+            return Response({'error': 'fecha_factura inválida. Formato YYYY-MM-DD.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        try:
+            compra = registrar_factura(
+                orden,
+                numero_factura=numero_factura,
+                fecha_factura=fecha_factura,
+                archivo=request.FILES.get('archivo'),
+            )
+        except FacturaError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({
+            'message': f'Factura {compra.referencia} registrada. Compra {compra.numero} creada.',
+            'compra_id': compra.id,
+            'compra_numero': compra.numero,
+            'total': float(compra.total or 0),
+            'moneda': compra.moneda,
+        }, status=status.HTTP_201_CREATED)
+
     @action(detail=True, methods=['post'], url_path='cambiar-estado')
     def cambiar_estado(self, request, pk=None):
         orden = self.get_object()
