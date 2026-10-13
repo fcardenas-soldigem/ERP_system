@@ -182,12 +182,20 @@ const shadows = {
 
 // ─── Component Overrides ──────────────────────────────────────────────────────
 
+// Easing fuerte para feedback de UI (los built-in de CSS son débiles).
+// Ref: emil-design-eng — ease-out con punch para enter/press.
+const EASE_OUT_STRONG = 'cubic-bezier(0.23, 1, 0.32, 1)';
+
 const components = {
   Button: {
     baseStyle: {
       fontWeight: 'medium',
       borderRadius: 'md',
       _focus: { boxShadow: 'outline' },
+      // Feedback de press: la UI confirma que escuchó el clic. 120ms, solo
+      // transform (GPU). Alta frecuencia → nunca más de 150ms.
+      transition: `transform 120ms ${EASE_OUT_STRONG}, background-color 120ms ease, box-shadow 120ms ease`,
+      _active: { transform: 'scale(0.98)' },
     },
     defaultProps: { colorScheme: 'primary' },
   },
@@ -198,16 +206,22 @@ const components = {
       field: {
         borderRadius: 'md',
         _focus: { boxShadow: 'outline' },
+        // El focus ring entra suave, no de golpe
+        transition: 'border-color 120ms ease, box-shadow 120ms ease',
       },
     },
   },
 
   Select: {
     defaultProps: { focusBorderColor: 'primary.500' },
+    baseStyle: {
+      field: { transition: 'border-color 120ms ease, box-shadow 120ms ease' },
+    },
   },
 
   Textarea: {
     defaultProps: { focusBorderColor: 'primary.500' },
+    baseStyle: { transition: 'border-color 120ms ease, box-shadow 120ms ease' },
   },
 
   Card: {
@@ -282,6 +296,20 @@ const styles = {
     '*:focus-visible': {
       outline: 'none',
       boxShadow: 'outline',
+    },
+    // Accesibilidad: menos movimiento, no cero. Se eliminan transforms y
+    // animaciones largas; las transiciones de color/opacidad quedan cortas
+    // (ayudan a la comprensión sin provocar mareo).
+    '@media (prefers-reduced-motion: reduce)': {
+      '*, *::before, *::after': {
+        animationDuration: '0.01ms !important',
+        animationIterationCount: '1 !important',
+        transitionDuration: '80ms !important',
+        scrollBehavior: 'auto !important',
+      },
+      'button:active': {
+        transform: 'none !important',
+      },
     },
   }),
 };

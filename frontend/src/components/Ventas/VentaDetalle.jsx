@@ -116,22 +116,28 @@ const VentaDetalle = () => {
                 return (
                   <React.Fragment key={e}>
                     <VStack spacing={1} minW="80px" flex="0 0 auto">
+                      {/* El cambio de estado se VE fluir: círculo primero
+                          (200ms), la línea lo sigue (250ms + 50ms de delay).
+                          Es feedback de estado, no decoración. */}
                       <Circle
                         size="28px"
                         bg={esActual ? COLOR_PRIMARIO : hecho ? 'green.400' : 'gray.200'}
                         color={esActual || hecho ? 'white' : 'gray.500'}
                         fontSize="xs" fontWeight="bold"
+                        transition="background-color 200ms ease, color 200ms ease"
                       >
                         {hecho ? '✓' : i + 1}
                       </Circle>
                       <Text fontSize="xs" textAlign="center"
                         color={esActual ? COLOR_PRIMARIO : 'gray.500'}
-                        fontWeight={esActual ? 'bold' : 'normal'}>
+                        fontWeight={esActual ? 'bold' : 'normal'}
+                        transition="color 200ms ease">
                         {ESTADO_OPERATIVO_LABEL[e]}
                       </Text>
                     </VStack>
                     {i < ESTADOS_OPERATIVOS.length - 1 && (
-                      <Box flex="1" h="2px" bg={i < idxActual ? 'green.400' : 'gray.200'} mt="13px" minW="16px" />
+                      <Box flex="1" h="2px" bg={i < idxActual ? 'green.400' : 'gray.200'} mt="13px" minW="16px"
+                           transition="background-color 250ms ease 50ms" />
                     )}
                   </React.Fragment>
                 );
