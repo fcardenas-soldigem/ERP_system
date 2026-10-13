@@ -101,22 +101,11 @@ class FinanzasService:
         # cada pantalla daba una cifra distinta (bug de prod, V-000073).
         cxc_pendiente = Decimal(str(self.metricas.cuentas_por_cobrar()['total_pen']))
 
-        # Cuentas por pagar vigentes (PEN, TC por documento)
-        cxp_qs = Compra.objects.filter(
-            empresa=self.empresa,
-            estado='pendiente',
-            tipo_compra__in=['credito_30', 'credito_60'],
-        )
-        cxp_pendiente = Decimal(str(desglose_pen(cxp_qs, 'total', fallback_tc=self.tipo_cambio_usd)['total_pen']))
-
-        # Descuento los pagos ya realizados de compras crédito (PEN)
-        cxp_pagado = PagoCompra.objects.filter(
-            compra__empresa=self.empresa,
-            compra__estado='pendiente',
-        ).exclude(metodo_pago='pendiente').aggregate(
-            total=Sum(self.metricas._pago_compra_pen_expr())
-        )['total'] or Decimal('0')
-        cxp_real = max(Decimal('0'), cxp_pendiente - Decimal(str(cxp_pagado)))
+        # Cuentas por pagar: DEFINICIÓN ÚNICA (metricas.cuentas_por_pagar) —
+        # la misma cifra que la card "Por pagar" del Dashboard. Espejo del
+        # fix de por cobrar: compras no anuladas/borrador con saldo > 0,
+        # cualquier forma de pago, PEN con TC del documento.
+        cxp_real = Decimal(str(self.metricas.cuentas_por_pagar()['total_pen']))
 
         proyeccion_30 = saldo_actual + cxc_pendiente - cxp_real
 
@@ -426,15 +415,14 @@ class FinanzasService:
     def calcular_cuentas_pagar(self) -> dict:
         """
         DPO = (Promedio CxP / COGS período) × días_período
-        Compras a crédito con estado pendiente.
+        Universo = DEFINICIÓN ÚNICA de por pagar: compras no anuladas/borrador
+        con saldo > 0, cualquier forma de pago (igual que Dashboard y flujo).
         """
+        from apps.dashboard.services.metricas import ESTADOS_EXCLUIDOS_COMPRA
         compras_credito = (
             Compra.objects
-            .filter(
-                empresa=self.empresa,
-                estado='pendiente',
-                tipo_compra__in=['credito_30', 'credito_60'],
-            )
+            .filter(empresa=self.empresa)
+            .exclude(estado__in=ESTADOS_EXCLUIDOS_COMPRA)
             .select_related('proveedor')
             .prefetch_related('pagos')
         )

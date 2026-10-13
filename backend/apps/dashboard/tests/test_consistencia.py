@@ -83,6 +83,69 @@ class PorCobrarUnificadoTests(TestCase):
         self.assertEqual(flujo['cxc_pendiente'], cxc_metricas)
 
 
+class PorPagarUnificadoTests(TestCase):
+    """Espejo de por cobrar: compras no anuladas/borrador con saldo > 0."""
+
+    def setUp(self):
+        cache.clear()
+        from apps.compras.models import Proveedor
+        from apps.inventario.models.almacen import Almacen
+        self.emp, self.cli = _base()
+        self.prov = Proveedor.objects.create(
+            empresa=self.emp, ruc='20111111112', razon_social='PROV SAC',
+            telefono='999', email='p@p.com', direccion='Av. 1',
+        )
+        self.almacen = Almacen.objects.create(empresa=self.emp, nombre='C', direccion='x')
+        hoy = date.today()
+        self.m = MetricasService(self.emp, hoy.replace(day=1), hoy)
+
+    def _compra(self, *, total='1000', estado='pendiente', tipo='contado', moneda='PEN', tc=None):
+        from apps.compras.models import Compra
+        with mock.patch.object(tc_mod, 'get_tc_venta', return_value=tc or Decimal('3.50')):
+            c = Compra.objects.create(
+                empresa=self.emp, proveedor=self.prov, almacen=self.almacen,
+                fecha_emision=date.today(), tipo_compra=tipo, moneda=moneda,
+                estado=estado, metodo_pago='pendiente',
+            )
+        Compra.objects.filter(id=c.id).update(total=Decimal(total), estado=estado)
+        c.refresh_from_db()
+        return c
+
+    def test_contado_pendiente_cuenta(self):
+        self._compra(total='560', tipo='contado')
+        cxp = self.m.cuentas_por_pagar()
+        self.assertEqual(cxp['total_pen'], 560.0)
+        self.assertEqual(cxp['cantidad'], 1)
+
+    def test_pago_parcial_resta_del_saldo(self):
+        from apps.compras.models import PagoCompra
+        c = self._compra(total='1000', tipo='credito_30')
+        PagoCompra.objects.create(compra=c, fecha=date.today(),
+                                  monto=Decimal('400'), moneda='PEN',
+                                  metodo_pago='efectivo')
+        cxp = self.m.cuentas_por_pagar()
+        self.assertEqual(cxp['total_pen'], 600.0)
+
+    def test_anulada_y_borrador_no_cuentan(self):
+        self._compra(total='500', estado='anulada')
+        self._compra(total='700', estado='borrador')
+        self.assertEqual(self.m.cuentas_por_pagar()['total_pen'], 0.0)
+
+    def test_dashboard_y_finanzas_misma_cifra(self):
+        from apps.compras.models import PagoCompra
+        self._compra(total='560', tipo='contado')
+        c = self._compra(total='1000', tipo='credito_30')
+        PagoCompra.objects.create(compra=c, fecha=date.today(),
+                                  monto=Decimal('400'), moneda='PEN',
+                                  metodo_pago='efectivo')
+        hoy = date.today()
+        cxp_metricas = self.m.cuentas_por_pagar()['total_pen']
+        svc = FinanzasService(self.emp, hoy.replace(day=1), hoy)
+        flujo = svc.calcular_flujo_caja()
+        self.assertEqual(cxp_metricas, 1160.0)
+        self.assertEqual(flujo['cxp_pendiente'], cxp_metricas)
+
+
 class ComparacionesContraCeroTests(TestCase):
     def setUp(self):
         cache.clear()

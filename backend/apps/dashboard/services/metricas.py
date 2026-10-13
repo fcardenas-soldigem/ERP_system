@@ -182,6 +182,37 @@ class MetricasService:
             'cantidad': agg['cantidad'] or 0,
         }
 
+    # ── CUENTAS POR PAGAR (definición única, espejo de por cobrar) ────────
+
+    def cuentas_por_pagar(self) -> dict:
+        """
+        DEFINICIÓN ÚNICA de "Por pagar" (Dashboard y Finanzas la usan):
+        compras no anuladas ni borrador con saldo pendiente > 0, en PEN con
+        el TC del documento, CUALQUIER forma de pago (contado incluido).
+
+        Compra no tiene pagos_total denormalizado (los pagos viven en
+        PagoCompra con moneda propia), así que el saldo se calcula con
+        get_saldo_pendiente() —que ya convierte pagos a la moneda de la
+        compra— y se valoriza con el TC del documento. Volumen de compras
+        es bajo; el loop es aceptable (mismo patrón que el aging).
+        """
+        qs = (
+            Compra.objects.filter(empresa=self.empresa)
+            .exclude(estado__in=ESTADOS_EXCLUIDOS_COMPRA)
+            .prefetch_related('pagos')
+        )
+        total = Decimal('0')
+        cantidad = 0
+        for compra in qs:
+            saldo = compra.get_saldo_pendiente() * compra._tc_efectivo()
+            if saldo > 0:
+                total += saldo
+                cantidad += 1
+        return {
+            'total_pen': float(total.quantize(Decimal('0.01'))),
+            'cantidad': cantidad,
+        }
+
     # ── IGV (devengo) ─────────────────────────────────────────────────────
 
     def igv_devengo(self, fecha_inicio=None, fecha_fin=None) -> dict:

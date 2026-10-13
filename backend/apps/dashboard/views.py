@@ -172,9 +172,10 @@ class DashboardResumen(APIView):
             por_cobrar = cxc['total_pen']
             ventas_pendientes = Venta.objects.filter(empresa=empresa, estado='pendiente')
 
-            # Cuentas por pagar: compras pendientes de pago
+            # Cuentas por pagar: DEFINICIÓN ÚNICA (metricas.cuentas_por_pagar)
+            # = compras no anuladas/borrador con saldo > 0, espejo de por cobrar.
             compras_pendientes = Compra.objects.filter(empresa=empresa, estado='pendiente')
-            por_pagar = _total_pen(compras_pendientes, 'total', fallback_tc)
+            por_pagar = metricas.cuentas_por_pagar()['total_pen']
 
             # Compras en borrador (no contadas en la utilidad — advertencia)
             compras_borrador = Compra.objects.filter(empresa=empresa, estado='borrador')
@@ -379,7 +380,7 @@ class DashboardResumenView(APIView):
         ventas_pendientes_h = Venta.objects.filter(empresa=empresa, estado='pendiente')
         por_cobrar_h = metricas_h.cuentas_por_cobrar()['total_pen']
         compras_pendientes_h = Compra.objects.filter(empresa=empresa, estado='pendiente')
-        por_pagar_h = float(_total_pen(compras_pendientes_h, 'total', fallback_tc))
+        por_pagar_h = metricas_h.cuentas_por_pagar()['total_pen']
         compras_borrador_h = Compra.objects.filter(empresa=empresa, estado='borrador')
         compras_borrador_count_h = compras_borrador_h.count()
         compras_borrador_total_h = float(_total_pen(compras_borrador_h, 'total', fallback_tc))
