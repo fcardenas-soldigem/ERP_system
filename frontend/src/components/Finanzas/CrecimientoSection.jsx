@@ -62,10 +62,14 @@ const CrecimientoSection = ({ crecimiento }) => {
       <CrecCard
         icono={FiTrendingUp}
         titulo="Tus ventas crecieron"
-        valor={`${revenue_growth_pct >= 0 ? '+' : ''}${revenue_growth_pct.toFixed(1)}%`}
-        sub={<>
+        valor={revenue_growth_pct != null
+          ? `${revenue_growth_pct >= 0 ? '+' : ''}${revenue_growth_pct.toFixed(1)}%`
+          : '—'}
+        sub={revenue_growth_pct != null ? <>
           <MontoConsolidado value={ventas_mes} desglose={ventas_mes_desglose} decimals={0} fontSize="xs" /> este mes vs {formatPEN(ventas_anterior, 0)} el anterior
           {' · '}{fmtI(transacciones_mes)} venta{transacciones_mes === 1 ? '' : 's'} vs {fmtI(transacciones_anterior)}
+        </> : <>
+          <MontoConsolidado value={ventas_mes} desglose={ventas_mes_desglose} decimals={0} fontSize="xs" /> este mes · Sin mes anterior para comparar
         </>}
         delta={revenue_growth_pct}
         tooltip="Ventas emitidas (devengo) vs el mes anterior"
@@ -75,7 +79,9 @@ const CrecimientoSection = ({ crecimiento }) => {
         icono={FiShoppingCart}
         titulo="Cada venta fue de"
         valor={formatPEN(ticket_promedio, 0)}
-        sub={`El mes pasado: ${formatPEN(ticket_promedio_anterior, 0)}`}
+        sub={ticket_variacion_pct != null
+          ? `El mes pasado: ${formatPEN(ticket_promedio_anterior, 0)}`
+          : 'Sin mes anterior para comparar'}
         delta={ticket_variacion_pct}
         tooltip="Cuánto gasta cada cliente en promedio por visita. Sube cuando vendes más o productos más caros."
       />

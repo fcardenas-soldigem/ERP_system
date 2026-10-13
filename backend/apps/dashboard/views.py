@@ -165,9 +165,12 @@ class DashboardResumen(APIView):
                 productos_bajo_stock = 0
                 inventario_payload = None
 
-            # Cuentas por cobrar: ventas pendientes de pago (PEN, TC por documento)
+            # Cuentas por cobrar: DEFINICIÓN ÚNICA (metricas.cuentas_por_cobrar)
+            # = ventas no anuladas/borrador con saldo > 0, saldo en PEN.
+            # Finanzas usa la misma — las dos pantallas ya no pueden divergir.
+            cxc = metricas.cuentas_por_cobrar()
+            por_cobrar = cxc['total_pen']
             ventas_pendientes = Venta.objects.filter(empresa=empresa, estado='pendiente')
-            por_cobrar = _total_pen(ventas_pendientes, 'total', fallback_tc)
 
             # Cuentas por pagar: compras pendientes de pago
             compras_pendientes = Compra.objects.filter(empresa=empresa, estado='pendiente')
@@ -370,9 +373,11 @@ class DashboardResumenView(APIView):
         margen = (utilidad_bruta / ventas_sin_igv * 100) if ventas_sin_igv > 0 else 0
         igv_por_pagar = total_igv_ventas - total_igv_compras
 
-        # Cuentas por cobrar / pagar reales (pendientes de pago)
+        # Cuentas por cobrar: definición única compartida con Finanzas
+        from datetime import date as _date
+        metricas_h = MetricasService(empresa, _date.today().replace(day=1), _date.today())
         ventas_pendientes_h = Venta.objects.filter(empresa=empresa, estado='pendiente')
-        por_cobrar_h = float(_total_pen(ventas_pendientes_h, 'total', fallback_tc))
+        por_cobrar_h = metricas_h.cuentas_por_cobrar()['total_pen']
         compras_pendientes_h = Compra.objects.filter(empresa=empresa, estado='pendiente')
         por_pagar_h = float(_total_pen(compras_pendientes_h, 'total', fallback_tc))
         compras_borrador_h = Compra.objects.filter(empresa=empresa, estado='borrador')
