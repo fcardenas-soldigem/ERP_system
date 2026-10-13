@@ -439,6 +439,15 @@ export const comprasService = {
     return response.data;
   },
 
+  // Registra la factura del proveedor sobre la OC → crea la Compra vinculada
+  // (crédito fiscal IGV + cuenta por pagar). Una factura por OC (400 si ya tiene).
+  registrarFacturaOrden: async (id, { numero_factura, fecha_factura }) => {
+    const response = await api.post(`/api/compras/ordenes/${id}/registrar-factura/`, {
+      numero_factura, fecha_factura,
+    });
+    return response.data;
+  },
+
   exportarPDFOrden: async (orden) => {
     const response = await api.get(`/api/compras/ordenes/${orden.id}/exportar-pdf/`, {
       responseType: 'blob',

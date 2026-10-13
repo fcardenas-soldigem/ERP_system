@@ -6,11 +6,13 @@ import {
   Menu, MenuButton, MenuList, MenuItem, IconButton,
   Alert, AlertIcon, SimpleGrid, useColorModeValue,
   Breadcrumb, BreadcrumbItem, BreadcrumbLink,
+  Modal, ModalOverlay, ModalContent, ModalHeader, ModalBody, ModalFooter,
+  ModalCloseButton, useDisclosure, FormControl, FormLabel, Input,
 } from '@chakra-ui/react';
 import {
   FaArrowLeft, FaEdit, FaFilePdf, FaEllipsisV,
   FaBuilding, FaCalendarAlt, FaFileAlt, FaCheck, FaTimes,
-  FaPaperPlane, FaBoxOpen, FaChevronRight,
+  FaPaperPlane, FaBoxOpen, FaChevronRight, FaFileInvoiceDollar,
 } from 'react-icons/fa';
 import { useParams, useNavigate, Link as RouterLink } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -92,6 +94,33 @@ const OrdenCompraDetalle = () => {
     }),
   });
 
+  // ── Registrar factura del proveedor (crea la Compra vinculada) ──
+  const facturaModal = useDisclosure();
+  const [numeroFactura, setNumeroFactura] = useState('');
+  const [fechaFactura, setFechaFactura] = useState(() => new Date().toISOString().slice(0, 10));
+
+  const registrarFacturaMutation = useMutation({
+    mutationFn: () => comprasService.registrarFacturaOrden(id, {
+      numero_factura: numeroFactura.trim(),
+      fecha_factura: fechaFactura,
+    }),
+    onSuccess: (data) => {
+      facturaModal.onClose();
+      queryClient.invalidateQueries({ queryKey: ['orden-compra', id] });
+      queryClient.invalidateQueries({ queryKey: ['ordenes-compra'] });
+      toast({
+        title: 'Factura registrada',
+        description: `Compra ${data.compra_numero} creada (crédito fiscal + cuenta por pagar).`,
+        status: 'success', duration: 5000,
+      });
+    },
+    onError: (err) => toast({
+      title: 'No se pudo registrar la factura',
+      description: err.response?.data?.error ?? err.message,
+      status: 'error', duration: 6000,
+    }),
+  });
+
   const handleExportarPDF = async () => {
     try {
       await comprasService.exportarPDFOrden(orden);
@@ -170,6 +199,31 @@ const OrdenCompraDetalle = () => {
         </HStack>
 
         <HStack spacing={3}>
+          {orden.factura ? (
+            <Badge colorScheme="green" fontSize="sm" px={3} py={1.5} borderRadius="full">
+              <HStack spacing={1.5}>
+                <FaFileInvoiceDollar size={12} />
+                <Text>Facturada · {orden.factura.numero_factura}</Text>
+              </HStack>
+            </Badge>
+          ) : (
+            !['borrador', 'rechazada'].includes(estadoKey) && (
+              <Button
+                leftIcon={<FaFileInvoiceDollar />}
+                colorScheme="green"
+                variant="outline"
+                onClick={facturaModal.onOpen}
+              >
+                Registrar factura del proveedor
+              </Button>
+            )
+          )}
+          {orden.factura && (
+            <Button size="sm" variant="link" colorScheme="blue"
+              onClick={() => navigate(`/app/compras/${orden.factura.compra_id}`)}>
+              Ver compra {orden.factura.compra_numero}
+            </Button>
+          )}
           <Button leftIcon={<FaFilePdf />} colorScheme="red" variant="outline" onClick={handleExportarPDF}>
             Exportar PDF
           </Button>
@@ -351,6 +405,54 @@ const OrdenCompraDetalle = () => {
           </Card>
         </VStack>
       </Flex>
+
+      {/* ── Modal: Registrar factura del proveedor ── */}
+      <Modal isOpen={facturaModal.isOpen} onClose={facturaModal.onClose} isCentered>
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>Registrar factura del proveedor</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody>
+            <VStack spacing={4} align="stretch">
+              <Text fontSize="sm" color="gray.600">
+                Crea la compra vinculada a esta OC: nace el crédito fiscal de IGV
+                y la cuenta por pagar al proveedor.
+              </Text>
+              <FormControl isRequired>
+                <FormLabel fontSize="sm">N° de factura</FormLabel>
+                <Input
+                  placeholder="F001-00012345"
+                  value={numeroFactura}
+                  onChange={(e) => setNumeroFactura(e.target.value)}
+                  autoFocus
+                />
+              </FormControl>
+              <FormControl isRequired>
+                <FormLabel fontSize="sm">Fecha de la factura</FormLabel>
+                <Input
+                  type="date"
+                  value={fechaFactura}
+                  onChange={(e) => setFechaFactura(e.target.value)}
+                />
+              </FormControl>
+            </VStack>
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="ghost" mr={3} onClick={facturaModal.onClose}>
+              Cancelar
+            </Button>
+            <Button
+              colorScheme="green"
+              leftIcon={<FaFileInvoiceDollar />}
+              isDisabled={!numeroFactura.trim() || !fechaFactura}
+              isLoading={registrarFacturaMutation.isPending}
+              onClick={() => registrarFacturaMutation.mutate()}
+            >
+              Registrar factura
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
     </Box>
   );
 };

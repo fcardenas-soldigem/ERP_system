@@ -135,13 +135,21 @@ const Dashboard = () => {
   const utilSpark    = (utilData?.utilidades ?? []).slice(-7);
   const stockNum     = iv.productos_bajo_stock ?? 0;
 
-  // Utilidad neta vs bruta según disponibilidad de gastos registrados
+  // Utilidad del mes: null = SIN datos de costo (estado vacío, nunca 0% ni
+  // flechas). parcial = solo algunas ventas tienen costo (sin comparativos).
+  const sinDatosCosto    = u.total == null;
+  const costoParcial     = !sinDatosCosto && u.parcial === true;
   const hayGastos        = (resumenFinanzas?.total_gastos ?? 0) > 0;
   const utilidadNeta     = resumenFinanzas?.utilidad_neta_del_periodo;
-  const utilidadDisplay  = hayGastos && utilidadNeta != null ? utilidadNeta : (u.total ?? 0);
-  const utilidadLabel    = hayGastos && utilidadNeta != null
-    ? `Margen neto ${resumenFinanzas?.margen_neto_pct ?? 0}%`
-    : `Utilidad bruta* · sin gastos op.`;
+  const utilidadDisplay  = !sinDatosCosto && hayGastos && utilidadNeta != null
+    ? utilidadNeta : u.total;
+  const utilidadLabel = sinDatosCosto
+    ? 'Sin datos de costo'
+    : costoParcial
+      ? `parcial: ${u.ventas_con_costo} de ${u.ventas_total} ventas con costo`
+      : (hayGastos && utilidadNeta != null
+          ? `Margen neto ${resumenFinanzas?.margen_neto_pct ?? 0}%`
+          : `Utilidad bruta* · sin gastos op.`);
 
   // Tooltip de "Cobrado este mes": composición S/+$ cuando hay cobros en USD
   const cobrosTooltip = cobros?.desglose?.tiene_usd
@@ -173,11 +181,14 @@ const Dashboard = () => {
     },
     {
       label:       'Utilidad del mes',
-      value:       `${formatPEN(utilidadDisplay)}`,
+      value:       sinDatosCosto ? '—' : `${formatPEN(utilidadDisplay)}`,
       sub:         utilidadLabel,
-      sparkData:   utilSpark,
-      trend:       hayGastos ? (resumenFinanzas?.margen_neto_pct ?? undefined) : (u.margen ?? undefined),
-      accentColor: '#22c55e',
+      sparkData:   sinDatosCosto ? [] : utilSpark,
+      // Sin flecha/% cuando no hay datos o el costo es parcial
+      trend:       (sinDatosCosto || costoParcial)
+        ? undefined
+        : (hayGastos ? (resumenFinanzas?.margen_neto_pct ?? undefined) : (u.margen ?? undefined)),
+      accentColor: sinDatosCosto ? '#94a3b8' : '#22c55e',
     },
     // Stock SOLO para empresas que manejan inventario (sin_stock ⇒ inventario null)
     ...(manejaStock ? [{
