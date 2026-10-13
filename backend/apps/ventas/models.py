@@ -211,6 +211,80 @@ class Venta(TipoCambioMixin, models.Model):
         }
         return simbolos.get(self.moneda, 'S/')
 
+    def costo_info(self):
+        """
+        Costo de la venta en PEN (SIN IGV), por prioridad de fuente:
+          1. 'factura'    — Compra vinculada a una OC de esta venta
+          2. 'oc'         — OC vinculada (subtotal sin IGV × tc de la OC)
+          3. 'cotizacion' — DetalleVenta.costo_unitario (snapshot de conversión)
+          4. 'catalogo'   — Producto.precio_compra, solo si > 0
+          5. None         — sin dato (costo 0 NUNCA es costo)
+        Retorna {'costo_pen': Decimal, 'fuente': str} o None.
+        """
+        from apps.compras.models import Compra
+
+        # 1/2 — OCs vinculadas (back-to-back). Factura le gana a OC.
+        # Una OC en borrador aún no es compromiso de costo: mientras no se
+        # apruebe/envíe, la fuente sigue siendo el snapshot de cotización.
+        ocs = list(self.ordenes_compra.exclude(estado__in=('borrador', 'rechazada')))
+        if ocs:
+            total = Decimal('0')
+            alguna_factura = False
+            for oc in ocs:
+                compra = Compra.objects.filter(orden_compra=oc).first()
+                if compra is not None and compra.subtotal and compra.subtotal > 0:
+                    total += Decimal(str(compra.subtotal)) * compra._tc_efectivo()
+                    alguna_factura = True
+                elif oc.subtotal and oc.subtotal > 0:
+                    total += Decimal(str(oc.subtotal)) * oc._tc_efectivo()
+            if total > 0:
+                return {
+                    'costo_pen': total.quantize(Decimal('0.01')),
+                    'fuente': 'factura' if alguna_factura else 'oc',
+                }
+
+        tc = self._tc_efectivo()
+
+        # 3 — snapshot de la cotización en las líneas de la venta
+        costo_cot = sum(
+            (Decimal(str(d.cantidad)) * Decimal(str(d.costo_unitario)))
+            for d in self.detalles.all()
+            if d.costo_unitario and d.costo_unitario > 0
+        )
+        if costo_cot > 0:
+            return {'costo_pen': (Decimal(str(costo_cot)) * tc).quantize(Decimal('0.01')),
+                    'fuente': 'cotizacion'}
+
+        # 4 — catálogo, solo productos con costo real
+        costo_cat = sum(
+            (Decimal(str(d.cantidad)) * Decimal(str(d.producto.precio_compra)))
+            for d in self.detalles.all()
+            if d.producto_id and d.producto.precio_compra and d.producto.precio_compra > 0
+        )
+        if costo_cat > 0:
+            return {'costo_pen': (Decimal(str(costo_cat)) * tc).quantize(Decimal('0.01')),
+                    'fuente': 'catalogo'}
+
+        return None
+
+    @property
+    def costo_pen(self):
+        info = self.costo_info()
+        return info['costo_pen'] if info else None
+
+    @property
+    def costo_fuente(self):
+        info = self.costo_info()
+        return info['fuente'] if info else None
+
+    @property
+    def utilidad_bruta_pen(self):
+        """Utilidad bruta = subtotal (sin IGV) − costo (sin IGV), ambos en PEN. None sin costo."""
+        info = self.costo_info()
+        if info is None:
+            return None
+        return (self.subtotal_pen or Decimal('0')) - info['costo_pen']
+
     def clean(self):
         if not self.empresa_id:
             raise ValidationError('La venta debe tener una empresa asignada')
@@ -726,6 +800,13 @@ class DetalleVenta(models.Model):
     descripcion = models.CharField(max_length=500, null=True, blank=True)
     cantidad = models.DecimalField(max_digits=10, decimal_places=2)
     precio_unitario = models.DecimalField(max_digits=10, decimal_places=2)
+    # Snapshot del costo unitario SIN IGV al momento de la conversión
+    # (viene de DetalleCotizacion.costo_unitario, F1). Null = sin dato.
+    # Costo 0 NUNCA se trata como costo: es "sin dato".
+    costo_unitario = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True,
+        verbose_name='Costo unitario (sin IGV)',
+    )
     # D6 — origen. La conversión lo fija explícito; en ventas normales lo infiere
     # save() según el modo de inventario de la empresa (ya no hay fail-open).
     origen = models.CharField(

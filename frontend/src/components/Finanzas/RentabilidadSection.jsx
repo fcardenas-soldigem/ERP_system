@@ -110,13 +110,16 @@ const RentabilidadSection = ({ rentabilidad }) => {
     ventas_mes, ventas_mes_desglose, costo_ventas_mes, utilidad_bruta, margen_bruto_pct,
     semaforo_margen, vs_mes_anterior_pct, por_producto = [], nota,
     tiene_gastos_registrados, gastos_operativos, utilidad_neta, margen_neto_pct,
-    sin_datos_costo,
+    sin_datos_costo, costo_parcial, ventas_con_costo, ventas_total_periodo,
   } = rentabilidad;
 
   // Sin costos registrados: margen/utilidad vienen null — estado vacío neutro,
   // nunca 0.0% ni mensajes de "subió/bajó".
   const sinCostos  = sin_datos_costo === true || margen_bruto_pct == null;
-  const tieneComparativo = vs_mes_anterior_pct != null;
+  // Parcial: solo algunas ventas del período tienen costo → se muestra el
+  // margen de esas, con nota explícita y SIN comparativo "subió/bajó".
+  const esParcial  = !sinCostos && costo_parcial === true;
+  const tieneComparativo = vs_mes_anterior_pct != null && !esParcial;
   const isUp    = (vs_mes_anterior_pct ?? 0) >= 0;
   const mc      = MARGEN[semaforo_margen] ?? MARGEN.amarillo;
   const maxUtil = Math.max(...por_producto.map(p => p.utilidad), 1);
@@ -226,6 +229,12 @@ const RentabilidadSection = ({ rentabilidad }) => {
               <Text fontSize="10px" color={mc.text} opacity={0.7} mt={0.5}>
                 Margen bruto: {fmt(margen_bruto_pct, 1)}% · Utilidad: S/ {fmtK(utilidad_bruta)}
               </Text>
+
+              {esParcial && (
+                <Text fontSize="10px" color={mc.text} opacity={0.85} mt={1} fontWeight="semibold">
+                  parcial: {ventas_con_costo} de {ventas_total_periodo} ventas con costo
+                </Text>
+              )}
 
               <Progress value={margen_bruto_pct ?? 0} max={100} size="xs" mt={3} borderRadius="full"
                 sx={{ '& > div': { background: mc.bar, borderRadius: 'full' } }} />

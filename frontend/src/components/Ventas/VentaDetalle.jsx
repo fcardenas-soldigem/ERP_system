@@ -8,6 +8,15 @@ import {
 } from '@chakra-ui/react';
 import { ventasService } from '../../services/ventas.service';
 import { getSimboloMoneda } from '../../utils/currency';
+import { formatPEN } from '../common/MontoConsolidado';
+
+// Fuente del costo de la venta (prioridad backend: factura > oc > cotización > catálogo)
+const FUENTE_COSTO = {
+  factura:    { label: 'Factura',              color: 'green' },
+  oc:         { label: 'OC',                   color: 'blue'  },
+  cotizacion: { label: 'Estimado · cotización', color: 'gray' },
+  catalogo:   { label: 'Estimado · catálogo',   color: 'gray' },
+};
 import {
   ESTADOS_OPERATIVOS, ESTADO_OPERATIVO_LABEL, SIGUIENTE_ESTADO, VERBO_SIGUIENTE,
   SLA_COLOR_SCHEME, SLA_LABEL, estadoAnterior,
@@ -145,6 +154,33 @@ const VentaDetalle = () => {
                 <Text><b>Estado de pago:</b> <Badge colorScheme="blue">{venta.estado}</Badge></Text>
                 <Text><b>Subtotal:</b> {simboloMoneda} {venta.subtotal}</Text>
                 <Text><b>Total:</b> <b>{simboloMoneda} {venta.total}</b></Text>
+              </VStack>
+              {/* Costo y utilidad de la venta (fuente: factura > oc > cotización > catálogo) */}
+              <VStack align="start" spacing={1}>
+                {venta.costo_info ? (
+                  <>
+                    <HStack spacing={2}>
+                      <Text><b>Costo (sin IGV):</b> {formatPEN(venta.costo_info.costo_pen)}</Text>
+                      <Badge
+                        colorScheme={FUENTE_COSTO[venta.costo_info.fuente]?.color ?? 'gray'}
+                        fontSize="10px"
+                      >
+                        {FUENTE_COSTO[venta.costo_info.fuente]?.label ?? venta.costo_info.fuente}
+                      </Badge>
+                    </HStack>
+                    {venta.costo_info.utilidad_bruta_pen != null && (
+                      <Text>
+                        <b>Utilidad bruta:</b>{' '}
+                        <Text as="span" fontWeight="bold"
+                          color={venta.costo_info.utilidad_bruta_pen >= 0 ? 'green.600' : 'red.600'}>
+                          {formatPEN(venta.costo_info.utilidad_bruta_pen)}
+                        </Text>
+                      </Text>
+                    )}
+                  </>
+                ) : (
+                  <Text color="gray.500"><b>Costo:</b> Sin datos</Text>
+                )}
               </VStack>
             </HStack>
 

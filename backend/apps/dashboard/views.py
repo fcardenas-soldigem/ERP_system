@@ -128,23 +128,13 @@ class DashboardResumen(APIView):
 
             tipo_cambio = fallback_tc  # compat: valor mostrado como TC de referencia
 
-            # Calcular utilidad bruta = Ventas - Compras (antes de impuestos)
-            # Convertir ventas y compras a valores antes de IGV
-            ventas_sin_igv = ventas_totales / 1.18
-            compras_sin_igv = compras_totales / 1.18
-            
-            utilidad_bruta = ventas_sin_igv - compras_sin_igv
-            logger.info(f"Ventas sin IGV: {ventas_sin_igv}")
-            logger.info(f"Compras sin IGV: {compras_sin_igv}")
-            logger.info(f"Utilidad bruta (antes de impuestos): {utilidad_bruta}")
-
-            # La utilidad neta es la misma que la bruta ya que estamos trabajando antes de impuestos
-            utilidad_neta = utilidad_bruta
-            logger.info(f"Utilidad neta: {utilidad_neta}")
-
-            # Calcular margen de utilidad basado en ventas sin IGV
-            margen = (utilidad_neta / ventas_sin_igv * 100) if ventas_sin_igv > 0 else 0
-            logger.info(f"Margen: {margen}")
+            # UTILIDAD BRUTA = ventas sin IGV − COSTO sin IGV, por venta, con el
+            # costo real (factura > oc > cotizacion > catalogo). El IGV no es
+            # costo ni ingreso: se netea solo en la card de IGV.
+            # ANTES: ventas − compras del mes, que sin Compra registrada daba
+            # "100% de margen" fantasma.
+            margen_info = metricas.margen()
+            logger.info(f"Margen (costo por venta): {margen_info}")
 
             # IGV consolidado a PEN (TC por documento)
             igv_ventas = _total_pen(ventas, 'igv', fallback_tc)
@@ -222,10 +212,15 @@ class DashboardResumen(APIView):
                     'desglose': compras_desglose,
                 },
                 'utilidad': {
-                    'total': float(utilidad_neta),
-                    'margen': round(float(margen), 2),
-                    'utilidad_bruta': float(utilidad_bruta),
-                    'impuestos': float(utilidad_bruta * 0.18),
+                    # null = sin datos de costo → el frontend muestra estado
+                    # vacío, nunca 0% ni 100% ni flechas.
+                    'total': margen_info['utilidad_pen'] if margen_info else None,
+                    'margen': margen_info['margen_pct'] if margen_info else None,
+                    'utilidad_bruta': margen_info['utilidad_pen'] if margen_info else None,
+                    'ventas_con_costo': margen_info['ventas_con_costo'] if margen_info else 0,
+                    'ventas_total': margen_info['ventas_total'] if margen_info else ventas_desglose['cantidad'],
+                    'parcial': margen_info['parcial'] if margen_info else False,
+                    'criterio': 'venta_sin_igv_menos_costo_sin_igv',
                 },
                 'impuestos': {
                     'igv_ventas': float(igv_ventas),

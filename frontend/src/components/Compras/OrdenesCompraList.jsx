@@ -251,7 +251,14 @@ const OrdenesCompraList = () => {
                       {formatDate(orden.fecha_entrega)}
                     </Td>
                     <Td onClick={() => navigate(`/app/compras/ordenes/${orden.id}`)}>
-                      <EstadoBadge estado={orden.estado} />
+                      <HStack spacing={1.5}>
+                        <EstadoBadge estado={orden.estado} />
+                        {orden.factura && (
+                          <Badge colorScheme="green" borderRadius="full" px={2} fontSize="10px">
+                            Facturada
+                          </Badge>
+                        )}
+                      </HStack>
                     </Td>
                     <Td isNumeric fontWeight="semibold" whiteSpace="nowrap"
                       onClick={() => navigate(`/app/compras/ordenes/${orden.id}`)}>

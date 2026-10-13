@@ -284,6 +284,8 @@ class OrdenCompraSerializer(serializers.ModelSerializer):
     # F2 — trazabilidad al origen de la conversión.
     venta_origen = serializers.SerializerMethodField()
     cotizacion_origen_info = serializers.SerializerMethodField()
+    # Factura del proveedor registrada sobre esta OC (registrar-factura)
+    factura = serializers.SerializerMethodField()
 
     class Meta:
         model = OrdenCompra
@@ -293,8 +295,25 @@ class OrdenCompraSerializer(serializers.ModelSerializer):
             'moneda', 'forma_pago', 'contacto_nombre', 'contacto_email',
             'subtotal', 'igv', 'total', 'estado', 'notas', 'detalles',
             'proveedor_info', 'venta_origen', 'cotizacion_origen_info',
+            'factura',
         ]
         read_only_fields = ['id', 'numero', 'empresa', 'fecha_creacion']
+
+    def get_factura(self, obj):
+        from apps.compras.models import Compra
+        compra = Compra.objects.filter(orden_compra=obj).only(
+            'id', 'numero', 'referencia', 'fecha_emision', 'total', 'moneda',
+        ).first()
+        if compra is None:
+            return None
+        return {
+            'compra_id': compra.id,
+            'compra_numero': compra.numero,
+            'numero_factura': compra.referencia,
+            'fecha': compra.fecha_emision.isoformat() if compra.fecha_emision else None,
+            'total': float(compra.total or 0),
+            'moneda': compra.moneda,
+        }
 
     def get_venta_origen(self, obj):
         v = obj.venta
