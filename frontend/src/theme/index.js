@@ -5,20 +5,26 @@ import { extendTheme } from '@chakra-ui/react';
 // Notion (clean neutrals). Primary is a slate-blue that reads professional
 // without falling into the generic purple trap.
 
+// Brand — el azul de los PDFs de Soldigem (#2B5EA7), escala completa.
+// Único azul del sistema: 'primary' Y 'blue' apuntan aquí, así cualquier
+// colorScheme="blue" heredado ya no renderiza el #3182CE de Chakra.
+const brand = {
+  50:  '#ecf2fa',
+  100: '#d6e3f3',
+  200: '#aec6e5',
+  300: '#7da0d3',
+  400: '#4a79bb',
+  500: '#2B5EA7',  // base — azul PDF Soldigem
+  600: '#234e8d',
+  700: '#1d4175',
+  800: '#193761',
+  900: '#142c4e',
+};
+
 const colors = {
-  // Primary — slate blue (Linear-inspired, not purple)
-  primary: {
-    50:  '#eff4ff',
-    100: '#dbe8fe',
-    200: '#bfd3fe',
-    300: '#93b4fd',
-    400: '#608af9',
-    500: '#3b6feb',  // brand primary
-    600: '#2554d1',
-    700: '#1d44b8',
-    800: '#1e3a95',
-    900: '#1e3376',
-  },
+  brand,
+  primary: brand,
+  blue: brand,  // override deliberado del azul default de Chakra (#3182CE)
 
   // Neutral — warm slate (Notion/Linear gray scale)
   neutral: {
@@ -197,7 +203,27 @@ const components = {
       transition: `transform 120ms ${EASE_OUT_STRONG}, background-color 120ms ease, box-shadow 120ms ease`,
       _active: { transform: 'scale(0.98)' },
     },
-    defaultProps: { colorScheme: 'primary' },
+    // TRES variantes y nada más. Prohibido colorScheme suelto por pantalla:
+    // primary (acción principal, 1 por vista), secondary (resto), ghost.
+    variants: {
+      primary: {
+        bg: 'brand.500', color: 'white',
+        _hover: { bg: 'brand.600', _disabled: { bg: 'brand.500' } },
+        _active: { bg: 'brand.700', transform: 'scale(0.98)' },
+      },
+      secondary: {
+        bg: 'white', color: 'neutral.700',
+        border: '1px solid', borderColor: 'neutral.300',
+        _hover: { bg: 'neutral.50', borderColor: 'neutral.400' },
+        _active: { bg: 'neutral.100', transform: 'scale(0.98)' },
+      },
+      ghost: {
+        color: 'neutral.600',
+        _hover: { bg: 'neutral.100' },
+        _active: { bg: 'neutral.200', transform: 'scale(0.98)' },
+      },
+    },
+    defaultProps: { colorScheme: 'primary', variant: 'primary' },
   },
 
   Input: {
@@ -254,6 +280,8 @@ const components = {
   },
 
   Table: {
+    // Densidad compacta por defecto: el ERP vive en tablas.
+    defaultProps: { size: 'sm' },
     variants: {
       simple: {
         th: {
@@ -262,15 +290,22 @@ const components = {
           color: 'neutral.500',
           textTransform: 'uppercase',
           letterSpacing: 'wide',
+          bg: 'neutral.50',          // header gris claro
           borderColor: 'neutral.200',
-          px: 4,
-          py: 3,
+          px: 3,
+          py: 2,
         },
         td: {
           borderColor: 'neutral.200',
-          px: 4,
-          py: 3,
+          px: 3,
+          py: 2,
           fontSize: 'sm',
+        },
+        tbody: {
+          tr: {
+            transition: 'background-color 120ms ease',
+            _hover: { bg: 'neutral.50' },   // hover de fila
+          },
         },
       },
     },
