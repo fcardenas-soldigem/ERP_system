@@ -171,47 +171,48 @@ class MetricasService:
 
     def margen(self, fecha_inicio=None, fecha_fin=None):
         """
-        Margen bruto SOLO sobre líneas del período con costo registrado.
-        Retorna None si ninguna línea tiene costo — el frontend muestra
-        "Sin datos de costo", nunca 0.0% ni comparativos.
+        Utilidad bruta del período por VENTA, no por línea de catálogo:
+        cada venta aporta subtotal_pen − costo_pen, donde el costo sigue la
+        prioridad factura > oc > cotizacion > catalogo (Venta.costo_info).
+
+        Retorna None si NINGUNA venta del período tiene costo (estado vacío).
+        Si solo algunas lo tienen → parcial=True y el cálculo usa solo esas:
+        "parcial: X de Y ventas con costo". Nunca inventa 0% ni 100%.
         """
-        detalles = DetalleVenta.objects.filter(
-            venta__empresa=self.empresa,
-            venta__fecha_emision__range=(fecha_inicio or self.fecha_inicio,
-                                         fecha_fin or self.fecha_fin),
-            producto__precio_compra__gt=0,
-        ).exclude(venta__estado__in=ESTADOS_EXCLUIDOS_VENTA)
-
-        if not detalles.exists():
+        ventas = list(
+            self.ventas_qs(fecha_inicio, fecha_fin)
+            .prefetch_related('detalles__producto', 'ordenes_compra')
+        )
+        ventas_total = len(ventas)
+        if ventas_total == 0:
             return None
 
-        # Neto por línea (sin IGV) y COGS, ambos valorizados al TC de la venta.
-        tc_expr = Case(
-            When(venta__tipo_cambio__isnull=False, then=F('venta__tipo_cambio')),
-            When(venta__moneda='PEN', then=Value(Decimal('1.0'))),
-            default=Value(self.fallback_tc),
-            output_field=_PREC,
-        )
-        neto_linea = Case(
-            When(venta__igv_incluido=True,
-                 then=F('cantidad') * F('precio_unitario') / Value(Decimal('1.18'))),
-            default=F('cantidad') * F('precio_unitario'),
-            output_field=_PREC,
-        )
-        agg = detalles.aggregate(
-            ingresos=Sum(neto_linea * tc_expr, output_field=_PREC),
-            cogs=Sum(F('cantidad') * F('producto__precio_compra') * tc_expr, output_field=_PREC),
-        )
-        ingresos = Decimal(str(agg['ingresos'] or 0))
-        cogs = Decimal(str(agg['cogs'] or 0))
-        if ingresos <= 0:
+        ingresos = Decimal('0')
+        cogs = Decimal('0')
+        con_costo = 0
+        for venta in ventas:
+            info = venta.costo_info()
+            if info is None:
+                continue
+            con_costo += 1
+            ingresos += venta.subtotal_pen or Decimal('0')
+            cogs += info['costo_pen']
+
+        if con_costo == 0 or ingresos <= 0:
             return None
+
         utilidad = ingresos - cogs
         return {
             'ingresos_con_costo': float(ingresos),
             'cogs': float(cogs),
             'utilidad_bruta': float(utilidad),
             'margen_bruto_pct': round(float(utilidad / ingresos * 100), 1),
+            # Alias nuevos (contrato del fix de costo/utilidad)
+            'utilidad_pen': float(utilidad),
+            'margen_pct': round(float(utilidad / ingresos * 100), 1),
+            'ventas_con_costo': con_costo,
+            'ventas_total': ventas_total,
+            'parcial': con_costo < ventas_total,
         }
 
     # ── TOP PRODUCTOS ─────────────────────────────────────────────────────
@@ -221,13 +222,19 @@ class MetricasService:
         Top productos del PERÍODO (devengo). Si el período no tiene datos,
         cae a últimos 90 días y lo etiqueta — el frontend muestra la etiqueta.
         """
+        from django.db.models.functions import Coalesce
+
         def _query(inicio, fin):
+            # Líneas de texto libre (producto null) agrupan por su descripción,
+            # nunca por nombre vacío.
             return list(
                 DetalleVenta.objects
                 .filter(venta__empresa=self.empresa,
                         venta__fecha_emision__range=(inicio, fin))
                 .exclude(venta__estado__in=ESTADOS_EXCLUIDOS_VENTA)
-                .values('producto__nombre')
+                .annotate(nombre=Coalesce('producto__nombre', 'descripcion'))
+                .exclude(nombre__isnull=True).exclude(nombre='')
+                .values('nombre')
                 .annotate(total_vendido=Sum('cantidad'))
                 .order_by('-total_vendido')[:limite]
             )
@@ -240,7 +247,7 @@ class MetricasService:
             periodo = 'ultimos_90_dias'
         return {
             'periodo': periodo,
-            'labels': [r['producto__nombre'] for r in rows],
+            'labels': [r['nombre'] for r in rows],
             'data': [float(r['total_vendido'] or 0) for r in rows],
         }
 

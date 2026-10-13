@@ -112,6 +112,8 @@ class VentaSerializer(serializers.ModelSerializer):
     dias_en_estado_operativo = serializers.IntegerField(read_only=True)
     historial_operativo = serializers.SerializerMethodField()
     ordenes_compra = serializers.SerializerMethodField()
+    # Costo/utilidad de la venta (prioridad factura > oc > cotizacion > catalogo)
+    costo_info = serializers.SerializerMethodField()
 
     class Meta:
         model = Venta
@@ -126,6 +128,7 @@ class VentaSerializer(serializers.ModelSerializer):
             'tipo_venta_display', 'metodo_pago_display', 'empresa',
             'estado_operativo', 'estado_operativo_display', 'estado_sla_operativo',
             'dias_en_estado_operativo', 'historial_operativo', 'ordenes_compra',
+            'costo_info',
         ]
         read_only_fields = ['id', 'numero', 'estado_display', 'tipo_venta_display', 'metodo_pago_display', 'modo_venta_display', 'empresa',
                             'estado_operativo', 'estado_operativo_display', 'estado_sla_operativo',
@@ -142,6 +145,18 @@ class VentaSerializer(serializers.ModelSerializer):
             }
             for h in obj.historial_operativo.all()
         ]
+
+    def get_costo_info(self, obj):
+        """Costo + utilidad de la venta en PEN. null = sin datos de costo."""
+        info = obj.costo_info()
+        if info is None:
+            return None
+        utilidad = obj.utilidad_bruta_pen
+        return {
+            'costo_pen': float(info['costo_pen']),
+            'fuente': info['fuente'],
+            'utilidad_bruta_pen': float(utilidad) if utilidad is not None else None,
+        }
 
     def get_ordenes_compra(self, obj):
         return [
