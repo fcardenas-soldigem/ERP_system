@@ -1,6 +1,7 @@
 import React, { Suspense, lazy } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { ChakraProvider } from '@chakra-ui/react';
+import { MotionConfig } from 'framer-motion';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClient } from './lib/queryClient';
 import theme from './theme';
@@ -103,6 +104,9 @@ function App() {
         <Router>
             <QueryClientProvider client={queryClient}>
                 <ChakraProvider theme={theme}>
+                    {/* framer-motion respeta prefers-reduced-motion del SO
+                        (sidebar, menús y modales de Chakra incluidos) */}
+                    <MotionConfig reducedMotion="user">
                     <ErrorBoundary fullscreen>
                     <AuthProvider>
                         <Suspense fallback={<AppLoading />}>
@@ -207,6 +211,7 @@ function App() {
                         </Suspense>
                     </AuthProvider>
                     </ErrorBoundary>
+                    </MotionConfig>
                 </ChakraProvider>
             </QueryClientProvider>
         </Router>

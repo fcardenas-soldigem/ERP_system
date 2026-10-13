@@ -172,9 +172,9 @@ const NavItem = ({ icon, children, to, subItems, isOpen, onToggle, isCollapsed, 
             onClick={onToggle}
             color={textColor}
             justify={isCollapsed ? 'center' : 'flex-start'}
-            whileHover={{ x: 2 }}
             whileTap={{ scale: 0.98 }}
             _hover={{ bg: hoverBg, color: activeColor }}
+            transition="background-color 120ms ease, color 120ms ease"
           >
             <Icon mr={isCollapsed ? 0 : 3} fontSize="16px" as={icon} />
             <AnimatePresence>
@@ -212,6 +212,7 @@ const NavItem = ({ icon, children, to, subItems, isOpen, onToggle, isCollapsed, 
                       bg={isActive ? activeBg : 'transparent'}
                       color={isActive ? activeColor : useColorModeValue('neutral.600', 'neutral.400')}
                       _hover={{ bg: hoverBg, color: activeColor }}
+                      transition="background-color 120ms ease, color 120ms ease"
                       cursor="pointer"
                       fontSize="sm"
                       justify="space-between"
@@ -247,9 +248,9 @@ const NavItem = ({ icon, children, to, subItems, isOpen, onToggle, isCollapsed, 
             bg={isActive ? activeBg : 'transparent'}
             color={isActive ? activeColor : textColor}
             justify={isCollapsed ? 'center' : 'flex-start'}
-            whileHover={{ x: 2 }}
             whileTap={{ scale: 0.98 }}
             _hover={{ bg: hoverBg, color: activeColor }}
+            transition="background-color 120ms ease, color 120ms ease"
           >
             <Icon mr={isCollapsed ? 0 : 3} fontSize="16px" as={icon} />
             <AnimatePresence>
@@ -324,7 +325,8 @@ const SidebarContent = ({ isCollapsed, onToggleCollapse }) => {
       position="sticky"
       top="0"
       animate={{ width: isCollapsed ? '64px' : '240px' }}
-      transition={{ duration: 0.25, ease: 'easeInOut' }}
+      // Curva de drawer iOS: nítida, sin la blandura de easeInOut
+      transition={{ duration: 0.2, ease: [0.32, 0.72, 0, 1] }}
       display="flex"
       flexDirection="column"
       overflow="hidden"
