@@ -104,6 +104,13 @@ class Compra(TipoCambioMixin, models.Model):
         on_delete=models.PROTECT,
         related_name='compras'
     )
+    # Factura del proveedor registrada sobre una OC (registrar-factura).
+    # OneToOne: UNA factura por OC — la idempotencia del endpoint vive aquí.
+    orden_compra = models.OneToOneField(
+        'OrdenCompra', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='factura_compra',
+        verbose_name='Orden de compra facturada',
+    )
 
     # Fechas
     fecha_emision = models.DateField()
@@ -776,15 +783,23 @@ class OrdenCompra(TipoCambioMixin, models.Model):
         )
 
     def actualizar_totales(self):
-        # Funcionalidad temporalmente deshabilitada
-        pass
+        """
+        Totales desde las líneas. Los precios de OCDetalle son costos SIN IGV
+        (vienen de DetalleCotizacion.costo_unitario en la conversión).
+        subtotal = base para el costo de la venta vinculada (metricas).
+        """
+        bruto = sum(
+            (Decimal(str(d.cantidad or 0)) * Decimal(str(d.precio_unitario or 0)))
+            for d in self.detalles.all()
+        )
+        self.subtotal = Decimal(str(bruto)).quantize(Decimal('0.01'))
+        self.igv = (self.subtotal * Decimal('0.18')).quantize(Decimal('0.01'))
+        self.total = self.subtotal + self.igv
+        super(OrdenCompra, self).save(update_fields=['subtotal', 'igv', 'total', 'fecha_actualizacion'])
 
-    def convertir_a_compra(self):
-        if self.estado != 'aprobada':
-            raise ValidationError('Solo se pueden convertir a compra las órdenes aprobadas')
-
-        # Por ahora deshabilitamos esta funcionalidad hasta arreglar la estructura
-        raise ValidationError('Funcionalidad temporalmente deshabilitada')
+    # convertir_a_compra() fue reemplazado por el servicio registrar_factura()
+    # (apps/compras/services/factura_service.py): crea la Compra vinculada a la
+    # OC copiando líneas, moneda y tipo_cambio. Una factura por OC (OneToOne).
 
 class OrdenCompraDetalle(models.Model):
     """

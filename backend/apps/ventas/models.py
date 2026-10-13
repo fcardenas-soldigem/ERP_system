@@ -726,6 +726,13 @@ class DetalleVenta(models.Model):
     descripcion = models.CharField(max_length=500, null=True, blank=True)
     cantidad = models.DecimalField(max_digits=10, decimal_places=2)
     precio_unitario = models.DecimalField(max_digits=10, decimal_places=2)
+    # Snapshot del costo unitario SIN IGV al momento de la conversión
+    # (viene de DetalleCotizacion.costo_unitario, F1). Null = sin dato.
+    # Costo 0 NUNCA se trata como costo: es "sin dato".
+    costo_unitario = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True,
+        verbose_name='Costo unitario (sin IGV)',
+    )
     # D6 — origen. La conversión lo fija explícito; en ventas normales lo infiere
     # save() según el modo de inventario de la empresa (ya no hay fail-open).
     origen = models.CharField(

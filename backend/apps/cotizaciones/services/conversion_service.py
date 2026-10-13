@@ -301,6 +301,12 @@ def convertir_cotizacion_a_venta(cotizacion, *, marcar_convertida=True):
             descripcion=detalle.descripcion,
             cantidad=cantidad,
             precio_unitario=precio_final,
+            # Snapshot del costo interno (F1): la utilidad de la venta nace aquí.
+            # Costo 0 o null = sin dato (NUNCA costo real).
+            costo_unitario=(
+                detalle.costo_unitario
+                if detalle.costo_unitario and detalle.costo_unitario > 0 else None
+            ),
             origen=origen,
             stock_descontado=False,
         )
@@ -337,6 +343,9 @@ def convertir_cotizacion_a_venta(cotizacion, *, marcar_convertida=True):
                 cantidad=d.cantidad,
                 precio_unitario=costo,
             )
+        # Totales de la OC desde sus líneas (antes quedaban en 0.00 porque
+        # actualizar_totales era un pass — el costo no existía como agregado).
+        oc.actualizar_totales()
         ocs_creadas.append({
             'id': oc.id, 'numero': oc.numero,
             'proveedor': proveedor.razon_social, 'lineas': len(lineas),
