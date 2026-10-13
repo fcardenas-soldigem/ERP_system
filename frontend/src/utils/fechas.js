@@ -16,6 +16,12 @@ export const formatFecha = (iso) => {
   return `${m[3]}/${m[2]}/${m[1]}`;
 };
 
+// 'YYYY-MM-DD' → 'dd/mm' (ejes de gráficos)
+export const formatDiaMes = (iso) => {
+  const f = formatFecha(iso);
+  return f === '—' ? f : f.slice(0, 5);
+};
+
 // Rango corto: '01/10 – 31/10/2026'
 export const formatRango = (isoIni, isoFin) => {
   const ini = formatFecha(isoIni);

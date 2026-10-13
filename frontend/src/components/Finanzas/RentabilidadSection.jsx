@@ -139,13 +139,14 @@ const RentabilidadSection = ({ rentabilidad }) => {
     <Box>
       <SimpleGrid columns={{ base: 1, sm: 3 }} spacing={4} mb={6}>
 
-        {/* Ventas del mes (devengo) */}
+        {/* Valor de venta sin IGV — base del margen. El headline "Ventas del
+            mes" (CON IGV, lo que facturas) vive en el Dashboard/crecimiento. */}
         <Box bg="white" border="1px solid" borderColor={border} borderRadius="xl" p={5}>
           <HStack mb={2} justify="space-between">
             <Text fontSize="10px" fontWeight="semibold" color="gray.400" textTransform="uppercase" letterSpacing="wider">
-              Ventas del mes
+              Valor de venta (sin IGV)
             </Text>
-            <InfoTip label="Emitidas en el período (devengo); el cobro se ve en 'Cobrado este mes'" />
+            <InfoTip label="Base imponible de las ventas emitidas en el período (sin IGV 18%). Es la base del margen; lo facturado CON IGV está en 'Ventas del mes' del Dashboard." />
           </HStack>
           <MontoConsolidado
             value={ventas_mes}

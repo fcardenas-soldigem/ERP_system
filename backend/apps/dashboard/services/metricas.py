@@ -152,6 +152,67 @@ class MetricasService:
             for r in qs.values('fecha').annotate(t=Sum(self._pago_compra_pen_expr()))
         }
 
+    # ── CUENTAS POR COBRAR (definición única) ─────────────────────────────
+
+    def cuentas_por_cobrar(self) -> dict:
+        """
+        DEFINICIÓN ÚNICA de "Por cobrar" (Dashboard y Finanzas la usan):
+        ventas no anuladas ni borrador con saldo pendiente > 0
+        (saldo = total − pagos_total), en PEN con el TC del documento.
+        Incluye contado sin pagar y créditos; resta pagos parciales.
+        """
+        saldo_pen = (F('total') - F('pagos_total')) * Case(
+            When(tipo_cambio__isnull=False, then=F('tipo_cambio')),
+            When(moneda='PEN', then=Value(Decimal('1.0'))),
+            default=Value(self.fallback_tc),
+            output_field=_PREC,
+        )
+        qs = (
+            Venta.objects.filter(empresa=self.empresa)
+            .exclude(estado__in=ESTADOS_EXCLUIDOS_VENTA)
+            .annotate(saldo=F('total') - F('pagos_total'))
+            .filter(saldo__gt=0)
+        )
+        agg = qs.aggregate(
+            total_pen=Sum(saldo_pen, output_field=_PREC),
+            cantidad=Count('id'),
+        )
+        return {
+            'total_pen': float(agg['total_pen'] or 0),
+            'cantidad': agg['cantidad'] or 0,
+        }
+
+    # ── CUENTAS POR PAGAR (definición única, espejo de por cobrar) ────────
+
+    def cuentas_por_pagar(self) -> dict:
+        """
+        DEFINICIÓN ÚNICA de "Por pagar" (Dashboard y Finanzas la usan):
+        compras no anuladas ni borrador con saldo pendiente > 0, en PEN con
+        el TC del documento, CUALQUIER forma de pago (contado incluido).
+
+        Compra no tiene pagos_total denormalizado (los pagos viven en
+        PagoCompra con moneda propia), así que el saldo se calcula con
+        get_saldo_pendiente() —que ya convierte pagos a la moneda de la
+        compra— y se valoriza con el TC del documento. Volumen de compras
+        es bajo; el loop es aceptable (mismo patrón que el aging).
+        """
+        qs = (
+            Compra.objects.filter(empresa=self.empresa)
+            .exclude(estado__in=ESTADOS_EXCLUIDOS_COMPRA)
+            .prefetch_related('pagos')
+        )
+        total = Decimal('0')
+        cantidad = 0
+        for compra in qs:
+            saldo = compra.get_saldo_pendiente() * compra._tc_efectivo()
+            if saldo > 0:
+                total += saldo
+                cantidad += 1
+        return {
+            'total_pen': float(total.quantize(Decimal('0.01'))),
+            'cantidad': cantidad,
+        }
+
     # ── IGV (devengo) ─────────────────────────────────────────────────────
 
     def igv_devengo(self, fecha_inicio=None, fecha_fin=None) -> dict:
@@ -245,9 +306,13 @@ class MetricasService:
             hoy = date.today()
             rows = _query(hoy - timedelta(days=90), hoy)
             periodo = 'ultimos_90_dias'
+        def _limpiar(nombre):
+            # Descripciones importadas suelen arrastrar separadores ("| Texto")
+            return (nombre or '').strip().lstrip('|').strip()
+
         return {
             'periodo': periodo,
-            'labels': [r['nombre'] for r in rows],
+            'labels': [_limpiar(r['nombre']) for r in rows],
             'data': [float(r['total_vendido'] or 0) for r in rows],
         }
 

@@ -12,7 +12,7 @@ const NIVEL_COLORS = { rojo: 'red', amarillo: 'orange', verde: 'green' };
 
 const SemaforoFinanciero = ({ semaforo }) => {
   if (!semaforo) return null;
-  const { color, puntuacion, mensaje, alertas = [] } = semaforo;
+  const { color, puntuacion, mensaje, incompleto, alertas = [] } = semaforo;
   const cfg = CONFIG[color] ?? CONFIG.amarillo;
 
   return (
@@ -33,6 +33,7 @@ const SemaforoFinanciero = ({ semaforo }) => {
             </Text>
             <Text fontSize="xs" color={cfg.text} opacity={0.7}>
               Salud financiera: {puntuacion}/100
+              {incompleto && ' · Incompleto: faltan costos'}
             </Text>
           </VStack>
         </HStack>

@@ -95,39 +95,17 @@ class FinanzasService:
 
         saldo_actual = cobros - pagos
 
-        # Cuentas por cobrar vigentes, saldo valorizado al TC de cada venta
-        cxc_pendiente = Venta.objects.filter(
-            empresa=self.empresa,
-            estado='pendiente',
-            tipo_venta__in=['credito_30', 'credito_60'],
-        ).aggregate(
-            total=Sum(
-                (F('total') - F('pagos_total')) * Case(
-                    When(tipo_cambio__isnull=False, then=F('tipo_cambio')),
-                    When(moneda='PEN', then=Value(Decimal('1.0'))),
-                    default=Value(self.tipo_cambio_usd),
-                    output_field=DecimalField(max_digits=18, decimal_places=4),
-                ),
-                output_field=DecimalField(max_digits=18, decimal_places=4),
-            )
-        )['total'] or Decimal('0')
+        # Cuentas por cobrar: DEFINICIÓN ÚNICA (metricas.cuentas_por_cobrar) —
+        # la misma que la card "Por cobrar" del Dashboard. Antes esta solo
+        # contaba créditos y el Dashboard contaba totales sin restar pagos:
+        # cada pantalla daba una cifra distinta (bug de prod, V-000073).
+        cxc_pendiente = Decimal(str(self.metricas.cuentas_por_cobrar()['total_pen']))
 
-        # Cuentas por pagar vigentes (PEN, TC por documento)
-        cxp_qs = Compra.objects.filter(
-            empresa=self.empresa,
-            estado='pendiente',
-            tipo_compra__in=['credito_30', 'credito_60'],
-        )
-        cxp_pendiente = Decimal(str(desglose_pen(cxp_qs, 'total', fallback_tc=self.tipo_cambio_usd)['total_pen']))
-
-        # Descuento los pagos ya realizados de compras crédito (PEN)
-        cxp_pagado = PagoCompra.objects.filter(
-            compra__empresa=self.empresa,
-            compra__estado='pendiente',
-        ).exclude(metodo_pago='pendiente').aggregate(
-            total=Sum(self.metricas._pago_compra_pen_expr())
-        )['total'] or Decimal('0')
-        cxp_real = max(Decimal('0'), cxp_pendiente - Decimal(str(cxp_pagado)))
+        # Cuentas por pagar: DEFINICIÓN ÚNICA (metricas.cuentas_por_pagar) —
+        # la misma cifra que la card "Por pagar" del Dashboard. Espejo del
+        # fix de por cobrar: compras no anuladas/borrador con saldo > 0,
+        # cualquier forma de pago, PEN con TC del documento.
+        cxp_real = Decimal(str(self.metricas.cuentas_por_pagar()['total_pen']))
 
         proyeccion_30 = saldo_actual + cxc_pendiente - cxp_real
 
@@ -437,15 +415,14 @@ class FinanzasService:
     def calcular_cuentas_pagar(self) -> dict:
         """
         DPO = (Promedio CxP / COGS período) × días_período
-        Compras a crédito con estado pendiente.
+        Universo = DEFINICIÓN ÚNICA de por pagar: compras no anuladas/borrador
+        con saldo > 0, cualquier forma de pago (igual que Dashboard y flujo).
         """
+        from apps.dashboard.services.metricas import ESTADOS_EXCLUIDOS_COMPRA
         compras_credito = (
             Compra.objects
-            .filter(
-                empresa=self.empresa,
-                estado='pendiente',
-                tipo_compra__in=['credito_30', 'credito_60'],
-            )
+            .filter(empresa=self.empresa)
+            .exclude(estado__in=ESTADOS_EXCLUIDOS_COMPRA)
             .select_related('proveedor')
             .prefetch_related('pagos')
         )
@@ -531,10 +508,10 @@ class FinanzasService:
         total_anterior = self._sum_pen(ventas_ant_qs_crecimiento, 'total')
         count_anterior = ventas_ant_qs_crecimiento.aggregate(count=Count('id'))['count'] or 0
 
-        # Revenue growth
-        revenue_growth_pct = float(
-            ((total_actual - total_anterior) / total_anterior * 100)
-            if total_anterior > 0 else 0
+        # Revenue growth — contra 0 no hay comparación posible: None, nunca "+0.0%"
+        revenue_growth_pct = (
+            float((total_actual - total_anterior) / total_anterior * 100)
+            if total_anterior > 0 else None
         )
 
         # Ticket promedio
@@ -554,7 +531,8 @@ class FinanzasService:
         nuevos_clientes = len(clientes_actual - clientes_con_venta_anterior)
 
         return {
-            'revenue_growth_pct': round(revenue_growth_pct, 1),
+            # None = sin período anterior para comparar (el front muestra "—")
+            'revenue_growth_pct': round(revenue_growth_pct, 1) if revenue_growth_pct is not None else None,
             'ventas_mes': float(total_actual),
             'ventas_mes_desglose': self._desglose(ventas_actual_qs, 'total'),
             'ventas_anterior': float(total_anterior),
@@ -562,9 +540,9 @@ class FinanzasService:
             'transacciones_anterior': count_anterior,
             'ticket_promedio': round(ticket_actual, 2),
             'ticket_promedio_anterior': round(ticket_anterior, 2),
-            'ticket_variacion_pct': round(
-                ((ticket_actual - ticket_anterior) / ticket_anterior * 100)
-                if ticket_anterior > 0 else 0, 1
+            'ticket_variacion_pct': (
+                round((ticket_actual - ticket_anterior) / ticket_anterior * 100, 1)
+                if ticket_anterior > 0 else None
             ),
             'nuevos_clientes': nuevos_clientes,
         }
@@ -753,7 +731,9 @@ class FinanzasService:
             puntuacion -= 20
             alertas.append({'nivel': 'amarillo', 'mensaje': 'Caja proyectada ajustada'})
 
-        # Margen
+        # Margen — sin datos de costo NO se puntúa: el score no puede ser un
+        # 100 "saludable" cuando falta un componente. Se marca incompleto.
+        incompleto = bool(rentabilidad.get('sin_datos_costo'))
         semaforo_margen = rentabilidad.get('semaforo_margen', 'verde')
         if semaforo_margen == 'rojo':
             puntuacion -= 30
@@ -761,6 +741,9 @@ class FinanzasService:
         elif semaforo_margen == 'amarillo':
             puntuacion -= 10
             alertas.append({'nivel': 'amarillo', 'mensaje': f'Margen bruto moderado: {rentabilidad["margen_bruto_pct"]}%'})
+        elif semaforo_margen == 'sin_datos':
+            alertas.append({'nivel': 'amarillo',
+                            'mensaje': 'Incompleto: faltan costos — el margen no se pudo evaluar'})
 
         # Morosidad
         morosidad = cxc.get('indice_morosidad_pct', 0)
@@ -786,10 +769,16 @@ class FinanzasService:
             semaforo = 'rojo'
             mensaje = 'Situación financiera crítica — actúa hoy'
 
+        if incompleto:
+            # Con un componente sin datos el score es orientativo, no un 100.
+            mensaje = 'Incompleto: faltan costos — salud calculada sin el margen'
+            puntuacion = min(puntuacion, 99)
+
         return {
             'color': semaforo,
             'puntuacion': puntuacion,
             'mensaje': mensaje,
+            'incompleto': incompleto,
             'alertas': alertas[:5],
         }
 

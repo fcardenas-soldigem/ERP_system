@@ -8,6 +8,7 @@ import { FiInfo } from 'react-icons/fi';
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, Tooltip, ReferenceLine,
 } from 'recharts';
+import { formatDiaMes } from '../../utils/fechas';
 
 const fmt = (n) => Number(n ?? 0).toLocaleString('es-PE', {
   minimumFractionDigits: 0, maximumFractionDigits: 0,
@@ -96,7 +97,7 @@ const FlujoCajaChart = ({ flujo }) => {
                   <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <XAxis dataKey="fecha" tick={{ fontSize: 9, fill: '#9ca3af' }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+              <XAxis dataKey="fecha" tickFormatter={formatDiaMes} tick={{ fontSize: 9, fill: '#9ca3af' }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
               <Tooltip content={<CustomTooltip />} cursor={{ stroke: '#e5e7eb', strokeWidth: 1, strokeDasharray: '4 2' }} />
               <ReferenceLine y={0} stroke="#e5e7eb" strokeWidth={1} />
               <Area type="monotone" dataKey="saldo" stroke={lineColor} strokeWidth={2} fill={`url(#${fillId})`} dot={false} activeDot={{ r: 4, fill: lineColor, strokeWidth: 0 }} />
