@@ -8,6 +8,8 @@ import {
 } from '@chakra-ui/react';
 import { ventasService } from '../../services/ventas.service';
 import { getSimboloMoneda } from '../../utils/currency';
+import { StatusBadge } from '../ui';
+import { formatFecha } from '../../utils/fechas';
 import { formatPEN } from '../common/MontoConsolidado';
 
 // Fuente del costo de la venta (prioridad backend: factura > oc > cotización > catálogo)
@@ -154,10 +156,10 @@ const VentaDetalle = () => {
               <VStack align="start" spacing={1}>
                 <Text><b>Número:</b> {venta.numero}</Text>
                 <Text><b>Cliente:</b> {venta.cliente_nombre}</Text>
-                <Text><b>Fecha de Emisión:</b> {venta.fecha_emision}</Text>
+                <Text><b>Fecha de Emisión:</b> {formatFecha(venta.fecha_emision)}</Text>
               </VStack>
               <VStack align="start" spacing={1}>
-                <Text><b>Estado de pago:</b> <Badge colorScheme="blue">{venta.estado}</Badge></Text>
+                <Text><b>Estado de pago:</b> <StatusBadge estado={venta.estado} /></Text>
                 <Text><b>Subtotal:</b> {simboloMoneda} {venta.subtotal}</Text>
                 <Text><b>Total:</b> <b>{simboloMoneda} {venta.total}</b></Text>
               </VStack>
@@ -205,8 +207,9 @@ const VentaDetalle = () => {
                   <Tr key={d.id || i}>
                     <Td>{d.producto_nombre || d.descripcion || '—'}</Td>
                     <Td>
+                      {/* Origen no es un estado: gris neutro vs brand, sin morado */}
                       {d.origen === 'stock' ? (
-                        <Badge colorScheme="purple" variant="subtle">Stock</Badge>
+                        <Badge colorScheme="gray" variant="subtle">Stock</Badge>
                       ) : (
                         <Badge colorScheme="blue" variant="subtle">A pedido</Badge>
                       )}
@@ -236,7 +239,7 @@ const VentaDetalle = () => {
                         OC-{oc.numero}
                       </Link>
                       <Text fontSize="sm" noOfLines={1}>{oc.proveedor}</Text>
-                      <Badge>{oc.estado}</Badge>
+                      <StatusBadge estado={oc.estado} />
                     </HStack>
                   ))}
                 </VStack>

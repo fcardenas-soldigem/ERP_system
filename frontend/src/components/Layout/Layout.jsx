@@ -1,7 +1,6 @@
 import React from 'react';
 import { Outlet, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import Navbar from '../Navbar/Navbar';
 import AnimatedSidebar from './AnimatedSidebar';
 import EmpresaCheck from './EmpresaCheck';
 import AppLoading from '../common/AppLoading';
@@ -20,9 +19,10 @@ const Layout = () => {
   return (
     <EmpresaCheck>
       <Flex minH="100vh" bg="bg.default">
+        {/* Una sola navegación: el sidebar. La top-bar duplicada se eliminó;
+            tema y cerrar sesión viven en el bloque de usuario del sidebar. */}
         <AnimatedSidebar />
         <Box flex="1" overflow="auto" minW={0}>
-          <Navbar />
           <Box p={6}>
             <Outlet />
           </Box>

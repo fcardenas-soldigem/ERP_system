@@ -1,3 +1,4 @@
+import { StatusBadge } from '../ui';
 import React, { useState, useCallback } from 'react';
 import { TableSkeleton } from '../common/SkeletonLoaders';
 import {
@@ -53,10 +54,11 @@ const formatDate = (d) => {
   catch { return d; }
 };
 
+// Delega en el mapa único del sistema (ui/StatusBadge)
 const EstadoBadge = ({ estado }) => {
   const key = ESTADO_KEY(estado);
-  const cfg = ESTADO_CONFIG[key] ?? { label: estado, color: 'gray' };
-  return <Badge colorScheme={cfg.color} borderRadius="full" px={3}>{cfg.label}</Badge>;
+  const cfg = ESTADO_CONFIG[key];
+  return <StatusBadge estado={key} borderRadius="full" px={3}>{cfg?.label}</StatusBadge>;
 };
 
 const OrdenesCompraList = () => {

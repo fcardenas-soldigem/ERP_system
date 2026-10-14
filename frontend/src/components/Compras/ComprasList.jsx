@@ -1,3 +1,4 @@
+import { StatusBadge } from '../ui';
 import React, { useState, useCallback, useMemo } from 'react';
 import { TableSkeleton } from '../common/SkeletonLoaders';
 import { keyframes } from '@emotion/react';
@@ -68,10 +69,10 @@ const formatDate = (dateString) => {
     catch { return dateString; }
 };
 
-// ── EstadoBadge ───────────────────────────────────────────────────────────────
+// ── EstadoBadge — delega en el mapa único del sistema (ui/StatusBadge) ───────
 const EstadoBadge = ({ estado }) => {
-    const cfg = ESTADO_CONFIG[estado?.toLowerCase()] ?? { label: estado, color: 'gray' };
-    return <Badge colorScheme={cfg.color}>{cfg.label}</Badge>;
+    const cfg = ESTADO_CONFIG[estado?.toLowerCase()];
+    return <StatusBadge estado={estado}>{cfg?.label}</StatusBadge>;
 };
 
 // ── StatusTabs ────────────────────────────────────────────────────────────────

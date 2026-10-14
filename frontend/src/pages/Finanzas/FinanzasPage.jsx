@@ -6,6 +6,7 @@ import {
 import { useQuery } from '@tanstack/react-query';
 import { finanzasService } from '../../services/finanzas.service';
 import { formatFecha, formatRango } from '../../utils/fechas';
+import { PageHeader } from '../../components/ui';
 
 import IGVCard             from '../../components/Finanzas/IGVCard';
 import SemaforoFinanciero  from '../../components/Finanzas/SemaforoFinanciero';
@@ -61,32 +62,29 @@ const FinanzasPage = () => {
     <Box bg={bg} minH="100vh" px={{ base: 4, md: 6 }} py={6}>
 
       {/* ── Header ── */}
-      <Flex justify="space-between" align="center" mb={6} wrap="wrap" gap={3}>
-        <Box>
-          <Heading size="md" fontWeight="semibold">Finanzas</Heading>
-          <Text fontSize="xs" color="gray.400" mt={0.5}>
-            Cómo está tu negocio hoy
-          </Text>
-        </Box>
-
-        <HStack spacing={3}>
-          <Select
-            size="sm"
-            value={periodo}
-            onChange={e => setPeriodo(e.target.value)}
-            w="140px"
-            borderRadius="lg"
-            fontSize="sm"
-          >
-            <option value="semana">Esta semana</option>
-            <option value="mes">Este mes</option>
-            <option value="trimestre">Este trimestre</option>
-          </Select>
-          <Button size="sm" variant="ghost" onClick={refetch} fontSize="sm">
-            Actualizar
-          </Button>
-        </HStack>
-      </Flex>
+      <PageHeader
+        title="Finanzas"
+        subtitle="Cómo está tu negocio hoy"
+        actions={(
+          <>
+            <Select
+              size="sm"
+              value={periodo}
+              onChange={e => setPeriodo(e.target.value)}
+              w="140px"
+              borderRadius="md"
+              fontSize="sm"
+            >
+              <option value="semana">Esta semana</option>
+              <option value="mes">Este mes</option>
+              <option value="trimestre">Este trimestre</option>
+            </Select>
+            <Button size="sm" variant="ghost" onClick={refetch} fontSize="sm">
+              Actualizar
+            </Button>
+          </>
+        )}
+      />
 
       {isLoading && <LoadingSkeleton />}
 

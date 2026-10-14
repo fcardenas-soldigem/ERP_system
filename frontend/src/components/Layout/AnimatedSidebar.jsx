@@ -5,7 +5,7 @@ import {
   Tooltip, Avatar, HStack, Divider,
   useBreakpointValue, Drawer, DrawerBody,
   DrawerOverlay, DrawerContent, DrawerCloseButton,
-  useDisclosure,
+  useDisclosure, useColorMode,
 } from '@chakra-ui/react';
 import { NavLink } from 'react-router-dom';
 import {
@@ -13,8 +13,10 @@ import {
   ChevronLeftIcon, ChevronRightIcon, HamburgerIcon,
 } from '@chakra-ui/icons';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Moon, Sun, LogOut } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useModoInventario } from '../../hooks/useModoInventario';
+import { PRODUCT_NAME, PRODUCT_INITIALS } from '../../config/brand';
 import {
   FaChartBar, FaShoppingCart, FaBox, FaUsers, FaIndustry,
   FaFileInvoice, FaMoneyBillWave, FaRobot, FaBrain, FaCog,
@@ -27,7 +29,8 @@ const MotionText = motion(Text);
 
 // ─── Menu structure ───────────────────────────────────────────────────────────
 // Section 'avanzado' and 'inteligencia' start collapsed.
-// 'beta' items get a Badge.
+// Sin badges "Nuevo"/"Beta": si está en el menú, es parte del producto.
+// Orden CORE por frecuencia de uso real: Cotizaciones es el módulo más usado.
 
 const MENU_SECTIONS = [
   {
@@ -36,6 +39,7 @@ const MENU_SECTIONS = [
     collapsible: false,
     items: [
       { name: 'Dashboard',    icon: FaChartBar,    path: '/app/dashboard' },
+      { name: 'Cotizaciones', icon: FaFileInvoice, path: '/app/cotizaciones' },
       { name: 'Ventas',       icon: FaShoppingCart, path: '/app/ventas' },
       {
         name: 'Compras', icon: FaBox,
@@ -43,14 +47,14 @@ const MENU_SECTIONS = [
           { name: 'Facturas de Compra', path: '/app/compras' },
           { name: 'Nueva Compra',       path: '/app/compras/nueva' },
           { name: 'Órdenes de Compra',  path: '/app/compras/ordenes' },
-          { name: 'OC de Servicio',     path: '/app/compras/ordenes-servicio', badge: 'Nuevo' },
+          { name: 'OC de Servicio',     path: '/app/compras/ordenes-servicio' },
         ],
       },
       {
         name: 'Finanzas', icon: FaChartLine,
         subItems: [
           { name: 'Dashboard Financiero', path: '/app/finanzas' },
-          { name: 'Gastos Operativos',    path: '/app/finanzas/gastos', badge: 'Nuevo' },
+          { name: 'Gastos Operativos',    path: '/app/finanzas/gastos' },
         ],
       },
       {
@@ -67,8 +71,8 @@ const MENU_SECTIONS = [
       { name: 'Clientes',    icon: FaUsers, path: '/app/clientes' },
       { name: 'Proveedores', icon: FaUsers, path: '/app/proveedores' },
       { name: 'Guías de Remisión', icon: FaTruck, path: '/app/guias' },
-      { name: 'Órdenes de Servicio', icon: FaTools, path: '/app/servicios', badge: 'Nuevo' },
-      { name: 'Importar Excel', icon: FaFileUpload, path: '/app/importador', badge: 'Nuevo' },
+      { name: 'Órdenes de Servicio', icon: FaTools, path: '/app/servicios' },
+      { name: 'Importar Excel', icon: FaFileUpload, path: '/app/importador' },
     ],
   },
   {
@@ -76,7 +80,6 @@ const MENU_SECTIONS = [
     label: 'AVANZADO',
     collapsible: true,
     items: [
-      { name: 'Cotizaciones', icon: FaFileInvoice, path: '/app/cotizaciones' },
       {
         name: 'Cuentas', icon: FaMoneyBillWave,
         subItems: [
@@ -98,7 +101,6 @@ const MENU_SECTIONS = [
     id: 'inteligencia',
     label: 'INTELIGENCIA',
     collapsible: true,
-    badge: 'Beta',
     items: [
       { name: 'Asistente Virtual', icon: FaRobot, path: '/app/ai-assistant' },
       { name: 'Machine Learning',  icon: FaBrain, path: '/app/ml-dashboard' },
@@ -291,7 +293,14 @@ const SidebarContent = ({ isCollapsed, onToggleCollapse }) => {
     avanzado: false,
     inteligencia: false,
   });
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+  const { colorMode, toggleColorMode } = useColorMode();
+  // Nombre real: nombre+apellido del perfil; fallback al email sin dominio.
+  const nombreUsuario = (
+    [user?.nombre, user?.apellido].filter(Boolean).join(' ')
+    || user?.username
+    || (user?.email ? user.email.split('@')[0] : 'Cuenta')
+  );
   // D6 — en empresas sin_stock se oculta el menú Inventario (y submenús).
   const { conStock } = useModoInventario();
   const secciones = React.useMemo(() => {
@@ -343,13 +352,13 @@ const SidebarContent = ({ isCollapsed, onToggleCollapse }) => {
       >
         <Box
           w="32px" h="32px"
-          bg={brandColor}
+          bg="brand.500"
           borderRadius="lg"
           display="flex" alignItems="center" justifyContent="center"
           color="white" fontWeight="bold" fontSize="md"
           flexShrink={0}
         >
-          E
+          {PRODUCT_INITIALS}
         </Box>
         <AnimatePresence>
           {!isCollapsed && (
@@ -357,7 +366,7 @@ const SidebarContent = ({ isCollapsed, onToggleCollapse }) => {
               ml={3}
               fontSize="md"
               fontWeight="bold"
-              color={brandColor}
+              color="brand.600"
               initial={{ opacity: 0, width: 0 }}
               animate={{ opacity: 1, width: 'auto' }}
               exit={{ opacity: 0, width: 0 }}
@@ -365,7 +374,7 @@ const SidebarContent = ({ isCollapsed, onToggleCollapse }) => {
               whiteSpace="nowrap"
               overflow="hidden"
             >
-              ERP System
+              {PRODUCT_NAME}
             </MotionText>
           )}
         </AnimatePresence>
@@ -429,37 +438,55 @@ const SidebarContent = ({ isCollapsed, onToggleCollapse }) => {
         </Box>
       </VStack>
 
-      {/* User */}
+      {/* User — nombre real + tema + cerrar sesión (la top-bar ya no existe) */}
       <Box px={isCollapsed ? 2 : 3} py={3} borderTop="1px" borderColor={borderColor}>
-        <Tooltip label={isCollapsed ? (user?.username || 'Usuario') : ''} placement="right" hasArrow>
-          <Flex
-            align="center"
-            gap={isCollapsed ? 0 : 3}
-            p={2}
-            borderRadius="md"
-            cursor="pointer"
-            justify={isCollapsed ? 'center' : 'flex-start'}
-            _hover={{ bg: useColorModeValue('neutral.100', 'gray.700') }}
-          >
-            <Avatar size="xs" name={user?.username || 'U'} bg={brandColor} flexShrink={0} />
-            <AnimatePresence>
-              {!isCollapsed && (
-                <MotionBox
-                  initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                  transition={{ duration: 0.15 }}
-                  overflow="hidden"
-                >
-                  <Text fontSize="xs" fontWeight="medium" noOfLines={1}>
-                    {user?.username || 'Usuario'}
-                  </Text>
-                  <Text fontSize="10px" color="neutral.400" noOfLines={1}>
-                    {user?.email || ''}
-                  </Text>
-                </MotionBox>
-              )}
-            </AnimatePresence>
-          </Flex>
-        </Tooltip>
+        <Flex
+          align="center"
+          gap={isCollapsed ? 0 : 2}
+          p={2}
+          borderRadius="md"
+          justify={isCollapsed ? 'center' : 'flex-start'}
+        >
+          <Avatar size="xs" name={nombreUsuario} bg="brand.500" flexShrink={0} />
+          <AnimatePresence>
+            {!isCollapsed && (
+              <MotionBox
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                transition={{ duration: 0.15 }}
+                overflow="hidden"
+                flex="1"
+                minW={0}
+              >
+                <Text fontSize="xs" fontWeight="medium" noOfLines={1}>
+                  {nombreUsuario}
+                </Text>
+                <Text fontSize="10px" color="neutral.400" noOfLines={1}>
+                  {user?.email || ''}
+                </Text>
+              </MotionBox>
+            )}
+          </AnimatePresence>
+          {!isCollapsed && (
+            <HStack spacing={0.5} flexShrink={0}>
+              <Tooltip label={colorMode === 'light' ? 'Modo oscuro' : 'Modo claro'} hasArrow>
+                <IconButton
+                  aria-label="Cambiar tema"
+                  icon={<Icon as={colorMode === 'light' ? Moon : Sun} boxSize="14px" />}
+                  size="xs" variant="ghost"
+                  onClick={(e) => { e.stopPropagation(); toggleColorMode(); }}
+                />
+              </Tooltip>
+              <Tooltip label="Cerrar sesión" hasArrow>
+                <IconButton
+                  aria-label="Cerrar sesión"
+                  icon={<Icon as={LogOut} boxSize="14px" />}
+                  size="xs" variant="ghost"
+                  onClick={(e) => { e.stopPropagation(); logout(); }}
+                />
+              </Tooltip>
+            </HStack>
+          )}
+        </Flex>
       </Box>
 
       {/* Collapse toggle */}
