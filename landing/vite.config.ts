@@ -1,0 +1,15 @@
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import path from 'path';
+
+// assetsDir 'l-assets' evita colisión con /assets del ERP cuando ambos
+// proyectos conviven bajo el mismo dominio vía los rewrites de Vercel.
+export default defineConfig({
+  plugins: [react()],
+  resolve: {
+    alias: { '@': path.resolve(__dirname, './src') },
+  },
+  build: {
+    assetsDir: 'l-assets',
+  },
+});

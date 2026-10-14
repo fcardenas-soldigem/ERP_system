@@ -1,0 +1,11 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    { "source": "/", "destination": "/index.html" },
+    { "source": "/privacidad", "destination": "/index.html" },
+    {
+      "source": "/(.*)",
+      "destination": "https://erp-system-pearl-five.vercel.app/$1"
+    }
+  ]
+}
