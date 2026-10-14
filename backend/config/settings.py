@@ -119,6 +119,7 @@ INSTALLED_APPS = [
     'apps.importador',   # Importador Excel
     'apps.guias',        # Guías de Remisión
     'apps.servicios',    # Órdenes de Servicio de Reparación
+    'apps.leads',        # Captura de leads (landing acceso anticipado)
 ]
 
 # Middleware
@@ -268,7 +269,12 @@ REST_FRAMEWORK = {
         'rest_framework.authentication.SessionAuthentication',
     ],
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
-    'PAGE_SIZE': 20
+    'PAGE_SIZE': 20,
+    # Rate del endpoint público de leads (scope 'leads'); se aplica solo en esa
+    # view, no afecta al resto de la API.
+    'DEFAULT_THROTTLE_RATES': {
+        'leads': '5/hour',
+    },
 }
 
 # Configuraciones de Simple JWT

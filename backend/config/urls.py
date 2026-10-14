@@ -30,6 +30,7 @@ urlpatterns = [
     path('api/importador/', include('apps.importador.urls')), # Importador Excel
     path('api/guias/', include('apps.guias.urls')),           # Guías de Remisión
     path('api/servicios/', include('apps.servicios.urls')),  # Órdenes de Servicio
+    path('api/leads/', include('apps.leads.urls')),          # Landing: captura de leads
 ]
 
 # ML APIs: include OPCIONAL. Si faltan dependencias pesadas (joblib/sklearn) en
