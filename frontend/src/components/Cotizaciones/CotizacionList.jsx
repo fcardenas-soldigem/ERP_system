@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { TableSkeleton } from '../common/SkeletonLoaders';
+import { StatusBadge } from '../ui';
+import { formatFecha } from '../../utils/fechas';
 import {
   Box,
   Button,
@@ -241,17 +243,9 @@ const CotizacionList = () => {
     }
   };
 
-  const getEstadoBadge = (estado) => {
-    const colores = {
-      borrador: 'gray',
-      enviada: 'blue',
-      aceptada: 'green',
-      rechazada: 'red',
-      vencida: 'orange',
-      convertida: 'purple'
-    };
-    return <Badge colorScheme={colores[estado] || 'gray'}>{estado.toUpperCase()}</Badge>;
-  };
+  // Mapa único estado→color (components/ui/StatusBadge): enviada=ámbar
+  // (esperando respuesta), convertida=brand, vencida=rojo — sin morado/naranja.
+  const getEstadoBadge = (estado) => <StatusBadge estado={estado} />;
 
   return (
     <Box p={6}>
@@ -333,13 +327,13 @@ const CotizacionList = () => {
                   <Td fontWeight="bold">{cotizacion.numero}</Td>
                   <Td>{cotizacion.cliente_nombre}</Td>
                   <Td maxW="300px" isTruncated>{cotizacion.asunto}</Td>
-                  <Td>{new Date(cotizacion.fecha_emision).toLocaleDateString()}</Td>
-                  <Td>{new Date(cotizacion.fecha_vencimiento).toLocaleDateString()}</Td>
+                  <Td>{formatFecha(cotizacion.fecha_emision)}</Td>
+                  <Td>{formatFecha(cotizacion.fecha_vencimiento)}</Td>
                   <Td>
                     <HStack spacing={1}>
                       {getEstadoBadge(cotizacion.estado)}
                       {cotizacion.esta_vencida && (
-                        <Badge colorScheme="orange" variant="subtle">Vencida</Badge>
+                        <StatusBadge estado="vencida" />
                       )}
                     </HStack>
                   </Td>

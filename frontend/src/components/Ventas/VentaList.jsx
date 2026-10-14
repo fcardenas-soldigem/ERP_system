@@ -33,20 +33,16 @@ import guiasService from '../../services/guiasService';
 import ImportExcelModal from '../common/ImportExcelModal';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ESTADOS_VENTA, TIPOS_VENTA, METODOS_PAGO, ESTADOS_DISPLAY, TIPOS_VENTA_DISPLAY, METODOS_PAGO_DISPLAY } from './constants';
+import { StatusBadge } from '../ui';
+import { formatFecha } from '../../utils/fechas';
 import { Select } from '@chakra-ui/react';
 import {
   ESTADOS_OPERATIVOS, ESTADO_OPERATIVO_LABEL, SIGUIENTE_ESTADO, VERBO_SIGUIENTE,
   SLA_COLOR_SCHEME, SLA_LABEL,
 } from './estadoOperativo';
 
-// Constantes para colores de badges
-const ESTADOS_BADGE_COLORS = {
-  [ESTADOS_VENTA.BORRADOR]: 'gray',
-  [ESTADOS_VENTA.PENDIENTE]: 'yellow',
-  [ESTADOS_VENTA.PAGADO]: 'green',
-  [ESTADOS_VENTA.ANULADO]: 'red'
-};
-
+// Estados de venta → StatusBadge (mapa central). El badge de TIPO de venta
+// (contado/crédito) es otra dimensión y conserva su propio mapa.
 const TIPOS_VENTA_BADGE_COLORS = {
   [TIPOS_VENTA.CONTADO]: 'green',
   [TIPOS_VENTA.CREDITO_30]: 'orange',
@@ -275,17 +271,13 @@ const VentaList = () => {
     }).format(amount || 0);
   };
 
-  const formatDate = (dateString) => {
-    return format(new Date(dateString), 'dd/MM/yyyy', { locale: es });
-  };
+  // Helper único de fechas del sistema (dd/mm/yyyy, es-PE)
+  const formatDate = (dateString) => formatFecha(dateString);
 
-  const getEstadoBadge = (estado) => {
-    return (
-      <Badge colorScheme={ESTADOS_BADGE_COLORS[estado]} variant="solid">
-        {ESTADOS_DISPLAY[estado]}
-      </Badge>
-    );
-  };
+  // Mapa único estado→color del sistema (components/ui/StatusBadge)
+  const getEstadoBadge = (estado) => (
+    <StatusBadge estado={estado}>{ESTADOS_DISPLAY[estado]}</StatusBadge>
+  );
 
   const getTipoVentaBadge = (tipoVenta) => {
     return (
@@ -399,7 +391,7 @@ const VentaList = () => {
             <Th>Método Pago</Th>
             <Th>Estado</Th>
             <Th>Estado operativo</Th>
-            <Th>Total</Th>
+            <Th isNumeric>Total</Th>
             <Th>Acciones</Th>
           </Tr>
         </Thead>
@@ -415,7 +407,7 @@ const VentaList = () => {
               <Td>{getMetodoPagoBadge(venta.metodo_pago)}</Td>
               <Td>{getEstadoBadge(venta.estado)}</Td>
               <Td>{getOperativoBadge(venta)}</Td>
-              <Td>{formatCurrency(venta.total, venta.moneda)}</Td>
+              <Td isNumeric>{formatCurrency(venta.total, venta.moneda)}</Td>
               <Td>
                 <HStack spacing={1}>
                   {/* F3 — Acción rápida: siguiente paso del timeline (1 clic). */}

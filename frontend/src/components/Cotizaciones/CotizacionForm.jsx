@@ -624,7 +624,7 @@ const CotizacionForm = () => {
                     colorScheme="orange"
                   />
                 </FormControl>
-                <Button leftIcon={<FaPlus />} colorScheme="blue" size="sm" onClick={agregarDetalle}>
+                <Button leftIcon={<FaPlus />} variant="secondary" size="sm" onClick={agregarDetalle}>
                   Agregar Ítem
                 </Button>
               </HStack>
@@ -965,14 +965,14 @@ const CotizacionForm = () => {
             </VStack>
           </Box>
 
-          {/* ── Botones ── */}
+          {/* ── Botones: primary = acción principal, secondary = el resto ── */}
           <Flex justify="flex-end" gap={4}>
-            <Button variant="outline" onClick={() => navigate('/app/cotizaciones')}>
+            <Button variant="secondary" onClick={() => navigate('/app/cotizaciones')}>
               Cancelar
             </Button>
             <Button
               type="submit"
-              colorScheme="blue"
+              variant="primary"
               leftIcon={<FaSave />}
               isLoading={loading}
             >

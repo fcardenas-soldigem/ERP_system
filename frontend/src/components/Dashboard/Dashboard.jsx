@@ -5,6 +5,7 @@ import {
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../lib/api';
 import { formatPEN, composicionTexto } from '../common/MontoConsolidado';
+import { PageHeader } from '../ui';
 
 // Dashboard sub-components
 import QuickActions       from './QuickActions';
@@ -208,12 +209,7 @@ const Dashboard = () => {
     <Box bg={bg} minH="100vh" px={{ base: 4, md: 6 }} py={6}>
 
       {/* ── Header ── */}
-      <Flex justify="space-between" align="center" mb={5}>
-        <Text fontSize="lg" fontWeight="semibold" color="gray.800">
-          Dashboard
-        </Text>
-        <Text fontSize="xs" color="gray.400">Últimos 30 días</Text>
-      </Flex>
+      <PageHeader title="Dashboard" subtitle="Últimos 30 días" mb={5} />
 
       {/* ── Sección 0: Quick Actions ── */}
       <Box mb={6}>

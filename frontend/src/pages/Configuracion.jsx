@@ -28,6 +28,7 @@ import {
 import { FaImage, FaBuilding, FaPhone, FaEnvelope, FaMapMarkerAlt, FaIdCard, FaTrash, FaSignature } from 'react-icons/fa';
 import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
+import { PageHeader } from '../components/ui';
 
 const Configuracion = () => {
     const toast = useToast();
@@ -257,7 +258,7 @@ const Configuracion = () => {
     if (loading) {
         return (
             <Box p={6}>
-                <Heading mb={6}>Configuración del Sistema</Heading>
+                <PageHeader title="Configuración" subtitle="Empresa, logo y preferencias del sistema" />
                 <VStack spacing={5} align="stretch">
                     <Card>
                         <CardBody>
@@ -272,7 +273,7 @@ const Configuracion = () => {
 
     return (
         <Box p={6} maxW="1200px" mx="auto">
-            <Heading mb={6}>Configuración del Sistema</Heading>
+            <PageHeader title="Configuración" subtitle="Empresa, logo y preferencias del sistema" />
             
             <VStack spacing={6} align="stretch">
                 {/* Logo de la Empresa */}
@@ -327,7 +328,7 @@ const Configuracion = () => {
                                             as="label"
                                             htmlFor="logo-upload"
                                             leftIcon={<FaImage />}
-                                            colorScheme="blue"
+                                            variant="primary"
                                             isLoading={uploadingLogo}
                                             loadingText="Subiendo..."
                                             cursor="pointer"
@@ -395,7 +396,7 @@ const Configuracion = () => {
                                                 id={`${key}-upload`}
                                                 onChange={(e) => handleFirmaUpload(e, key)} />
                                             <Button as="label" htmlFor={`${key}-upload`} size="sm"
-                                                leftIcon={<FaImage />} colorScheme="blue" cursor="pointer">
+                                                leftIcon={<FaImage />} variant="primary" cursor="pointer">
                                                 {empresaInfo?.[`${key}_url`] ? 'Cambiar' : 'Subir'}
                                             </Button>
                                         </FormControl>
@@ -521,7 +522,7 @@ const Configuracion = () => {
                                     : 'Sin control: cada compra existe por una venta (no se mantiene stock); el menú Inventario se oculta.'}
                             </Text>
                             <HStack justify="flex-end">
-                                <Button colorScheme="blue"
+                                <Button variant="primary"
                                     isDisabled={!empresaInfo || modoInventario === empresaInfo?.modo_inventario}
                                     onClick={handleGuardarModoInventario}>
                                     Guardar modo
@@ -589,7 +590,7 @@ const Configuracion = () => {
                             <FormControl display="flex" alignItems="center" justifyContent="space-between">
                             <FormLabel mb="0">Notificaciones por Email</FormLabel>
                                 <Switch 
-                                    colorScheme="blue" 
+                                    variant="primary" 
                                     isChecked={preferencias.notificaciones_email}
                                     onChange={(e) => setPreferencias(prev => ({
                                         ...prev,
@@ -601,7 +602,7 @@ const Configuracion = () => {
                             <FormControl display="flex" alignItems="center" justifyContent="space-between">
                             <FormLabel mb="0">Backup Automático</FormLabel>
                                 <Switch 
-                                    colorScheme="blue" 
+                                    variant="primary" 
                                     isChecked={preferencias.backup_automatico}
                                     onChange={(e) => setPreferencias(prev => ({
                                         ...prev,
@@ -613,7 +614,7 @@ const Configuracion = () => {
                             <FormControl display="flex" alignItems="center" justifyContent="space-between">
                             <FormLabel mb="0">Modo Oscuro</FormLabel>
                                 <Switch 
-                                    colorScheme="blue" 
+                                    variant="primary" 
                                     isChecked={preferencias.modo_oscuro}
                                     onChange={(e) => setPreferencias(prev => ({
                                         ...prev,
@@ -631,7 +632,7 @@ const Configuracion = () => {
                         Cancelar
                     </Button>
                     <Button 
-                        colorScheme="blue" 
+                        variant="primary" 
                         onClick={handleSubmit}
                         isLoading={saving}
                         loadingText="Guardando..."
