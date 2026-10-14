@@ -14,7 +14,6 @@ import PrivateRoute from './components/PrivateRoute';
 // ─── Lazy-loaded routes ──────────────────────────────────────────────────────
 // Each route is a separate chunk. Initial bundle only loads shell + auth.
 const Layout        = lazy(() => import('./components/Layout/Layout'));
-const LandingPage   = lazy(() => import('./pages/LandingPage'));
 const Login         = lazy(() => import('./components/Auth/Login'));
 const NotFound      = lazy(() => import('./components/NotFound'));
 
@@ -111,7 +110,10 @@ function App() {
                     <AuthProvider>
                         <Suspense fallback={<AppLoading />}>
                         <Routes>
-                            <Route path="/" element={<LandingPage />} />
+                            {/* La landing vive en un proyecto aparte (/landing).
+                                Quien entre por la URL directa de Vercel del ERP
+                                va directo a login. */}
+                            <Route path="/" element={<Navigate to="/login" replace />} />
                             <Route path="/login" element={<Login />} />
                             <Route path="/app" element={<PrivateRoute><Layout /></PrivateRoute>}>
                                 <Route index element={<Navigate to="/app/dashboard" replace />} />
