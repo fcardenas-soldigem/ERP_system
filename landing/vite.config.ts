@@ -12,4 +12,12 @@ export default defineConfig({
   build: {
     assetsDir: 'l-assets',
   },
+  // Dev: proxy /api -> backend local, replicando el mismo-origen que en
+  // producción dan los rewrites de Vercel (sin CORS). El form usa ruta
+  // relativa /api/leads/ en ambos entornos.
+  server: {
+    proxy: {
+      '/api': { target: 'http://localhost:8000', changeOrigin: true },
+    },
+  },
 });
