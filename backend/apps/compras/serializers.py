@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from apps.core.serializer_fields import SafeFileURLField
 from .models import (
     Compra,
     CompraDetalle,
@@ -72,6 +73,9 @@ class CompraDetalleSerializer(EmpresaScopedModelSerializer):
         read_only_fields = ['id', 'subtotal', 'igv', 'total', 'created_at', 'updated_at']
 
 class ComprobantePagoSerializer(EmpresaScopedModelSerializer):
+    # Lectura tolerante: si la firma de GCS falla, archivo → null (no 500).
+    archivo = SafeFileURLField(required=False, allow_null=True)
+
     class Meta:
         model = ComprobantePago
         fields = ['id', 'archivo', 'fecha_subida', 'tipo', 'numero', 'notas']
@@ -210,6 +214,9 @@ class CompraSerializer(EmpresaScopedModelSerializer):
         return instance
 
 class PagoCompraSerializer(EmpresaScopedModelSerializer):
+    # Lectura tolerante: si la firma de GCS falla, comprobante → null (no 500).
+    comprobante = SafeFileURLField(required=False, allow_null=True)
+
     class Meta:
         model = PagoCompra
         fields = ['id', 'compra', 'fecha', 'monto', 'moneda', 'metodo_pago',

@@ -17,6 +17,14 @@ class EmpresaSerializer(serializers.ModelSerializer):
             'modo_inventario',  # B4/D6 — lectura y escritura
         ]
         read_only_fields = ['id', 'uuid', 'is_active', 'logo_url', 'firma_elaborado_url', 'firma_aprobado_url']
+        # Los FileField crudos se exponen SOLO para subida (write_only). La lectura va por
+        # logo_url/firma_*_url (field_url_safe), que nunca lanzan aunque la firma de GCS falle.
+        # Sin esto, DRF llamaría .url sobre el campo crudo al serializar y tumbaría el endpoint.
+        extra_kwargs = {
+            'logo': {'write_only': True},
+            'firma_elaborado': {'write_only': True},
+            'firma_aprobado': {'write_only': True},
+        }
 
     def _build_url(self, field):
         # field_url_safe nunca lanza: devuelve None si el archivo falta o el storage

@@ -12,6 +12,7 @@ Centraliza:
 Con GCS no hay ruta local: NUNCA usar `FieldFile.path`. Para leer un archivo (p. ej.
 logo/firma en un PDF) usar `read_field_bytes`; para exponer una URL usar `field_url_safe`.
 """
+import logging
 import os
 import tempfile
 import uuid
@@ -20,6 +21,8 @@ from contextlib import contextmanager
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.utils.deconstruct import deconstructible
+
+logger = logging.getLogger(__name__)
 
 
 def _resolve_empresa_id(instance):
@@ -116,12 +119,20 @@ def read_field_bytes(fieldfile):
 
 
 def field_url_safe(fieldfile):
-    """URL del archivo, o None si está vacío o no se puede resolver (nunca lanza)."""
+    """URL del archivo, o None si está vacío o no se puede resolver (NUNCA lanza).
+
+    Captura CUALQUIER excepción (incl. AttributeError y los errores de google-auth
+    como TransportError o "you need a private key to sign credentials" cuando la SA
+    por metadata no puede firmar). Loguea con logger.exception para dejar traza en el
+    servidor y devuelve None, para que una URL de archivo jamás tumbe un endpoint.
+    """
     if not fieldfile:
         return None
     try:
         return fieldfile.url
     except Exception:
+        name = getattr(fieldfile, 'name', '<desconocido>')
+        logger.exception('No se pudo resolver la URL del archivo %s; se devuelve None', name)
         return None
 
 

@@ -255,10 +255,10 @@ class DashboardResumen(APIView):
             cache.set(cache_key, response_data, 120)
             return Response(response_data)
 
-        except Exception as e:
-            logger.error(f"Error en DashboardResumen: {str(e)}", exc_info=True)
+        except Exception:
+            logger.exception("Error en DashboardResumen")
             return Response(
-                {"error": "Error al generar el resumen del dashboard", "detail": str(e)},
+                {"error": "Error interno"},
                 status=500
             )
 
@@ -540,10 +540,10 @@ class UtilityDashboardView(APIView):
                 'compras': compras_diarias,
             })
 
-        except Exception as e:
-            logger.error('Error en UtilityDashboardView: %s', e, exc_info=True)
+        except Exception:
+            logger.exception('Error en UtilityDashboardView')
             return Response(
-                {'error': 'Error al generar el dashboard de utilidad', 'detail': str(e)},
+                {'error': 'Error interno'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 

@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from apps.empresas.serializers import EmpresaSerializer
+from apps.core.uploads import field_url_safe
 
 User = get_user_model()
 
@@ -48,9 +49,12 @@ class UserSerializer(serializers.ModelSerializer):
         if instance.empresa:
             request = self.context.get('request')
             def _url(field):
-                if field and request:
-                    return request.build_absolute_uri(field.url)
-                return None
+                # field_url_safe nunca lanza (firma de GCS fallida → None), así el
+                # perfil/login no se cae por una URL de logo/firma irresoluble.
+                url = field_url_safe(field)
+                if not url:
+                    return None
+                return request.build_absolute_uri(url) if request else url
 
             data['empresa_info'] = {
                 'id': instance.empresa.id,
