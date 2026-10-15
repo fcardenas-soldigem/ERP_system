@@ -120,6 +120,7 @@ INSTALLED_APPS = [
     'apps.guias',        # Guías de Remisión
     'apps.servicios',    # Órdenes de Servicio de Reparación
     'apps.leads',        # Captura de leads (landing acceso anticipado)
+    'apps.agente',       # Agente MCP (tokens, log de auditoría, endpoint /api/mcp/)
 ]
 
 # Middleware
@@ -319,6 +320,7 @@ REST_FRAMEWORK = {
     # view, no afecta al resto de la API.
     'DEFAULT_THROTTLE_RATES': {
         'leads': '5/hour',
+        'mcp': '60/min',   # por token (agente MCP)
     },
 }
 
