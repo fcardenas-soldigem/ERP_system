@@ -50,6 +50,12 @@ docs/
 **/*.sql
 **/settings_test*.py
 
+# ── Media subida por usuarios (firmas, logos, comprobantes, imports) ─
+# Datos de cliente: NUNCA van a la imagen. En prod viven en GCS (django-storages).
+# Alinea `docker build` local con `gcloud builds submit` (.gcloudignore ya lo excluye).
+# La migración a GCS se corre desde local con migrar_media_a_gcs (ver DEPLOY.md).
+backend/media/
+
 # ── Salida generada por graphify (grafo local, no va al build) ─
 graphify-out/
 
