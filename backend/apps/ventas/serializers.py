@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from apps.core.serializer_fields import SafeFileURLField
 from .models import Venta, Cliente, Factura, OrdenVenta, DetalleVenta, ComprobantePago, PagoVenta
 from apps.inventario.models.producto import Producto
 from apps.inventario.models.stock import Stock
@@ -48,6 +49,9 @@ class ClienteSerializer(serializers.ModelSerializer):
         return value
 
 class ComprobantePagoSerializer(serializers.ModelSerializer):
+    # Lectura tolerante: si la firma de GCS falla, archivo → null (no 500).
+    archivo = SafeFileURLField(required=False, allow_null=True)
+
     class Meta:
         model = ComprobantePago
         fields = ['id', 'archivo', 'fecha_subida', 'tipo', 'numero', 'notas']
@@ -97,7 +101,7 @@ class VentaSerializer(serializers.ModelSerializer):
     )
     dias_restantes = serializers.SerializerMethodField()
     estado_vencimiento = serializers.SerializerMethodField()
-    comprobante = serializers.FileField(required=False, allow_null=True)
+    comprobante = SafeFileURLField(required=False, allow_null=True)  # lectura tolerante (no 500)
     comprobante_pago = ComprobantePagoSerializer(read_only=True)
     productos_stock_bajo = serializers.SerializerMethodField()
     cliente_nombre = serializers.CharField(source='cliente.nombre', read_only=True)
@@ -487,6 +491,7 @@ class OrdenVentaSerializer(serializers.ModelSerializer):
 
 class PagoVentaSerializer(serializers.ModelSerializer):
     completar_pago = serializers.BooleanField(required=False, write_only=True)
+    comprobante = SafeFileURLField(required=False, allow_null=True)  # lectura tolerante (no 500)
     estado_venta = serializers.CharField(read_only=True)
     saldo_pendiente = serializers.DecimalField(read_only=True, max_digits=10, decimal_places=2)
     cliente_nombre = serializers.CharField(source='venta.cliente.nombre', read_only=True)
