@@ -549,6 +549,11 @@ class PagoVentaSerializer(serializers.ModelSerializer):
                     "monto": [f"El monto del pago ({monto}) excede el saldo pendiente ({saldo_pendiente})"]
                 })
 
+            # completar_pago es vestigial en el serializer: la vista lo lee de request.data,
+            # no del modelo. En multipart, DRF inyecta completar_pago=False (is_html_input) y
+            # ModelSerializer.create() lo pasaría a PagoVenta(...) -> TypeError. Se descarta aquí
+            # para que la subida multipart de comprobante funcione.
+            data.pop('completar_pago', None)
             return data
         except Exception as e:
             if hasattr(e, 'detail'):

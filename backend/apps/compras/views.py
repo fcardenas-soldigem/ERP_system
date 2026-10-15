@@ -635,11 +635,10 @@ class CompraViewSet(viewsets.ModelViewSet):
             
             return response
         
-        except Exception as e:
-            error_traceback = traceback.format_exc()
-            logger.error("Error al generar PDF: %s", e, exc_info=True)
+        except Exception:
+            logger.exception("Error al generar PDF de OC")
             return Response(
-                {'error': f'Error al generar PDF: {str(e)}', 'detail': error_traceback},
+                {'error': 'Error interno'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
