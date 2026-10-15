@@ -1,4 +1,5 @@
 import logging
+import os
 
 from django.db import transaction
 from rest_framework import status
@@ -10,6 +11,8 @@ from rest_framework.views import APIView
 from apps.inventario.models.almacen import Almacen
 from apps.inventario.models.categoria import Categoria
 from apps.ventas.models import Cliente
+
+from apps.core.uploads import field_as_tempfile
 
 from .models import ImportacionExcel, MapeoColumnas
 from .serializers import ImportacionExcelSerializer
@@ -67,7 +70,10 @@ class UploadView(APIView):
 
         try:
             preview_svc = PreviewService()
-            preview = preview_svc.get_preview(importacion.archivo.path, empresa)
+            # GCS no tiene ruta local: materializar el Excel en un tempfile.
+            _suffix = os.path.splitext(archivo.name or '')[1] or '.xlsx'
+            with field_as_tempfile(importacion.archivo, suffix=_suffix) as _tmp_path:
+                preview = preview_svc.get_preview(_tmp_path, empresa)
             importacion.preview_json = preview
             importacion.estado = 'preview'
             importacion.save(update_fields=['preview_json', 'estado'])

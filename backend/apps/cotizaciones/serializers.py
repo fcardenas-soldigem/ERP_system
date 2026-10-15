@@ -2,6 +2,7 @@ from rest_framework import serializers
 from .models import Cotizacion, DetalleCotizacion
 from apps.ventas.models import Cliente
 from apps.inventario.models import Producto
+from apps.core.uploads import field_url_safe
 from decimal import Decimal
 
 
@@ -120,7 +121,7 @@ class CotizacionSerializer(serializers.ModelSerializer):
             'direccion': obj.empresa.direccion,
             'telefono': obj.empresa.telefono,
             'email': obj.empresa.email,
-            'logo': obj.empresa.logo.url if obj.empresa.logo else None,
+            'logo': field_url_safe(obj.empresa.logo),
         }
 
     def get_venta_info(self, obj):

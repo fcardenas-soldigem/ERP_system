@@ -19,6 +19,8 @@ from django.conf import settings
 import os
 from datetime import datetime
 
+from apps.core.uploads import read_field_bytes
+
 logger = logging.getLogger(__name__)
 
 # ─────────── paleta compartida ───────────
@@ -331,12 +333,12 @@ class OrdenCompraPDFGenerator:
     # ── helpers ──
     def _logo_image(self, width=130, height=60):
         if self.empresa.logo:
-            try:
-                path = self.empresa.logo.path
-                if os.path.exists(path):
-                    return Image(path, width=width, height=height, kind='proportional')
-            except Exception:
-                pass
+            data = read_field_bytes(self.empresa.logo)
+            if data:
+                try:
+                    return Image(BytesIO(data), width=width, height=height, kind='proportional')
+                except Exception:
+                    pass
         return None
 
     def _lv(self, label, value):
@@ -787,24 +789,24 @@ class PurchaseOrderPDFGenerator:
     # ── helpers ──
     def _logo_image(self, width=130, height=60):
         if self.empresa.logo:
-            try:
-                path = self.empresa.logo.path
-                if os.path.exists(path):
-                    return Image(path, width=width, height=height, kind='proportional')
-            except Exception:
-                pass
+            data = read_field_bytes(self.empresa.logo)
+            if data:
+                try:
+                    return Image(BytesIO(data), width=width, height=height, kind='proportional')
+                except Exception:
+                    pass
         return None
 
     def _firma_image(self, field_name, width=90, height=35):
         """Carga firma_elaborado o firma_aprobado de la empresa."""
         campo = getattr(self.empresa, field_name, None)
         if campo:
-            try:
-                path = campo.path
-                if os.path.exists(path):
-                    return Image(path, width=width, height=height, kind='proportional')
-            except Exception:
-                pass
+            data = read_field_bytes(campo)
+            if data:
+                try:
+                    return Image(BytesIO(data), width=width, height=height, kind='proportional')
+                except Exception:
+                    pass
         return None
 
     def _get_forma_pago(self):
@@ -1207,22 +1209,22 @@ class OrdenServicioCompraPDFGenerator:
     def _firma_image(self, field_name, width=90, height=35):
         campo = getattr(self.empresa, field_name, None)
         if campo:
-            try:
-                path = campo.path
-                if os.path.exists(path):
-                    return Image(path, width=width, height=height, kind='proportional')
-            except Exception:
-                pass
+            data = read_field_bytes(campo)
+            if data:
+                try:
+                    return Image(BytesIO(data), width=width, height=height, kind='proportional')
+                except Exception:
+                    pass
         return None
 
     def _logo_image(self, width=130, height=60):
         if self.empresa.logo:
-            try:
-                path = self.empresa.logo.path
-                if os.path.exists(path):
-                    return Image(path, width=width, height=height, kind='proportional')
-            except Exception:
-                pass
+            data = read_field_bytes(self.empresa.logo)
+            if data:
+                try:
+                    return Image(BytesIO(data), width=width, height=height, kind='proportional')
+                except Exception:
+                    pass
         return None
 
     def _lv(self, label, value):

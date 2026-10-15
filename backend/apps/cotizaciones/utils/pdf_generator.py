@@ -17,6 +17,8 @@ from django.conf import settings
 import os
 from datetime import datetime
 
+from apps.core.uploads import read_field_bytes
+
 
 PRIMARY = colors.HexColor('#2B6CB0')
 PRIMARY_LIGHT = colors.HexColor('#EBF8FF')
@@ -123,12 +125,12 @@ class CotizacionPDFGenerator:
         W = PAGE_W - 2 * MARGIN
         logo_cell = ''
         if self.empresa.logo:
-            try:
-                logo_path = self.empresa.logo.path
-                if os.path.exists(logo_path):
-                    logo_cell = Image(logo_path, width=130, height=60, kind='proportional')
-            except Exception:
-                pass
+            data = read_field_bytes(self.empresa.logo)
+            if data:
+                try:
+                    logo_cell = Image(BytesIO(data), width=130, height=60, kind='proportional')
+                except Exception:
+                    pass
 
         right_data = [
             [Paragraph(f'Fecha: {self.cotizacion.fecha_emision.strftime("%d/%m/%Y")}',

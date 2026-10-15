@@ -5,6 +5,7 @@ Modelos de Gastos Operativos para el módulo de Finanzas.
 from django.conf import settings
 from django.db import models
 from apps.empresas.models import Empresa
+from apps.core.uploads import UploadToEmpresa, validate_upload
 
 
 class CategoriaGasto(models.Model):
@@ -71,7 +72,7 @@ class GastoOperativo(models.Model):
     proveedor_servicio = models.CharField(max_length=200, blank=True, null=True)
     estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default='pagado')
     notas = models.TextField(blank=True, null=True)
-    archivo_adjunto = models.FileField(upload_to='gastos/', null=True, blank=True)
+    archivo_adjunto = models.FileField(upload_to=UploadToEmpresa('gastos'), validators=[validate_upload], null=True, blank=True)
     creado_por = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,

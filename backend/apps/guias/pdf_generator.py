@@ -12,6 +12,8 @@ from reportlab.platypus import (
     Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle, KeepTogether,
 )
 
+from apps.core.uploads import read_field_bytes
+
 # ── Palette ──────────────────────────────────────────────────────────────────
 NAVY       = colors.HexColor('#1B2A4A')
 BLUE       = colors.HexColor('#2563EB')
@@ -127,12 +129,12 @@ class GuiaRemisionPDF:
 
         logo_cell = None
         if e.logo:
-            try:
-                path = e.logo.path
-                if os.path.exists(path):
-                    logo_cell = Image(path, width=120, height=2.6 * cm, kind='proportional')
-            except Exception:
-                pass
+            data = read_field_bytes(e.logo)
+            if data:
+                try:
+                    logo_cell = Image(BytesIO(data), width=120, height=2.6 * cm, kind='proportional')
+                except Exception:
+                    pass
         if logo_cell is None:
             logo_cell = Paragraph(
                 f'<b>{e.nombre}</b>',

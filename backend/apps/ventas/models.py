@@ -8,6 +8,7 @@ from apps.inventario.models.inventario_productos_terminados import InventarioPro
 from apps.inventario.models.inventario_materias_primas import InventarioMateriasPrimas
 from apps.inventario.models.movimiento_inventario import MovimientoInventario
 from apps.core.services.tipo_cambio import TipoCambioMixin
+from apps.core.uploads import UploadToEmpresa, validate_upload
 from decimal import Decimal
 from django.db import transaction
 from django.core.exceptions import ValidationError
@@ -45,13 +46,15 @@ class Cliente(models.Model):
     def __str__(self):
         return f"{self.nombre} - {self.documento}"
 
+# NOTA: `comprobante_upload_to` se conserva por compatibilidad con migraciones
+# históricas que lo referencian. El campo ahora usa `UploadToEmpresa` (GCS-safe).
 def comprobante_upload_to(instance, filename):
     # Generar la ruta para el archivo
     return f'ventas/comprobantes/{instance.venta.empresa.id}/{instance.venta.numero}/{filename}'
 
 class ComprobantePago(models.Model):
     venta = models.OneToOneField('Venta', on_delete=models.CASCADE, related_name='comprobante_pago')
-    archivo = models.FileField(upload_to=comprobante_upload_to)
+    archivo = models.FileField(upload_to=UploadToEmpresa('comprobantes_pago_venta'), validators=[validate_upload])
     fecha_subida = models.DateTimeField(auto_now_add=True)
     tipo = models.CharField(max_length=50, choices=[
         ('boleta', 'Boleta'),
@@ -70,10 +73,9 @@ class ComprobantePago(models.Model):
         return f'Comprobante {self.tipo} - Venta {self.venta.numero}'
 
     def delete(self, *args, **kwargs):
-        # Eliminar el archivo físico
+        # Eliminar el blob del storage (GCS o disco local) sin usar .path
         if self.archivo:
-            if os.path.isfile(self.archivo.path):
-                os.remove(self.archivo.path)
+            self.archivo.delete(save=False)
         super().delete(*args, **kwargs)
 
 class Venta(TipoCambioMixin, models.Model):
@@ -163,7 +165,7 @@ class Venta(TipoCambioMixin, models.Model):
     )
     notas = models.TextField(blank=True)
     referencia = models.CharField(max_length=100, blank=True)
-    comprobante = models.FileField(upload_to='comprobantes/', null=True, blank=True)
+    comprobante = models.FileField(upload_to=UploadToEmpresa('comprobantes_venta'), validators=[validate_upload], null=True, blank=True)
     # Modo de venta para ventas a pedido
     modo_venta = models.CharField(
         max_length=20,
@@ -937,8 +939,9 @@ class PagoVenta(models.Model):
         verbose_name='Referencia'
     )
     comprobante = models.FileField(
-        upload_to='ventas/pagos/', 
-        null=True, 
+        upload_to=UploadToEmpresa('pagos_venta'),
+        validators=[validate_upload],
+        null=True,
         blank=True,
         verbose_name='Comprobante'
     )

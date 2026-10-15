@@ -39,6 +39,14 @@ python-dateutil==2.9.0
 pytz==2025.2
 
 # ============================================
+# ALMACENAMIENTO DE ARCHIVOS (media)
+# ============================================
+# Prod: Google Cloud Storage (persistente). Local: FileSystemStorage (sin estos
+# paquetes activos). django-storages[google] trae google-cloud-storage.
+django-storages[google]==1.14.4
+google-cloud-storage==2.18.2
+
+# ============================================
 # INTEGRACIONES IA
 # ============================================
 openai==1.54.0

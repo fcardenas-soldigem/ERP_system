@@ -7,6 +7,7 @@ Soporta dos formatos:
 """
 import hashlib
 import logging
+import os
 import unicodedata
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
@@ -15,6 +16,8 @@ import numpy as np
 import pandas as pd
 from django.db import transaction
 from django.utils import timezone
+
+from apps.core.uploads import field_as_tempfile
 
 from apps.compras.models import Proveedor, Compra, CompraDetalle
 from apps.inventario.models.almacen import Almacen
@@ -588,23 +591,26 @@ class ImportService:
         self.importacion.estado = 'importando'
         self.importacion.save(update_fields=['estado'])
 
-        file_path = self.importacion.archivo.path
         formato = self._detect_formato(hojas_config)
 
         total_filas = 0
         importadas  = 0
 
-        try:
-            if formato == 'referenced':
-                total_filas, importadas = self._run_referenced(file_path, hojas_config, modo_parcial)
-            else:
-                total_filas, importadas = self._run_standard(file_path, hojas_config, modo_parcial)
-        except Exception as exc:
-            logger.error("Import fatal: %s", exc, exc_info=True)
-            self.importacion.estado = 'error'
-            self.importacion.errores_json = [{'fila': 0, 'hoja': '—', 'error': str(exc)}]
-            self.importacion.save()
-            raise
+        # Con GCS no hay ruta local: materializamos el Excel en un tempfile para las
+        # librerías que exigen una ruta (pandas/openpyxl). Compatible con disco local.
+        suffix = os.path.splitext(self.importacion.nombre_archivo or self.importacion.archivo.name or '')[1] or '.xlsx'
+        with field_as_tempfile(self.importacion.archivo, suffix=suffix) as file_path:
+            try:
+                if formato == 'referenced':
+                    total_filas, importadas = self._run_referenced(file_path, hojas_config, modo_parcial)
+                else:
+                    total_filas, importadas = self._run_standard(file_path, hojas_config, modo_parcial)
+            except Exception as exc:
+                logger.error("Import fatal: %s", exc, exc_info=True)
+                self.importacion.estado = 'error'
+                self.importacion.errores_json = [{'fila': 0, 'hoja': '—', 'error': str(exc)}]
+                self.importacion.save()
+                raise
 
         self.importacion.total_filas      = total_filas
         self.importacion.filas_importadas = importadas

@@ -3,6 +3,8 @@ from decimal import Decimal
 from django.db import models
 from django.utils import timezone
 
+from apps.core.uploads import UploadToEmpresa, validate_upload
+
 
 class Empresa(models.Model):
     nombre = models.CharField(max_length=200)
@@ -10,9 +12,9 @@ class Empresa(models.Model):
     direccion = models.CharField(max_length=200, blank=True, null=True)
     telefono = models.CharField(max_length=9, blank=True, null=True)
     email = models.EmailField(blank=True, null=True)
-    logo = models.ImageField(upload_to='logos/', blank=True, null=True, help_text="Logo de la empresa para cotizaciones y documentos")
-    firma_elaborado = models.ImageField(upload_to='firmas/', blank=True, null=True, help_text="Firma digital - Elaborado por")
-    firma_aprobado = models.ImageField(upload_to='firmas/', blank=True, null=True, help_text="Firma digital - Aprobado por")
+    logo = models.ImageField(upload_to=UploadToEmpresa('logos'), validators=[validate_upload], blank=True, null=True, help_text="Logo de la empresa para cotizaciones y documentos")
+    firma_elaborado = models.ImageField(upload_to=UploadToEmpresa('firmas'), validators=[validate_upload], blank=True, null=True, help_text="Firma digital - Elaborado por")
+    firma_aprobado = models.ImageField(upload_to=UploadToEmpresa('firmas'), validators=[validate_upload], blank=True, null=True, help_text="Firma digital - Aprobado por")
     uuid = models.UUIDField(default=uuid_lib.uuid4, unique=True, editable=False)
     is_active = models.BooleanField(default=True)
     tipo_cambio_usd = models.DecimalField(
