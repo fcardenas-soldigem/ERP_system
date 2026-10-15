@@ -7,16 +7,9 @@ from rest_framework.views import APIView
 
 from .models import Lead
 from .serializers import LeadSerializer
-from .throttling import LeadAnonThrottle
+from .throttling import LeadAnonThrottle, client_ip
 
 logger = logging.getLogger(__name__)
-
-
-def _client_ip(request):
-    xff = request.META.get('HTTP_X_FORWARDED_FOR', '')
-    if xff:
-        return xff.split(',')[0].strip()
-    return request.META.get('REMOTE_ADDR')
 
 
 class LeadCreateView(APIView):
@@ -37,12 +30,12 @@ class LeadCreateView(APIView):
             # El honeypot devuelve 400 con 'spam detectado'; respondemos 201 falso
             # para no darle feedback al bot, pero NO guardamos.
             if 'spam' in str(serializer.errors).lower():
-                logger.info('Lead honeypot activado desde IP %s', _client_ip(request))
+                logger.info('Lead honeypot activado desde IP %s', client_ip(request))
                 return Response({'message': 'Gracias, te contactaremos pronto.'},
                                 status=status.HTTP_201_CREATED)
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        lead = serializer.save(ip=_client_ip(request))
+        lead = serializer.save(ip=client_ip(request))
         logger.info('Nuevo lead #%s: %s (%s)', lead.id, lead.nombre, lead.email)
         return Response(
             {'message': 'Gracias, te contactaremos pronto.', 'id': lead.id},

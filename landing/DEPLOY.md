@@ -1,9 +1,18 @@
 # Despliegue de la landing en Vercel + cutover
 
 La landing es un **proyecto Vercel separado** del ERP. Convive bajo el mismo
-dominio (`soldigem.com.pe`) gracias a los rewrites de `vercel.json`: la landing
-sirve `/` y `/privacidad`; todo lo demás (`/login`, `/app/*`, `/api/*`) se
-reescribe al proyecto del ERP. Así las URLs, cookies y CORS del ERP no cambian.
+dominio (`soldigem.com.pe`) gracias a los rewrites de `vercel.json`:
+
+- `/` y `/privacidad` → la landing (sus propios estáticos van en `/l-assets/*`,
+  `/media/*`, `/og.png`, `/sitemap.xml`, `/robots.txt`).
+- `/api/*` → **backend Django en Cloud Run** (`erp-backend-…run.app`). Aquí llega
+  el `POST /api/leads/` del formulario.
+- Todo lo demás (`/login`, `/app/*`, `/assets/*`, …) → el **frontend del ERP** en
+  Vercel (`erp-system-pearl-five.vercel.app`).
+
+El orden importa: Vercel evalúa los rewrites de arriba abajo y gana el primero
+que coincide, por eso `/api/*` va **antes** del catch-all. Así las URLs, cookies
+y CORS del ERP no cambian.
 
 ## 1. Crear el proyecto nuevo en Vercel
 
@@ -24,14 +33,32 @@ reescribe al proyecto del ERP. Así las URLs, cookies y CORS del ERP no cambian.
 No se define `VITE_API_BASE` en prod: el form hace `POST /api/leads/` relativo y
 el rewrite lo lleva al ERP.
 
-## 3. Verificar el rewrite al ERP
+## 3. Verificar los rewrites
 
-El `vercel.json` apunta el catch-all a `https://erp-system-pearl-five.vercel.app`.
-Si la URL del proyecto ERP cambia, actualizar esa `destination`. Tras el deploy,
-probar en la URL de preview del proyecto landing:
+El `vercel.json` tiene dos `destination` externas:
+- `/api/*` → `https://erp-backend-25656632090.southamerica-west1.run.app/api/$1`
+  (Cloud Run). Si cambia el servicio de Cloud Run, actualizar esa URL.
+- catch-all → `https://erp-system-pearl-five.vercel.app` (frontend del ERP). Si
+  la URL del proyecto ERP cambia, actualizar esa `destination`.
+
+Tras el deploy, probar en la URL de preview del proyecto landing:
 - `/` y `/privacidad` → sirven la landing.
-- `/login` → debe cargar el login del ERP (vía rewrite).
-- `/l-assets/*`, `/og.png`, `/sitemap.xml`, `/robots.txt` → estáticos de la landing.
+- `POST /api/leads/` → debe responder `201` (lo atiende Django en Cloud Run, no
+  el SPA del ERP); 6 envíos desde la misma IP → el 6º da `429`.
+- `/login` y `/app/*` → deben cargar el ERP (vía rewrite al frontend).
+- `/l-assets/*`, `/media/*`, `/og.png`, `/sitemap.xml`, `/robots.txt` → estáticos
+  de la landing (son archivos reales; Vercel los sirve antes del catch-all).
+
+> **IP del visitante detrás de proxies.** El throttle de leads (5/hora) usa el
+> **primer** valor de `X-Forwarded-For` (la IP del visitante que antepone
+> Vercel), no `REMOTE_ADDR` ni la cadena completa, para que visitantes distintos
+> no se bloqueen entre sí y un mismo visitante sí quede limitado aunque roten los
+> proxies (ver `apps/leads/throttling.py`). Esto confía en que el borde público
+> (Vercel) sanea el `X-Forwarded-For` entrante. **Endurecer:** restringir el
+> ingress del servicio de Cloud Run para que solo sea alcanzable a través del
+> borde (p. ej. ingress interno + balanceador, o validar un header secreto que
+> inyecte Vercel), de modo que nadie pueda llamar a la URL `*.run.app` directa
+> con un `X-Forwarded-For` falsificado.
 
 ## 4. Cutover del dominio (orden importante)
 
