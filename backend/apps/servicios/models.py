@@ -90,29 +90,27 @@ class OrdenServicio(models.Model):
     def __str__(self):
         return f"{self.numero} - {self.cliente}"
 
-    @classmethod
-    def generar_numero(cls, empresa):
-        # M4 (recomendación, NO aplicado aquí): envolver en transaction.atomic() y usar
-        # select_for_update() para evitar duplicados bajo concurrencia. Requiere ajustar
-        # save() para correr dentro de atomic (hoy save() no lo está). Riesgo MEDIO (no
-        # es fuga de datos), se deja documentado para no romper la creación de OS.
+    def _siguiente_numero(self):
+        """Siguiente número de OS POR EMPRESA (OS-0001...).
+
+        M4: usa select_for_update() y corre dentro del transaction.atomic() de
+        guardar_con_numero → sin duplicados bajo concurrencia (mismo patrón que COT/V/OC).
+        """
         ultima = (
-            cls.objects.filter(empresa=empresa)
-            .order_by('-id')
-            .first()
+            OrdenServicio.objects.select_for_update()
+            .filter(empresa_id=self.empresa_id, numero__startswith='OS-')
+            .order_by('-numero').only('numero').first()
         )
         if ultima and ultima.numero:
             try:
                 secuencia = int(ultima.numero.split('-')[1]) + 1
             except (IndexError, ValueError):
-                secuencia = cls.objects.filter(empresa=empresa).count() + 1
+                secuencia = OrdenServicio.objects.filter(empresa_id=self.empresa_id).count() + 1
         else:
             secuencia = 1
         return f"OS-{secuencia:04d}"
 
     def save(self, *args, **kwargs):
-        if not self.numero:
-            self.numero = self.generar_numero(self.empresa)
         if not self.fecha_entrega_estimada and self.fecha_ingreso:
             from datetime import timedelta
             if isinstance(self.fecha_ingreso, str):
@@ -121,7 +119,11 @@ class OrdenServicio(models.Model):
             else:
                 fecha = self.fecha_ingreso
             self.fecha_entrega_estimada = fecha + timedelta(days=self.dias_sla)
-        super().save(*args, **kwargs)
+        from apps.core.numbering import guardar_con_numero
+        guardar_con_numero(
+            self, self._siguiente_numero,
+            lambda: super(OrdenServicio, self).save(*args, **kwargs),
+        )
 
     @property
     def dias_transcurridos(self):
