@@ -39,21 +39,38 @@ solo aplicaría a un `docker build` local; la ruta de Cloud Build gana.)
 Consecuencia: **no se puede** correr `migrar_media_a_gcs` como Cloud Run Job esperando
 que `/app/media` tenga las firmas/logos locales — no estarán ahí.
 
-**Alternativa recomendada (A): correr la migración DESDE LOCAL.**
-El comando `migrar_media_a_gcs` ya lee de `MEDIA_ROOT` local y escribe al storage por
-defecto (GCS) + actualiza la BD. Corriéndolo en la máquina de desarrollo (donde viven
-los archivos) apuntando a GCS y a la BD de producción, migra sin meter datos de cliente
-en la imagen. Es una migración de datos de una sola vez, no algo que la imagen deba cargar.
+**Alternativa recomendada (A): correr la migración DESDE LOCAL, apuntando a la BD de prod.**
+El comando `migrar_media_a_gcs` está **guiado por la BD**: recorre los `FileField` de la
+BD destino (`model.objects`, no el directorio), busca cada archivo referenciado en
+`MEDIA_ROOT` local y sube SOLO los que están referenciados. Los archivos locales sin
+registro en la BD destino (pruebas de dev) **no se suben**. Es una migración de datos de
+una sola vez; no algo que la imagen deba cargar.
 
 ```bash
-# En local, con los archivos en backend/media/:
-gcloud auth application-default login          # credenciales ADC (una vez)
 cd backend && source ../venv/bin/activate
-export GS_BUCKET_NAME=erp-system-468516-media GS_PROJECT_ID=erp-system-468516
-# (la BD apunta a producción en settings; confirmar antes de ejecutar)
-python manage.py migrar_media_a_gcs --dry-run  # revisar qué subiría
-python manage.py migrar_media_a_gcs            # subir + actualizar BD (idempotente)
+gcloud auth application-default login          # ADC del usuario (una vez; necesario para SUBIR)
+
+# DRY-RUN contra PROD (solo lee BD + revisa disco local; no sube nada):
+DOTENV_FILE=.env.production \
+GS_BUCKET_NAME=erp-system-468516-media GS_PROJECT_ID=erp-system-468516 \
+  python manage.py migrar_media_a_gcs --dry-run
+
+# Real (sube a GCS + actualiza la BD de prod; idempotente, re-ejecutable):
+DOTENV_FILE=.env.production \
+GS_BUCKET_NAME=erp-system-468516-media GS_PROJECT_ID=erp-system-468516 \
+  python manage.py migrar_media_a_gcs
 ```
+
+`DOTENV_FILE=.env.production` fuerza la BD de prod desde local (ver `settings.py:19-28`;
+por defecto NO se carga). El `--dry-run` no toca GCS ni la BD (no requiere ADC); el real sí.
+
+**Resultado del dry-run contra PROD (ejecutado):**
+`Migrados: 18 | Ya migrados: 0 | Faltantes en disco: 1`
+- 18 a subir: `Empresa#1` logo + 2 firmas (los críticos de los PDFs) + 15 `ImportacionExcel` xlsx.
+- 1 faltante en local: `ImportacionExcel#20` (referenciado en prod, perdido en un deploy
+  previo con disco efímero). Tras migrar, `auditar_archivos` lo listará.
+- Los 7 PDF de comprobantes que hay en `backend/media/` local **no aparecen**: no tienen
+  registro en la BD de prod → el comando los ignora (comportamiento guiado por BD, correcto).
 
 **Alternativa (B): Cloud Run Job con media en la imagen.** Comentar `backend/media/` en
 `.gcloudignore` solo para un build, desplegar el Job, ejecutarlo y volver a ignorar.
@@ -78,19 +95,20 @@ seguro es activar GCS primero y migrar después:
    existe en el storage (los perdidos en deploys anteriores, cuando media era efímera).
    Solo reporta; decidir caso por caso (re-subir o limpiar la referencia).
 
-## 4. Inventario de media local a migrar (hoy)
+## 4. Inventario de media local vs. lo que se migra
 
-29 archivos, 3.1 MB. Por carpeta/tipo (sin abrir contenido):
+`backend/media/` local: **29 archivos, 3.1 MB** (15 xlsx, 7 pdf, 3 png, 3 jpeg, 1 jpg).
+Pero la migración es **guiada por la BD**, no por el directorio: contra la BD de prod,
+el dry-run reporta **19 registros con archivo** → **18 presentes en local** (se subirían) +
+**1 faltante** (`ImportacionExcel#20`). Los **7 PDF de comprobantes** locales son de dev
+(sin registro en prod) y **no se migran**.
 
-| Carpeta | Archivos | Tipo | Relevancia |
+| Qué | En local | En BD prod | Se migra |
 |---|---|---|---|
-| `importaciones/` | 15 | xlsx | Históricos de importación (bajo valor) |
-| `ventas/comprobantes/` + `comprobantes/` | 7 | pdf | Comprobantes de pago (persistentes) |
-| `logos/` | 2 | png/jpg | **Logos de empresa (usados en PDFs)** |
-| `firmas/` | 2 | png | **Firmas de empresa (usadas en PDFs)** |
-
-Los críticos son **logos y firmas** (salen en cotizaciones/OC/guías). `migrar_media_a_gcs`
-migra todos los campos de archivo; los xlsx de importación pueden migrarse o ignorarse.
+| `Empresa#1` logo + 2 firmas | sí | sí | **sí (críticos de PDFs)** |
+| 15 `ImportacionExcel` xlsx | sí | sí | sí (históricos) |
+| `ImportacionExcel#20` xlsx | **no** | sí | no se puede (falta en disco) |
+| 7 PDF de comprobantes | sí | **no** | **no (dev-only, correcto)** |
 
 ## 5. Landing
 
