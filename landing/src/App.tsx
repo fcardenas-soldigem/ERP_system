@@ -42,14 +42,25 @@ function Hero() {
 
   return (
     <section className="relative overflow-hidden border-b border-ink-800">
-      {/* Video loop de fondo (Higgsfield Wan 3.0). poster evita parpadeo y ayuda al LCP */}
+      {/* Fondo del hero (assets Higgsfield, Dirección A). poster evita parpadeo y ayuda al LCP */}
       <div className="pointer-events-none absolute inset-0 opacity-40">
+        {/* Base/fallback: imagen estática detrás del video (si no carga o con prefers-reduced-motion) */}
+        <picture>
+          <source srcSet="/media/hero-bg.avif" type="image/avif" />
+          <img
+            src="/media/hero-bg.webp"
+            alt=""
+            aria-hidden="true"
+            className="absolute inset-0 h-full w-full object-cover"
+          />
+        </picture>
         <video
           ref={videoRef}
-          className="h-full w-full object-cover"
+          className="absolute inset-0 h-full w-full object-cover motion-reduce:hidden"
           autoPlay muted loop playsInline
           poster="/l-assets/hero-poster.jpg"
         >
+          <source src="/media/hero.webm" type="video/webm" />
           <source src="/media/hero.mp4" type="video/mp4" />
         </video>
         <div className="absolute inset-0 bg-gradient-to-b from-ink-950/40 via-ink-950/70 to-ink-950" />
@@ -108,8 +119,15 @@ function DeviceFrame({ src, alt }: { src: string; alt: string }) {
 
 function Features() {
   return (
-    <Section name="features" id="producto" className="border-b border-ink-800 py-20">
-      <div className="container">
+    <Section name="features" id="producto" className="relative overflow-hidden border-b border-ink-800 py-20">
+      {/* Textura sutil de fondo (asset A2) — solo en esta sección, aporta profundidad */}
+      <img
+        src="/media/section-texture.webp"
+        alt=""
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-[0.35]"
+      />
+      <div className="container relative">
         <div className="max-w-2xl">
           <h2 className="text-3xl font-bold tracking-tight text-white">Todo lo que ya hace hoy</h2>
           <p className="mt-3 text-ink-200">Sin módulos a medias. Esto funciona en producción ahora mismo.</p>
