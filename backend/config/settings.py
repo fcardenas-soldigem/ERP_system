@@ -250,11 +250,56 @@ USE_TZ = True
 # Archivos estáticos
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
-# WhiteNoise: servir estáticos comprimidos con manifest (incluye admin)
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+
+# ============================================================================
+# ALMACENAMIENTO DE ARCHIVOS (media) — GCS en prod, disco local en dev
+# ============================================================================
+# La selección es por entorno, controlada por GS_BUCKET_NAME:
+#   - Definido  → Google Cloud Storage (persistente; sobrevive deploys).
+#   - Ausente   → FileSystemStorage en MEDIA_ROOT (desarrollo local, igual que hoy).
+#
+# Firma de URLs SIN archivo de llave: en Cloud Run la credencial por defecto es la
+# Service Account del servicio. django-storages/google-cloud-storage firman las URLs
+# (v4) vía la API IAM `signBlob` (iam.serviceAccounts.signBlob), para lo cual la SA
+# tiene el rol roles/iam.serviceAccountTokenCreator sobre sí misma. No se monta ningún
+# JSON de credenciales: se usan las credenciales por defecto del entorno (ADC) y
+# GS_PROJECT_ID para resolver el proyecto. Si alguna vez GS_CREDENTIALS fuese necesario,
+# se inyectaría por env; hoy no hace falta.
+GS_BUCKET_NAME = os.getenv('GS_BUCKET_NAME')
+GS_PROJECT_ID = os.getenv('GS_PROJECT_ID')
+
+_STATICFILES_STORAGE = {
+    # WhiteNoise: estáticos comprimidos con manifest (incluye admin)
+    'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage',
+}
+
+if GS_BUCKET_NAME:
+    STORAGES = {
+        'default': {
+            'BACKEND': 'storages.backends.gcloud.GoogleCloudStorage',
+            'OPTIONS': {
+                'bucket_name': GS_BUCKET_NAME,
+                'project_id': GS_PROJECT_ID,
+                'default_acl': None,          # bucket con uniform bucket-level access
+                'querystring_auth': True,     # bucket privado → URLs firmadas
+                'expiration': timedelta(minutes=15),
+                'file_overwrite': False,      # nombres uuid; nunca pisar
+            },
+        },
+        'staticfiles': _STATICFILES_STORAGE,
+    }
+else:
+    STORAGES = {
+        'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
+        'staticfiles': _STATICFILES_STORAGE,
+    }
+
+# Validación de uploads (tipos y tamaño) — usada por los FileField/ImageField.
+ALLOWED_UPLOAD_EXTENSIONS = {'pdf', 'jpg', 'jpeg', 'png', 'webp'}
+MAX_UPLOAD_SIZE_MB = 10
 
 # Modelo de usuario personalizado
 AUTH_USER_MODEL = 'authentication.CustomUser'

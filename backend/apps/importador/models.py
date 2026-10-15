@@ -1,6 +1,7 @@
 from django.db import models
 from django.conf import settings
 from apps.empresas.models import Empresa
+from apps.core.uploads import UploadToEmpresa, validate_spreadsheet
 
 
 class ImportacionExcel(models.Model):
@@ -15,7 +16,7 @@ class ImportacionExcel(models.Model):
 
     empresa         = models.ForeignKey(Empresa, on_delete=models.CASCADE, related_name='importaciones')
     usuario         = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
-    archivo         = models.FileField(upload_to='importaciones/', null=True, blank=True)
+    archivo         = models.FileField(upload_to=UploadToEmpresa('importaciones'), validators=[validate_spreadsheet], null=True, blank=True)
     nombre_archivo  = models.CharField(max_length=255)
     fecha           = models.DateTimeField(auto_now_add=True)
     estado          = models.CharField(max_length=20, choices=ESTADO_CHOICES, default='procesando')

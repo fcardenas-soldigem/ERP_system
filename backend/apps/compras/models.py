@@ -13,10 +13,13 @@ import os
 from django.utils import timezone
 from datetime import date, timedelta
 from apps.core.services.tipo_cambio import TipoCambioMixin
+from apps.core.uploads import UploadToEmpresa, validate_upload
 from django.core.validators import MinValueValidator, MaxValueValidator
 
 logger = logging.getLogger(__name__)
 
+# NOTA: `comprobante_upload_to` se conserva por compatibilidad con migraciones
+# históricas que lo referencian. Los campos ahora usan `UploadToEmpresa` (GCS-safe).
 def comprobante_upload_to(instance, filename):
     # Generar la ruta para el comprobante
     return f'comprobantes/compras/{instance.compra.empresa.id}/{instance.compra.numero}/{filename}'
@@ -171,7 +174,8 @@ class Compra(TipoCambioMixin, models.Model):
     notas = models.TextField(blank=True, null=True)
     referencia = models.CharField(max_length=100, blank=True, null=True)
     comprobante = models.FileField(
-        upload_to='comprobantes/compras/',
+        upload_to=UploadToEmpresa('comprobantes_compra'),
+        validators=[validate_upload],
         null=True,
         blank=True
     )
@@ -557,7 +561,8 @@ class PagoCompra(models.Model):
         help_text='Número de operación, cheque, etc.'
     )
     comprobante = models.FileField(
-        upload_to='comprobantes/pagos/',
+        upload_to=UploadToEmpresa('pagos_compra'),
+        validators=[validate_upload],
         blank=True,
         null=True
     )
@@ -598,7 +603,8 @@ class ComprobantePago(models.Model):
         related_name='comprobante_pago'
     )
     archivo = models.FileField(
-        upload_to=comprobante_upload_to,
+        upload_to=UploadToEmpresa('comprobantes_pago_compra'),
+        validators=[validate_upload],
         verbose_name='Archivo'
     )
     fecha_subida = models.DateTimeField(auto_now_add=True)
@@ -626,10 +632,9 @@ class ComprobantePago(models.Model):
         return f'Comprobante {self.tipo} - Compra {self.compra.numero}'
 
     def delete(self, *args, **kwargs):
-        # Eliminar el archivo físico
+        # Eliminar el blob del storage (GCS o disco local) sin usar .path
         if self.archivo:
-            if os.path.isfile(self.archivo.path):
-                os.remove(self.archivo.path)
+            self.archivo.delete(save=False)
         super().delete(*args, **kwargs)
 
 class OrdenCompra(TipoCambioMixin, models.Model):
@@ -849,7 +854,8 @@ class RecepcionCompra(models.Model):
     recibido_por = models.CharField(max_length=100)
     notas = models.TextField(blank=True, null=True)
     comprobante = models.FileField(
-        upload_to='comprobantes/recepciones/',
+        upload_to=UploadToEmpresa('recepciones'),
+        validators=[validate_upload],
         null=True,
         blank=True
     )

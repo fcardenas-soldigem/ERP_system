@@ -1,4 +1,6 @@
 from rest_framework import serializers
+
+from apps.core.uploads import field_url_safe
 from .models import Empresa
 
 class EmpresaSerializer(serializers.ModelSerializer):
@@ -17,10 +19,14 @@ class EmpresaSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'uuid', 'is_active', 'logo_url', 'firma_elaborado_url', 'firma_aprobado_url']
 
     def _build_url(self, field):
+        # field_url_safe nunca lanza: devuelve None si el archivo falta o el storage
+        # no puede resolver la URL (evita 500 en el serializer).
+        url = field_url_safe(field)
+        if not url:
+            return None
         request = self.context.get('request')
-        if field and request:
-            return request.build_absolute_uri(field.url)
-        return None
+        # Las URLs firmadas de GCS ya son absolutas; build_absolute_uri las respeta.
+        return request.build_absolute_uri(url) if request else url
 
     def get_logo_url(self, obj):
         return self._build_url(obj.logo)
