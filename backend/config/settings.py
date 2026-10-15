@@ -270,6 +270,11 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 # se inyectaría por env; hoy no hace falta.
 GS_BUCKET_NAME = os.getenv('GS_BUCKET_NAME')
 GS_PROJECT_ID = os.getenv('GS_PROJECT_ID')
+# Firma vía IAM signBlob (django-storages >= 1.14.6): la SA del servicio (metadata,
+# sin llave privada) firma las URLs llamando a la API iam.serviceAccounts.signBlob.
+# GS_SA_EMAIL es la SA que firma; por defecto la Compute Engine default SA del proyecto.
+# Debe tener rol roles/iam.serviceAccountTokenCreator sobre sí misma.
+GS_SA_EMAIL = os.getenv('GS_SA_EMAIL', '25656632090-compute@developer.gserviceaccount.com')
 
 _STATICFILES_STORAGE = {
     # WhiteNoise: estáticos comprimidos con manifest (incluye admin)
@@ -285,7 +290,9 @@ if GS_BUCKET_NAME:
                 'project_id': GS_PROJECT_ID,
                 'default_acl': None,          # bucket con uniform bucket-level access
                 'querystring_auth': True,     # bucket privado → URLs firmadas
-                'expiration': timedelta(minutes=15),
+                'iam_sign_blob': True,        # firma vía IAM (SA sin llave privada en Cloud Run)
+                'sa_email': GS_SA_EMAIL,      # SA que firma (equiv. GS_SA_EMAIL)
+                'expiration': timedelta(minutes=15),  # equiv. GS_EXPIRATION
                 'file_overwrite': False,      # nombres uuid; nunca pisar
             },
         },

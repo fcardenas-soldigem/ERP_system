@@ -8,6 +8,7 @@ from datetime import date
 from django.db.models import Sum
 from rest_framework import serializers
 
+from apps.core.serializer_fields import SafeFileURLField
 from .models import CategoriaGasto, GastoOperativo, GastoRecurrente
 
 
@@ -37,6 +38,8 @@ class CategoriaGastoSerializer(serializers.ModelSerializer):
 
 class GastoOperativoSerializer(serializers.ModelSerializer):
     categoria_detalle = CategoriaGastoSerializer(source='categoria', read_only=True)
+    # Lectura tolerante: si la firma de GCS falla, archivo_adjunto → null (no 500).
+    archivo_adjunto = SafeFileURLField(required=False, allow_null=True)
 
     class Meta:
         model = GastoOperativo

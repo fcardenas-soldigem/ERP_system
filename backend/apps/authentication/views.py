@@ -188,9 +188,10 @@ class UserProfileView(generics.RetrieveAPIView):
                 }
             
             return Response(data)
-        except Exception as e:
+        except Exception:
+            logger.exception('Error en UserProfileView')
             return Response(
-                {'error': str(e)},
+                {'error': 'Error interno'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 

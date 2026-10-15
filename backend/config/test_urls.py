@@ -10,4 +10,9 @@ from django.urls import path, include
 
 urlpatterns = [
     path('api/leads/', include('apps.leads.urls')),  # tests de captura de leads
+    path('api/auth/', include('apps.authentication.urls')),  # test de /profile/ (hotfix GCS)
+    # Tests de escritura multipart del hotfix (subir comprobante / logo):
+    path('api/compras/', include('apps.compras.urls')),
+    path('api/ventas/', include('apps.ventas.urls')),
+    path('api/empresas/', include('apps.empresas.urls')),
 ]

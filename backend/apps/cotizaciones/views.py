@@ -118,10 +118,10 @@ class CotizacionViewSet(viewsets.ModelViewSet):
             
             return response
         
-        except Exception as e:
-            error_traceback = traceback.format_exc()
+        except Exception:
+            logger.exception("Error al generar PDF de cotización")
             return Response(
-                {'error': f'Error al generar PDF: {str(e)}', 'detail': error_traceback},
+                {'error': 'Error interno'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
     
