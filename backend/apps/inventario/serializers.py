@@ -399,13 +399,18 @@ class KardexSerializer(serializers.Serializer):
     fecha_inicio = serializers.DateTimeField(required=False)
     fecha_fin = serializers.DateTimeField(required=False)
     
+    def _empresa_id(self):
+        request = self.context.get('request')
+        return getattr(getattr(request, 'user', None), 'empresa_id', None)
+
     def validate_producto_id(self, value):
-        if value and not Producto.objects.filter(id=value).exists():
+        # A2: filtrar por empresa evita enumerar ids de productos de otras empresas.
+        if value and not Producto.objects.filter(id=value, empresa_id=self._empresa_id()).exists():
             raise serializers.ValidationError("El producto especificado no existe")
         return value
-    
+
     def validate_almacen_id(self, value):
-        if value and not Almacen.objects.filter(id=value).exists():
+        if value and not Almacen.objects.filter(id=value, empresa_id=self._empresa_id()).exists():
             raise serializers.ValidationError("El almacén especificado no existe")
         return value
 

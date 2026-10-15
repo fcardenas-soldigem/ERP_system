@@ -92,6 +92,10 @@ class OrdenServicio(models.Model):
 
     @classmethod
     def generar_numero(cls, empresa):
+        # M4 (recomendación, NO aplicado aquí): envolver en transaction.atomic() y usar
+        # select_for_update() para evitar duplicados bajo concurrencia. Requiere ajustar
+        # save() para correr dentro de atomic (hoy save() no lo está). Riesgo MEDIO (no
+        # es fuga de datos), se deja documentado para no romper la creación de OS.
         ultima = (
             cls.objects.filter(empresa=empresa)
             .order_by('-id')

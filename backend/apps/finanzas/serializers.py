@@ -8,6 +8,7 @@ from datetime import date
 from django.db.models import Sum
 from rest_framework import serializers
 
+from apps.core.serializers_base import EmpresaScopedModelSerializer
 from .models import CategoriaGasto, GastoOperativo, GastoRecurrente
 
 
@@ -35,7 +36,7 @@ class CategoriaGastoSerializer(serializers.ModelSerializer):
         return float(total) if total else 0.0
 
 
-class GastoOperativoSerializer(serializers.ModelSerializer):
+class GastoOperativoSerializer(EmpresaScopedModelSerializer):
     categoria_detalle = CategoriaGastoSerializer(source='categoria', read_only=True)
 
     class Meta:
@@ -51,7 +52,7 @@ class GastoOperativoSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'empresa', 'creado_por', 'created_at', 'updated_at']
 
 
-class GastoRecurrenteSerializer(serializers.ModelSerializer):
+class GastoRecurrenteSerializer(EmpresaScopedModelSerializer):
     categoria_detalle = CategoriaGastoSerializer(source='categoria', read_only=True)
 
     class Meta:

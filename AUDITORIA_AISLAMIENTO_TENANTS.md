@@ -144,6 +144,55 @@ GET lista sin ids de B, GET/PUT/PATCH/DELETE `{id_B}` → 404 + intacto, @action
 dashboard/finanzas antes/después de crear en B sin cambios, caché con Redis, numeración
 concurrente, y (en la rama con MCP) token de A no ve B.
 
+## 7b. FASE 3 — correcciones aplicadas (antes/después)
+
+**Patrón único (§6) implementado** en `apps/core/serializers_base.py`:
+`EmpresaScopedPrimaryKeyRelatedField` (FK acotada por empresa del request) +
+`EmpresaScopedModelSerializer` (FK autoscopeadas + `empresa` read_only). Aplicado a los
+serializers con FK escribibles de cotizaciones, servicios, finanzas y **todos** los de
+compras.
+
+| Hallazgo | Antes | Después | Verificación |
+|---|---|---|---|
+| **C1** salto de empresa (perfil) | PATCH empresa cambiaba de tenant | `empresa` read_only | `TenantJumpTests` (serializer + `PUT /api/auth/profile/`) |
+| **C2** importar_excel a otra empresa | empresa por nombre del Excel | SIEMPRE `request.user.empresa`; columna ignorada con aviso | fix en `compras/views.py` (col 'empresa' ya no requerida) |
+| **C3** OS con cliente/proveedor de B | FK sin validar | `EmpresaScopedModelSerializer` → 400 | `FKScopingTests.test_orden_servicio_cliente_de_B_rechazado` |
+| **C4 / A1** cotización con cliente/producto de B | FK sin validar | FK acotada → 400 | `FKScopingTests.test_detalle_cotizacion_producto_de_B_rechazado` |
+| **A2** Kardex enumera ids ajenos | `filter(id=value)` | `filter(id=value, empresa_id=...)` | fix en `inventario/serializers.py` |
+| **A3** OCS proveedor de B | FK sin validar | base acotada en compras | patrón aplicado a `OrdenServicioCompraSerializer` |
+| **A4** Empresa/Usuario/Perfil sin perm. | mitigado por get_queryset | **PROBADO**: A no ve empresas/usuarios/perfiles de B (get_queryset filtra; estos modelos no tienen FK `empresa` directa, así que `HasEmpresaPermission` no aplica — el filtro ES la defensa) | router walk ataca `/api/empresas/{B}/` → 404 |
+| **M1** finanzas categoria | sin validar en serializer | `EmpresaScopedModelSerializer` → 400 | `FKScopingTests.test_gasto_categoria_de_B_rechazada` |
+| escalada de privilegios | — | `is_staff` read_only en perfil | `PrivilegeEscalationTests` |
+
+**MEDIO restantes (recomendación, no aplicados):**
+- **M3** Django admin sin scope por empresa → acotar `get_queryset` por empresa salvo
+  superuser (requiere decidir si el staff es por-empresa).
+- **M4** `servicios` numeración sin `select_for_update` → envolver `save()` en
+  `transaction.atomic()` + lock (no aplicado para no romper la creación de OS; documentado
+  en `apps/servicios/models.py`).
+- **M5** `MovimientoInventario` recibe `empresa` por parámetro → derivarla del objeto.
+- **M6** caché DNI/RUC global → helper `cache_key(empresa_id, …)`.
+
+## 7c. Suite dinámica — cobertura y exclusiones
+
+`backend/tests/test_aislamiento_router.py` recorre **automáticamente** `config.urls`
+(no lista a mano): **52 rutas de detalle** detectadas, **14 probadas** (GET detalle de B
+→ nunca 200; DELETE de B → no borra), **38 excluidas** con motivo impreso en la salida del
+test. Motivos de exclusión: `modelo desconocido (queryset=None` y sin `serializer_class.Meta.model)`,
+`sin seed de B para <Modelo>` (falta factory de datos de B en la suite — es el trabajo de
+ampliación), y `ruta anidada (multi-lookup)`. La cobertura sube agregando factories de B
+para los modelos excluidos (OrdenCompra, Compra, GuiaRemision, OrdenServicio, OCS, PagoVenta,
+Factura, OrdenVenta, core Usuario/Perfil).
+
+**Excluido de la automatización (requiere infra/entorno, no en la suite de tests):**
+- **Caché con Redis activo**: el dashboard ya namespacea por `empresa.id` (verificado
+  estáticamente en FASE 1 §4); probarlo con Redis real requiere `REDIS_URL` levantado.
+- **Numeración concurrente (threads)**: requiere `TransactionTestCase` + BD real (no SQLite
+  en memoria); las UniqueConstraint(empresa, numero) + select_for_update de los modelos
+  principales ya garantizan la seguridad (FASE 1).
+- **URL firmada de archivo de B**: GCS no está activo en local; el aislamiento de rutas
+  (`empresa_<id>/…`) y `field_url_safe` solo-tras-fetch-scoped se verificó en FASE 1.
+
 ## 8. Recomendación
 
 **NO abrir el registro a terceros hasta** corregir C2, C3, C4 y A1–A4 con el patrón §6 y

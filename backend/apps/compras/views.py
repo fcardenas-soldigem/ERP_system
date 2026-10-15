@@ -328,7 +328,9 @@ class CompraViewSet(viewsets.ModelViewSet):
                 df = pd.read_excel(excel_file)
             
             # Validar columnas requeridas (ajustadas a tu template)
-            required_columns = ['empresa', 'proveedor', 'almacen', 'fecha', 'sku', 'nombre_producto', 'cantidad', 'precio_unitario', 'subtotal', 'igv_incluido', 'estado', 'metodo_pago']
+            # C2 (seguridad): 'empresa' ya NO es columna requerida; la empresa es SIEMPRE
+            # la del usuario autenticado. Si el Excel la trae, se ignora (con aviso).
+            required_columns = ['proveedor', 'almacen', 'fecha', 'sku', 'nombre_producto', 'cantidad', 'precio_unitario', 'subtotal', 'igv_incluido', 'estado', 'metodo_pago']
             missing_columns = [col for col in required_columns if col not in df.columns]
             if missing_columns:
                 return Response(
@@ -342,9 +344,14 @@ class CompraViewSet(viewsets.ModelViewSet):
             with transaction.atomic():
                 for index, row in df.iterrows():
                     try:
-                        # Obtener empresa
-                        from apps.empresas.models import Empresa
-                        empresa = Empresa.objects.get(nombre=row['empresa'])
+                        # C2 (seguridad): la empresa SIEMPRE es la del usuario autenticado.
+                        empresa = request.user.empresa
+                        if 'empresa' in df.columns:
+                            _emp_excel = str(row.get('empresa') or '').strip()
+                            if _emp_excel and _emp_excel != empresa.nombre:
+                                errores.append(
+                                    f"Fila {index + 2}: columna 'empresa' ({_emp_excel}) ignorada; "
+                                    f"se importa en {empresa.nombre}.")
 
                         # Obtener o crear proveedor
                         proveedor = Proveedor.objects.get(
