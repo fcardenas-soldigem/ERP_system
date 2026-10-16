@@ -6,6 +6,7 @@ from .models import (
 from django.db import transaction
 from django.db.models import Sum
 from apps.empresas.models import Empresa
+from apps.core.serializers_base import EmpresaScopedModelSerializer
 
 class AlmacenSerializer(serializers.ModelSerializer):
     empresa = serializers.PrimaryKeyRelatedField(read_only=True)
@@ -426,7 +427,7 @@ class KardexResumenSerializer(serializers.Serializer):
     total_salidas = serializers.DecimalField(max_digits=12, decimal_places=4)
     ultimo_movimiento = serializers.DateTimeField()
 
-class MovimientoInventarioCreateSerializer(serializers.ModelSerializer):
+class MovimientoInventarioCreateSerializer(EmpresaScopedModelSerializer):
     """Serializer para crear movimientos de inventario"""
     
     class Meta:

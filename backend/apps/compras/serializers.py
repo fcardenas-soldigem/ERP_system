@@ -364,7 +364,7 @@ class OrdenCompraSerializer(EmpresaScopedModelSerializer):
 class RecepcionCompraSerializer(EmpresaScopedModelSerializer):
     class Meta:
         model = RecepcionCompra
-        fields = ['id', 'orden_compra', 'fecha_recepcion', 'recibido_por',
+        fields = ['id', 'orden', 'fecha_recepcion', 'recibido_por',
                  'notas', 'fecha_registro', 'fecha_actualizacion']
         read_only_fields = ['id', 'fecha_registro', 'fecha_actualizacion']
 

@@ -3,11 +3,12 @@ from .models import RecetaProducto, RecetaDetalle, OrdenProduccion, ConsumoReal,
 from apps.inventario.models import Producto, Almacen, InventarioMateriasPrimas
 from apps.empresas.models import Empresa
 from django.contrib.auth import get_user_model
+from apps.core.serializers_base import EmpresaScopedModelSerializer
 
 User = get_user_model()
 
 
-class RecetaDetalleSerializer(serializers.ModelSerializer):
+class RecetaDetalleSerializer(EmpresaScopedModelSerializer):
     """Serializer para detalles de receta (insumos)"""
     insumo_nombre = serializers.CharField(source='insumo.nombre', read_only=True)
     insumo_sku = serializers.CharField(source='insumo.sku', read_only=True)
@@ -113,7 +114,7 @@ class RecetaProductoSerializer(serializers.ModelSerializer):
         return data
 
 
-class RecetaProductoCreateSerializer(serializers.ModelSerializer):
+class RecetaProductoCreateSerializer(EmpresaScopedModelSerializer):
     """Serializer para crear/editar recetas con detalles"""
     detalles = RecetaDetalleSerializer(many=True)
     
@@ -216,7 +217,7 @@ class HistorialOrdenProduccionSerializer(serializers.ModelSerializer):
         return None
 
 
-class OrdenProduccionSerializer(serializers.ModelSerializer):
+class OrdenProduccionSerializer(EmpresaScopedModelSerializer):
     """Serializer completo para órdenes de producción"""
     receta_info = RecetaProductoSerializer(source='receta', read_only=True)
     receta_nombre = serializers.CharField(source='receta.nombre', read_only=True)

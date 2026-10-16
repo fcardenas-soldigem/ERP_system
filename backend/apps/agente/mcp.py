@@ -6,6 +6,7 @@ Métodos: initialize, tools/list, tools/call. Solo autenticado por ApiToken (Bea
 rate-limit por token. Cada `tools/call` queda registrado en AgenteAccionLog.
 """
 import json
+import logging
 import time
 
 from rest_framework.response import Response
@@ -15,6 +16,8 @@ from .authentication import ApiTokenAuthentication, EsTokenMCP
 from .models import AgenteAccionLog
 from .throttling import MCPTokenThrottle
 from .tools import TOOLS, run_tool, tools_list
+
+logger = logging.getLogger(__name__)
 
 PROTOCOL_VERSION = '2024-11-05'
 SERVER_INFO = {'name': 'soldigem-erp', 'version': '1.0.0'}
@@ -78,9 +81,11 @@ class MCPView(APIView):
                 rpc = _result(rpc_id, {'content': [
                     {'type': 'text', 'text': json.dumps(result, ensure_ascii=False)}]})
             except Exception as exc:  # noqa: BLE001 — se registra y se devuelve isError
-                ok, resumen = False, str(exc)[:200]
+                # Nunca str(exc) al cliente (B2): mensaje genérico; el detalle va al log.
+                ok, resumen = False, f'{type(exc).__name__}'
+                logger.error('Error en tool MCP %s (%s)', name, type(exc).__name__, exc_info=exc)
                 rpc = _result(rpc_id, {'content': [
-                    {'type': 'text', 'text': f'Error: {exc}'}], 'isError': True})
+                    {'type': 'text', 'text': f'Error interno al ejecutar {name}.'}], 'isError': True})
             finally:
                 AgenteAccionLog.objects.create(
                     empresa=request.empresa,

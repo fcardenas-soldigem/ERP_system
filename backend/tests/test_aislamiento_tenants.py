@@ -463,3 +463,96 @@ class EmpresaEndpointTests(TenantSetup):
         self.assertEqual(self.client.get(f'/api/empresas/{self.A.pk}/').status_code, 200)
         self.assertEqual(self.client.patch(f'/api/empresas/{self.A.pk}/', {'direccion': 'Av. X'}, format='json').status_code, 200)
         self.assertEqual(self.client.get(f'/api/empresas/{self.B.pk}/').status_code, 404)
+
+
+@override_settings(ROOT_URLCONF='config.urls',
+                   CACHES={'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}})
+class EscrituraFKCruzadaTests(TenantSetup):
+    """Hallazgos de la revisión independiente (D2): POST con FK de B en serializers que
+    no usaban EmpresaScopedModelSerializer — Factura, kardex, recetas — y 500 fijo en
+    /api/compras/recepciones/ (campo 'orden_compra' inexistente)."""
+
+    def setUp(self):
+        super().setUp()
+        from apps.inventario.models.almacen import Almacen
+        self.alm_a = Almacen.objects.create(empresa=self.A, nombre='Alm A')
+        self.alm_b = Almacen.objects.create(empresa=self.B, nombre='Alm B')
+        self.venta_a = Venta.objects.create(empresa=self.A, cliente=self.cli_a, fecha_emision=date.today(), total=Decimal('10'), moneda='PEN')
+        self.client.force_authenticate(self.user_a)
+
+    def test_factura_sobre_venta_de_B_rechazada(self):
+        from apps.ventas.models import Factura
+        r = self.client.post('/api/ventas/facturas/', {'numero_factura': 'F-X', 'venta': self.venta_b.id, 'cliente': self.cli_b.id}, format='json')
+        self.assertEqual(r.status_code, 400, r.content)
+        self.assertFalse(Factura.objects.filter(venta=self.venta_b).exists(), 'FUGA: A facturó la venta de B')
+        ok = self.client.post('/api/ventas/facturas/', {'numero_factura': 'F-A', 'venta': self.venta_a.id, 'cliente': self.cli_a.id}, format='json')
+        self.assertIn(ok.status_code, (200, 201), ok.content)
+
+    def test_kardex_con_producto_de_B_rechazado(self):
+        from apps.inventario.models.movimiento_inventario import MovimientoInventario
+        body = {'producto': self.prod_b.id, 'almacen': self.alm_b.id, 'fecha': timezone_now_iso(),
+                'tipo_movimiento': 'entrada', 'tipo_documento': 'ajuste', 'cantidad_entrada': 5, 'costo_unitario': '1.00'}
+        r = self.client.post('/api/inventario/kardex/', body, format='json')
+        self.assertEqual(r.status_code, 400, r.content)
+        self.assertFalse(MovimientoInventario.objects.filter(producto=self.prod_b).exists(), 'FUGA: kardex de A con producto de B')
+
+    def test_receta_con_producto_de_B_rechazada(self):
+        from apps.produccion.models import RecetaProducto
+        body = {'producto_terminado': self.prod_b.id, 'nombre': 'R', 'detalles': [{'insumo': self.prod_b.id, 'cantidad': 1}]}
+        r = self.client.post('/api/produccion/recetas/', body, format='json')
+        self.assertEqual(r.status_code, 400, r.content)
+        self.assertFalse(RecetaProducto.objects.filter(producto_terminado=self.prod_b).exists(), 'FUGA: receta de A con producto de B')
+        body2 = {'producto_terminado': self.prod_a.id, 'nombre': 'R', 'detalles': [{'insumo': self.prod_b.id, 'cantidad': 1}]}
+        r2 = self.client.post('/api/produccion/recetas/', body2, format='json')
+        self.assertEqual(r2.status_code, 400, r2.content)
+
+    def test_recepciones_list_no_da_500(self):
+        r = self.client.get('/api/compras/recepciones/')
+        self.assertEqual(r.status_code, 200, r.content)
+
+
+def timezone_now_iso():
+    from django.utils import timezone
+    return timezone.now().isoformat()
+
+
+@override_settings(ROOT_URLCONF='config.urls',
+                   CACHES={'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}})
+class MCPEndurecimientoTests(TenantSetup):
+    """D2: el MCP no devuelve str(exc); el token muere con su creador; dias acotado."""
+
+    def _mcp(self, token, name, args=None):
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+        return self.client.post('/api/mcp/', {'jsonrpc': '2.0', 'id': 1, 'method': 'tools/call',
+                                              'params': {'name': name, 'arguments': args or {}}}, format='json')
+
+    def test_error_interno_de_tool_es_generico(self):
+        from apps.agente.models import ApiToken
+        _, tok = ApiToken.generar(self.A, 'T', creado_por=self.user_a)
+        with mock.patch('apps.agente.mcp.run_tool', side_effect=RuntimeError('SECRETO tabla x')), \
+             self.assertLogs('apps.agente.mcp', level='ERROR'):
+            r = self._mcp(tok, 'buscar_cliente', {'texto': 'a'})
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertTrue(r.json()['result']['isError'])
+        self.assertNotIn('SECRETO', r.content.decode())
+
+    def test_token_muere_con_su_creador(self):
+        from apps.agente.models import ApiToken
+        _, tok = ApiToken.generar(self.A, 'T', creado_por=self.user_a)
+        self.assertEqual(self._mcp(tok, 'ventas_esperando_oc_nr').status_code, 200)
+        User.objects.filter(pk=self.user_a.pk).update(is_active=False)
+        self.assertEqual(self._mcp(tok, 'ventas_esperando_oc_nr').status_code, 401)
+        User.objects.filter(pk=self.user_a.pk).update(is_active=True, empresa=self.B)  # cambió de empresa
+        self.assertEqual(self._mcp(tok, 'ventas_esperando_oc_nr').status_code, 401)
+
+    def test_dias_acotado(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        self.client.force_authenticate(self.user_a)
+        r = self.client.post('/api/agente/tokens/', {'nombre': 'x', 'dias': '99999999999'}, format='json')
+        self.assertEqual(r.status_code, 201, r.content)
+        from apps.agente.models import ApiToken
+        t = ApiToken.objects.get(pk=r.json()['id'])
+        self.assertLessEqual(t.expires_at, timezone.now() + timedelta(days=365, minutes=1))
+        r0 = self.client.post('/api/agente/tokens/', {'nombre': 'y', 'dias': '0'}, format='json')
+        self.assertIsNotNone(ApiToken.objects.get(pk=r0.json()['id']).expires_at)

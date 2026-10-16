@@ -31,6 +31,11 @@ class ApiTokenAuthentication(authentication.BaseAuthentication):
 
         if not token.activo:
             raise exceptions.AuthenticationFailed('Token revocado o expirado.')
+        # El token vive ligado a quien lo creó: si ese usuario fue dado de baja, borrado o
+        # cambió de empresa, el token deja de valer (sin esperar a la revocación manual).
+        creador = token.creado_por
+        if creador is None or not creador.is_active or creador.empresa_id != token.empresa_id:
+            raise exceptions.AuthenticationFailed('Token sin usuario activo en la empresa.')
 
         # Marca de uso (update directo para no disparar señales ni validación).
         ApiToken.objects.filter(pk=token.pk).update(last_used_at=timezone.now())

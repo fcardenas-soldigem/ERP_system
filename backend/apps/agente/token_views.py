@@ -28,6 +28,7 @@ class ApiTokenViewSet(viewsets.ModelViewSet):
             dias = int(request.data.get('dias') or 90)
         except (TypeError, ValueError):
             dias = 90
+        dias = max(1, min(dias, 365))  # siempre expira (1..365 días)
         token, raw = ApiToken.generar(
             empresa=request.user.empresa, nombre=nombre, creado_por=request.user, dias=dias)
         data = ApiTokenSerializer(token).data
