@@ -29,7 +29,10 @@ class ConversationViewSet(viewsets.ModelViewSet):
     serializer_class = ConversationSerializer
 
     def get_queryset(self):
-        return Conversation.objects.filter(empresa=self.request.user.empresa)
+        # Aislamiento por USUARIO además de por empresa: las conversaciones con la IA
+        # son privadas; dos usuarios de la misma empresa no se ven entre sí.
+        return Conversation.objects.filter(
+            empresa=self.request.user.empresa, usuario=self.request.user)
 
     def perform_create(self, serializer):
         serializer.save(empresa=self.request.user.empresa, usuario=self.request.user)
@@ -42,17 +45,21 @@ class MessageViewSet(viewsets.ModelViewSet):
         # Aislamiento por tenant: los mensajes se filtran por la empresa dueña de la
         # conversación. Sin esto, B podía leer los mensajes de A pasando el id de su
         # conversación en la ruta anidada.
-        qs = Message.objects.filter(conversation__empresa=self.request.user.empresa)
+        # Y por USUARIO: la conversación es privada de quien la creó.
+        qs = Message.objects.filter(
+            conversation__empresa=self.request.user.empresa,
+            conversation__usuario=self.request.user)
         conversation_id = self.kwargs.get('conversation_pk')
         if conversation_id is not None:
             qs = qs.filter(conversation_id=conversation_id)
         return qs
 
     def perform_create(self, serializer):
-        # La conversación debe ser de la empresa del usuario (404 si es de otro tenant).
+        # La conversación debe ser de la empresa Y del usuario (404 si no).
         conversation_id = self.kwargs.get('conversation_pk')
         conversation = get_object_or_404(
-            Conversation, id=conversation_id, empresa=self.request.user.empresa)
+            Conversation, id=conversation_id, empresa=self.request.user.empresa,
+            usuario=self.request.user)
         serializer.save(conversation=conversation)
 
         try:

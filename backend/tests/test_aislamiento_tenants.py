@@ -227,3 +227,57 @@ class AIMessagesAislamientoTests(TenantSetup):
         self.assertFalse(
             Message.objects.filter(conversation=conv_a, content='intruso').exists(),
             'FUGA: B escribió en la conversación de A')
+
+
+@override_settings(ROOT_URLCONF='config.urls')
+class AIConversacionesPorUsuarioTests(TenantSetup):
+    """A1: las conversaciones con la IA son privadas POR USUARIO. Dos usuarios de la
+    MISMA empresa no se ven las conversaciones ni los mensajes entre sí."""
+
+    def setUp(self):
+        super().setUp()
+        self.user_a2 = self._user('a2@a.pe', self.A)  # mismo tenant que user_a
+        from apps.ai_assistant.models import Conversation, Message
+        self.conv_a1 = Conversation.objects.create(empresa=self.A, usuario=self.user_a, title='Privada A1')
+        self.msg_a1 = Message.objects.create(conversation=self.conv_a1, content='secreto de a1', role='user')
+
+    def _items(self, r):
+        cuerpo = r.json()
+        return cuerpo['results'] if isinstance(cuerpo, dict) and 'results' in cuerpo else cuerpo
+
+    def test_mismo_tenant_no_lista_conversaciones_ajenas(self):
+        self.client.force_authenticate(self.user_a2)
+        r = self.client.get('/api/ai/conversations/')
+        self.assertEqual(r.status_code, 200, r.content)
+        ids = [c['id'] for c in self._items(r)]
+        self.assertNotIn(self.conv_a1.pk, ids, 'FUGA: a2 lista la conversación de a1')
+        # Detalle directo → 404.
+        rd = self.client.get(f'/api/ai/conversations/{self.conv_a1.pk}/')
+        self.assertEqual(rd.status_code, 404, rd.content)
+
+    def test_mismo_tenant_no_lee_ni_escribe_mensajes_ajenos(self):
+        self.client.force_authenticate(self.user_a2)
+        r = self.client.get(f'/api/ai/conversations/{self.conv_a1.pk}/messages/')
+        self.assertNotEqual(r.status_code, 500, r.content)
+        if r.status_code == 200:
+            self.assertEqual(self._items(r), [], 'FUGA: a2 lee mensajes de a1')
+        # Ruta plana /messages/ tampoco expone el mensaje.
+        rp = self.client.get('/api/ai/messages/')
+        self.assertEqual(rp.status_code, 200, rp.content)
+        self.assertNotIn(self.msg_a1.pk, [m['id'] for m in self._items(rp)])
+        rm = self.client.get(f'/api/ai/messages/{self.msg_a1.pk}/')
+        self.assertEqual(rm.status_code, 404, rm.content)
+        # Escritura en conversación ajena → 404 y no persiste.
+        from apps.ai_assistant.models import Message
+        rw = self.client.post(f'/api/ai/conversations/{self.conv_a1.pk}/messages/',
+                              {'content': 'intruso', 'role': 'user'}, format='json')
+        self.assertEqual(rw.status_code, 404, rw.content)
+        self.assertFalse(Message.objects.filter(conversation=self.conv_a1, content='intruso').exists())
+
+    def test_dueno_si_ve_lo_suyo(self):
+        self.client.force_authenticate(self.user_a)
+        r = self.client.get('/api/ai/conversations/')
+        self.assertIn(self.conv_a1.pk, [c['id'] for c in self._items(r)])
+        rm = self.client.get(f'/api/ai/conversations/{self.conv_a1.pk}/messages/')
+        self.assertEqual(rm.status_code, 200, rm.content)
+        self.assertEqual([m['id'] for m in self._items(rm)], [self.msg_a1.pk])
