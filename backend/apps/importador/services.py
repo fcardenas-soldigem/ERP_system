@@ -1110,8 +1110,8 @@ class ImportService:
             total=Decimal('0'),
         )
         compra.save()
-        logger.info("Compra creada: %s — proveedor=%s producto=%s cant=%s precio=%s",
-                    compra.numero, proveedor.razon_social, producto.nombre, cantidad, precio_compra)
+        logger.info("Compra creada: %s — proveedor_id=%s producto_id=%s",
+                    compra.numero, proveedor.id, producto.id)
 
         detalle = CompraDetalle(
             compra=compra,

@@ -117,7 +117,7 @@ class DashboardResumen(APIView):
             ventas = metricas.ventas_qs()
             ventas_desglose = metricas.ventas_devengo('total')
             ventas_totales = ventas_desglose['total_pen']
-            logger.info(f"Ventas del mes (devengo, PEN): {ventas_totales}")
+            logger.debug("Ventas del mes (devengo, PEN) calculadas")
 
             # COBROS del mes (caja): pagos valorizados con el TC de su venta.
             cobros_mes = metricas.cobros()
@@ -386,7 +386,7 @@ class DashboardResumenView(APIView):
         compras_borrador_count_h = compras_borrador_h.count()
         compras_borrador_total_h = float(_total_pen(compras_borrador_h, 'total', fallback_tc))
 
-        logger.info('DashboardResumenView — ventas=%s compras=%s tc=%s', total_ventas, total_compras, tipo_cambio)
+        logger.debug('DashboardResumenView calculado')
 
         payload = {
             'ventas': {'total': total_ventas, 'cantidad': cantidad_ventas, 'desglose': ventas_desglose},

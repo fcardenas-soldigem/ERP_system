@@ -125,6 +125,7 @@ INSTALLED_APPS = [
 
 # Middleware
 MIDDLEWARE = [
+    'apps.core.middleware.request_context.RequestContextMiddleware',  # request_id/contexto de logs (primero)
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'corsheaders.middleware.CorsMiddleware',
@@ -318,7 +319,7 @@ REST_FRAMEWORK = {
         'rest_framework.permissions.IsAuthenticated',
     ],
     'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'apps.core.authentication.JWTAuthenticationConContexto',  # SimpleJWT + user/empresa en logs
         'rest_framework.authentication.SessionAuthentication',
     ],
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
@@ -394,20 +395,29 @@ CLAUDE_API_KEY = os.getenv('CLAUDE_API_KEY')
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
-# Logging estructurado para Cloud Run
+# Logging estructurado (B3): JSON a stdout para Cloud Logging (severity, message,
+# request_id, path, empresa_id, user_id). LOG_FORMAT=text para leer en consola local
+# (por defecto: text si DEBUG, json si no). Nunca datos personales ni montos en logs.
+LOG_FORMAT = os.getenv('LOG_FORMAT', 'text' if DEBUG else 'json').lower()
+_LOG_FORMATTER = 'json' if LOG_FORMAT == 'json' else 'verbose'
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
+    'filters': {
+        'request_context': {'()': 'apps.core.logging_json.RequestContextFilter'},
+    },
     'formatters': {
         'verbose': {
-            'format': '{levelname} {asctime} {name} {message}',
+            'format': '{levelname} {asctime} {name} [req={request_id} emp={empresa_id} user={user_id}] {message}',
             'style': '{',
         },
+        'json': {'()': 'apps.core.logging_json.JSONFormatter'},
     },
     'handlers': {
         'console': {
             'class': 'logging.StreamHandler',
-            'formatter': 'verbose',
+            'formatter': _LOG_FORMATTER,
+            'filters': ['request_context'],
         },
     },
     'root': {

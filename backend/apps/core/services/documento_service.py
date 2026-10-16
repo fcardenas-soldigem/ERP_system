@@ -133,7 +133,7 @@ class DocumentoService:
         cache_key = f"dni_{dni}"
         cached_data = cache.get(cache_key)
         if cached_data:
-            logger.info(f"DNI {dni} encontrado en cache")
+            logger.info("DNI encontrado en cache")
             return cached_data
 
         # Realizar consulta
@@ -155,11 +155,11 @@ class DocumentoService:
             
             # Guardar en cache por 1 hora
             cache.set(cache_key, result, 3600)
-            logger.info(f"DNI {dni} consultado exitosamente")
+            logger.info("DNI consultado exitosamente")
             return result
         else:
             # Error en la consulta
-            logger.error(f"Error consultando DNI {dni}")
+            logger.error("Error consultando DNI")
             return {
                 "success": False,
                 "error": "No se pudo consultar el DNI. Verifique el número o intente más tarde."
@@ -187,7 +187,7 @@ class DocumentoService:
         cache_key = f"ruc_{ruc}"
         cached_data = cache.get(cache_key)
         if cached_data:
-            logger.info(f"RUC {ruc} encontrado en cache")
+            logger.info("RUC encontrado en cache")
             return cached_data
 
         # Realizar consulta
@@ -223,11 +223,11 @@ class DocumentoService:
             
             # Guardar en cache por 1 hora
             cache.set(cache_key, result, 3600)
-            logger.info(f"RUC {ruc} consultado exitosamente")
+            logger.info("RUC consultado exitosamente")
             return result
         else:
             # Error en la consulta
-            logger.error(f"Error consultando RUC {ruc}")
+            logger.error("Error consultando RUC")
             return {
                 "success": False,
                 "error": "No se pudo consultar el RUC. Verifique el número o intente más tarde."

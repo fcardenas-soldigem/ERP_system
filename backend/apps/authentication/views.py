@@ -157,7 +157,7 @@ class LogoutView(APIView):
         try:
             token = RefreshToken(refresh_token_str)
             token.blacklist()
-            logger.info('Logout exitoso — user=%s', request.user.email)
+            logger.info('Logout exitoso — user_id=%s', request.user.id)
         except TokenError:
             pass  # Token ya inválido, cookie ya eliminada
 

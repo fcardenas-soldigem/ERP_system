@@ -7,6 +7,8 @@ filtran por esa empresa; jamás se acepta `empresa` como entrada.
 from django.utils import timezone
 from rest_framework import authentication, exceptions, permissions
 
+from apps.core.logging_json import set_empresa_actual, set_usuario_actual
+
 from .models import ApiToken, _hash_token
 
 
@@ -34,6 +36,8 @@ class ApiTokenAuthentication(authentication.BaseAuthentication):
         ApiToken.objects.filter(pk=token.pk).update(last_used_at=timezone.now())
         request.empresa = token.empresa
         request.api_token = token
+        set_usuario_actual(token.creado_por)
+        set_empresa_actual(token.empresa_id)
         # request.user = el creador (para helpers que lo usen); la autoridad es el token.
         return (token.creado_por, token)
 

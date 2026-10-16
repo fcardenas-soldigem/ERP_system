@@ -91,6 +91,5 @@ def registrar_factura(oc: OrdenCompra, *, numero_factura: str, fecha_factura,
     )
     compra.refresh_from_db()
 
-    logger.info('Factura %s registrada sobre OC %s → Compra %s (total %s %s)',
-                numero_factura, oc.numero, compra.numero, compra.total, compra.moneda)
+    logger.info('Factura registrada sobre OC %s → Compra %s', oc.numero, compra.numero)
     return compra
