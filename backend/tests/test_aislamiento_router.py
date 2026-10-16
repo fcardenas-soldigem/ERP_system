@@ -105,6 +105,8 @@ def _seed_b(empresa, user):
     _mk(out, by_name, lambda: AIInsight.objects.create(empresa=empresa, tipo='resumen', contenido={'k': 'v'}))
     _mk(out, by_name, lambda: Usuario.objects.create(usuario=user, empresa=empresa, rol='readonly'))
     _mk(out, by_name, lambda: Perfil.objects.get_or_create(usuario=user)[0])
+    from apps.agente.models import ApiToken
+    _mk(out, by_name, lambda: ApiToken.generar(empresa, 'Token B', creado_por=user)[0])
 
     from django.apps import apps as djapps
     GM = djapps.get_model

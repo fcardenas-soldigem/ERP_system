@@ -354,3 +354,93 @@ class ImportarExcelYOCSAislamientoTests(TenantSetup):
         # Tampoco por PATCH se puede colgar un proveedor ajeno.
         rp = self.client.patch(f"/api/compras/ordenes-servicio/{ok.json()['id']}/", {'proveedor': self.prov_b.id}, format='json')
         self.assertEqual(rp.status_code, 400, rp.content)
+
+
+@override_settings(ROOT_URLCONF='config.urls',
+                   CACHES={'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}})
+class MCPAislamientoTests(TenantSetup):
+    """A5: con URLconf real, un ApiToken de A no lee datos de B por NINGUNA tool del
+    MCP (recorre dinámicamente el registro TOOLS), los tokens revocados/expirados dan
+    401 y /api/agente/tokens/ está acotado por empresa."""
+
+    def setUp(self):
+        super().setUp()
+        from datetime import timedelta
+        from apps.agente.models import ApiToken
+        from apps.cotizaciones.models import Cotizacion, DetalleCotizacion
+        from apps.compras.models import Proveedor, Compra, CompraDetalle
+        from apps.inventario.models.almacen import Almacen
+        self.tok_a_obj, self.tok_a = ApiToken.generar(self.A, 'Tok A', creado_por=self.user_a)
+        self.tok_b_obj, self.tok_b = ApiToken.generar(self.B, 'Tok B', creado_por=self.user_b)
+        # Datos de B que las tools NO deben devolver a A. Marcas únicas: 'Cliente B',
+        # 'Prod B', 'V-B-OC', 'Prov B'.
+        Venta.objects.create(empresa=self.B, numero='V-B-OC', cliente=self.cli_b, fecha_emision=date.today(),
+                             estado_operativo='esperando_oc_nr', total=Decimal('100'), moneda='PEN')
+        cot = Cotizacion.objects.create(empresa=self.B, cliente=self.cli_b, usuario_creador=self.user_b,
+                                        asunto='Pedido B', fecha_vencimiento=date.today(), moneda='PEN')
+        DetalleCotizacion.objects.create(cotizacion=cot, producto=self.prod_b, cantidad=Decimal('1'),
+                                         precio_unitario=Decimal('99'), costo_unitario=Decimal('60'), descripcion='Prod B')
+        prov_b = Proveedor.objects.create(empresa=self.B, razon_social='Prov B', ruc='20000000012')
+        alm_b = Almacen.objects.create(empresa=self.B, nombre='Alm B')
+        compra = Compra.objects.create(empresa=self.B, proveedor=prov_b, almacen=alm_b, fecha_emision=date.today())
+        CompraDetalle.objects.create(compra=compra, producto=self.prod_b, cantidad=Decimal('1'), precio_unitario=Decimal('55'))
+        self.MARCAS_B = ('Cliente B', 'Prod B', 'V-B-OC', 'Prov B', 'SKU-B')
+
+    def _mcp(self, token, name, arguments=None):
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+        return self.client.post('/api/mcp/', {'jsonrpc': '2.0', 'id': 1, 'method': 'tools/call',
+                                              'params': {'name': name, 'arguments': arguments or {}}},
+                                format='json')
+
+    def test_token_de_A_no_lee_B_por_ninguna_tool(self):
+        from apps.agente.tools import TOOLS
+        # Argumentos "agresivos": apuntan explícitamente a los datos de B.
+        args_por_tool = {
+            'buscar_cliente': [{'texto': 'Cliente B'}, {'texto': '10000000002'}],
+            'historial_precios_item': [{'producto_id': self.prod_b.id}, {'descripcion': 'Prod B'}],
+        }
+        fallos = []
+        for name in TOOLS:
+            for args in args_por_tool.get(name, [{}]):
+                r = self._mcp(self.tok_a, name, args)
+                self.assertEqual(r.status_code, 200, f'{name}: {r.status_code} {r.content[:200]}')
+                cuerpo = r.json()
+                self.assertNotIn('error', cuerpo, f'{name}: {cuerpo}')
+                texto = cuerpo['result']['content'][0]['text']
+                self.assertFalse(cuerpo['result'].get('isError'), f'{name} devolvió isError: {texto[:200]}')
+                for marca in self.MARCAS_B:
+                    if marca in texto:
+                        fallos.append(f'{name}({args}) expone "{marca}": {texto[:160]}')
+        self.assertEqual(fallos, [], '\n'.join(fallos))
+        # Control positivo: B sí ve su cliente con su propio token.
+        rb = self._mcp(self.tok_b, 'buscar_cliente', {'texto': 'Cliente B'})
+        self.assertIn('Cliente B', rb.json()['result']['content'][0]['text'])
+
+    def test_token_revocado_o_expirado_401(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        self.tok_a_obj.revocar()
+        r = self._mcp(self.tok_a, 'ventas_esperando_oc_nr')
+        self.assertEqual(r.status_code, 401, r.content)
+        self.tok_b_obj.expires_at = timezone.now() - timedelta(seconds=1)
+        self.tok_b_obj.save(update_fields=['expires_at'])
+        r = self._mcp(self.tok_b, 'ventas_esperando_oc_nr')
+        self.assertEqual(r.status_code, 401, r.content)
+        self.client.credentials()
+        self.assertEqual(self.client.post('/api/mcp/', {'jsonrpc': '2.0', 'id': 1, 'method': 'tools/list'}, format='json').status_code, 401)
+        # Un JWT/sesión de usuario NO sirve para el MCP (solo ApiToken).
+        self.client.force_authenticate(self.user_a)
+        self.assertEqual(self.client.post('/api/mcp/', {'jsonrpc': '2.0', 'id': 1, 'method': 'tools/list'}, format='json').status_code, 403)
+
+    def test_tokens_acotados_por_empresa(self):
+        self.client.force_authenticate(self.user_a)
+        r = self.client.get('/api/agente/tokens/')
+        self.assertEqual(r.status_code, 200, r.content)
+        cuerpo = r.json()
+        items = cuerpo['results'] if isinstance(cuerpo, dict) and 'results' in cuerpo else cuerpo
+        self.assertEqual([t['id'] for t in items], [self.tok_a_obj.id])
+        self.assertEqual(self.client.get(f'/api/agente/tokens/{self.tok_b_obj.id}/').status_code, 404)
+        rr = self.client.post(f'/api/agente/tokens/{self.tok_b_obj.id}/revocar/')
+        self.assertEqual(rr.status_code, 404, rr.content)
+        self.tok_b_obj.refresh_from_db()
+        self.assertIsNone(self.tok_b_obj.revoked_at, 'A revocó el token de B')
