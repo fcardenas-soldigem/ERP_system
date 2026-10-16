@@ -18,7 +18,7 @@ from apps.inventario.models.almacen import Almacen
 from apps.core.serializers_base import EmpresaScopedModelSerializer
 from django.db import transaction
 from decimal import Decimal
-from datetime import timedelta
+from datetime import date, timedelta
 
 class ProductoSerializer(EmpresaScopedModelSerializer):
     class Meta:
@@ -70,7 +70,9 @@ class CompraDetalleSerializer(EmpresaScopedModelSerializer):
             'cantidad', 'precio_unitario', 'subtotal', 'igv', 'total',
             'notas', 'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'subtotal', 'igv', 'total', 'created_at', 'updated_at']
+        # `compra` la fija el padre (CompraSerializer); si viniera en el body, update() hacía
+        # create(compra=instance, **detalle) → TypeError 500.
+        read_only_fields = ['id', 'compra', 'subtotal', 'igv', 'total', 'created_at', 'updated_at']
 
 class ComprobantePagoSerializer(EmpresaScopedModelSerializer):
     # Lectura tolerante: si la firma de GCS falla, archivo → null (no 500).
@@ -216,6 +218,9 @@ class CompraSerializer(EmpresaScopedModelSerializer):
 class PagoCompraSerializer(EmpresaScopedModelSerializer):
     # Lectura tolerante: si la firma de GCS falla, comprobante → null (no 500).
     comprobante = SafeFileURLField(required=False, allow_null=True)
+    # El modelo tiene DateField(default=timezone.now) → datetime → el DateField de DRF rechaza
+    # serializar la respuesta (500 al registrar un pago sin `fecha`). Default como date.
+    fecha = serializers.DateField(required=False, default=date.today)
 
     class Meta:
         model = PagoCompra

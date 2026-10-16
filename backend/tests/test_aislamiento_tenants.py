@@ -556,3 +556,240 @@ class MCPEndurecimientoTests(TenantSetup):
         self.assertLessEqual(t.expires_at, timezone.now() + timedelta(days=365, minutes=1))
         r0 = self.client.post('/api/agente/tokens/', {'nombre': 'y', 'dias': '0'}, format='json')
         self.assertIsNotNone(ApiToken.objects.get(pk=r0.json()['id']).expires_at)
+
+
+@override_settings(ROOT_URLCONF='config.urls')
+class EscriturasCruzadasRouterWalkTests(TenantSetup):
+    """Fugas y 500 encontrados por la suite dinámica de ESCRITURAS
+    (tests/test_aislamiento_router_escrituras.py). Cada test falla sin su fix."""
+
+    def setUp(self):
+        super().setUp()
+        from apps.inventario.models.almacen import Almacen
+        self.client.raise_request_exception = False  # un 500 se ve como 500, no como excepción
+        self.alm_a = Almacen.objects.create(empresa=self.A, nombre='Alm A')
+        self.alm_b = Almacen.objects.create(empresa=self.B, nombre='Alm B')
+        self.prod_pt_a = Producto.objects.create(empresa=self.A, sku='PT-A', nombre='PT A', tipo_producto='FINISHED')
+        self.prod_pt_b = Producto.objects.create(empresa=self.B, sku='PT-B', nombre='PT B', tipo_producto='FINISHED')
+        self.client.force_authenticate(self.user_a)
+
+    # --- inventario / kardex -------------------------------------------------------
+    def _mov_a(self):
+        from django.utils import timezone
+        from apps.inventario.models.movimiento_inventario import MovimientoInventario
+        return MovimientoInventario.objects.create(
+            empresa=self.A, producto=self.prod_a, almacen=self.alm_a, fecha=timezone.now(),
+            tipo_movimiento='entrada', tipo_documento='ajuste')
+
+    def test_kardex_patch_producto_o_almacen_de_B_400(self):
+        mov = self._mov_a()
+        for campo, valor in (('producto', self.prod_b.id), ('almacen', self.alm_b.id)):
+            r = self.client.patch(f'/api/inventario/kardex/{mov.id}/', {campo: valor}, format='json')
+            self.assertEqual(r.status_code, 400, (campo, r.content))
+        mov.refresh_from_db()
+        self.assertEqual((mov.producto_id, mov.almacen_id), (self.prod_a.id, self.alm_a.id))
+
+    def test_entrada_compra_compra_id_de_B_400(self):
+        from apps.compras.models import Compra, Proveedor
+        prov_b = Proveedor.objects.create(empresa=self.B, razon_social='Prov B', ruc='20000000012')
+        compra_b = Compra.objects.create(empresa=self.B, proveedor=prov_b, almacen=self.alm_b, fecha_emision=date.today())
+        r = self.client.post('/api/inventario/materias-primas/entrada_compra/', {
+            'producto_id': self.prod_a.id, 'almacen_id': self.alm_a.id, 'cantidad': '1',
+            'costo_unitario': '1', 'compra_id': compra_b.id}, format='json')
+        self.assertEqual(r.status_code, 400, r.content)
+        self.assertIn('compra_id', r.json())
+
+    def _inv_pt_a(self):
+        from apps.inventario.models.inventario_productos_terminados import InventarioProductosTerminados
+        return InventarioProductosTerminados.objects.create(
+            empresa=self.A, producto=self.prod_pt_a, almacen=self.alm_a,
+            cantidad_disponible=Decimal('100'), cantidad_reservada=Decimal('10'))
+
+    def _inv_mp_a(self):
+        from apps.inventario.models.inventario_materias_primas import InventarioMateriasPrimas
+        return InventarioMateriasPrimas.objects.create(
+            empresa=self.A, producto=self.prod_a, almacen=self.alm_a,
+            cantidad_disponible=Decimal('100'), cantidad_reservada=Decimal('10'))
+
+    def _op_b(self):
+        from apps.produccion.models import RecetaProducto, OrdenProduccion
+        receta_b = RecetaProducto.objects.create(empresa=self.B, producto_terminado=self.prod_pt_b, nombre='R B')
+        return OrdenProduccion.objects.create(
+            empresa=self.B, numero='OP-B1', receta=receta_b, cantidad_planificada=Decimal('1'),
+            fecha_programada=date.today(), almacen_insumos=self.alm_b, almacen_destino=self.alm_b)
+
+    def test_salida_venta_venta_id_de_B_400(self):
+        inv = self._inv_pt_a()
+        r = self.client.post('/api/inventario/productos-terminados/salida_venta/', {
+            'producto_id': self.prod_pt_a.id, 'almacen_id': self.alm_a.id, 'cantidad': '1',
+            'venta_id': self.venta_b.id}, format='json')
+        self.assertEqual(r.status_code, 400, r.content)
+        self.assertIn('venta_id', r.json())
+        inv.refresh_from_db()
+        self.assertEqual(inv.cantidad_disponible, Decimal('100'))
+
+    def test_entrada_produccion_orden_de_B_400(self):
+        op_b = self._op_b()
+        r = self.client.post('/api/inventario/productos-terminados/entrada_produccion/', {
+            'producto_id': self.prod_pt_a.id, 'almacen_id': self.alm_a.id, 'cantidad': '1',
+            'costo_produccion': '1', 'orden_produccion_id': op_b.id}, format='json')
+        self.assertEqual(r.status_code, 400, r.content)
+        self.assertIn('orden_produccion_id', r.json())
+
+    def test_reservar_mp_con_orden_de_B_404(self):
+        inv, op_b = self._inv_mp_a(), self._op_b()
+        r = self.client.post(f'/api/inventario/materias-primas/{inv.id}/reservar/',
+                             {'cantidad': '1', 'orden_produccion_id': op_b.id}, format='json')
+        self.assertEqual(r.status_code, 404, r.content)
+        inv.refresh_from_db()
+        self.assertEqual(inv.cantidad_reservada, Decimal('10'))
+
+    def test_reservar_pt_con_venta_de_B_404(self):
+        inv = self._inv_pt_a()
+        r = self.client.post(f'/api/inventario/productos-terminados/{inv.id}/reservar/',
+                             {'cantidad': '1', 'venta_id': self.venta_b.id}, format='json')
+        self.assertEqual(r.status_code, 404, r.content)
+        inv.refresh_from_db()
+        self.assertEqual(inv.cantidad_reservada, Decimal('10'))
+
+    # --- guías ---------------------------------------------------------------------
+    def _guia_payload(self, cliente):
+        return {'tipo': 'venta', 'motivo': 'venta', 'fecha_traslado': date.today().isoformat(),
+                'cliente': cliente.id, 'nombre_destinatario': 'x', 'direccion_origen': 'a',
+                'direccion_destino': 'b'}
+
+    def test_guia_post_valido_201_y_cliente_de_B_400(self):
+        r = self.client.post('/api/guias/guias/', self._guia_payload(self.cli_a), format='json')
+        self.assertEqual(r.status_code, 201, r.content)  # antes: 500 (DateField con default datetime)
+        r = self.client.post('/api/guias/guias/', self._guia_payload(self.cli_b), format='json')
+        self.assertEqual(r.status_code, 400, r.content)
+        self.assertIn('cliente', r.json())
+
+    def test_guia_patch_cliente_de_B_400(self):
+        from apps.guias.models import GuiaRemision
+        g = GuiaRemision.objects.create(
+            empresa=self.A, numero='G-A1', fecha_traslado=date.today(), motivo='traslado_tecnico',
+            nombre_destinatario='x', direccion_origen='a', direccion_destino='b', creado_por=self.user_a,
+            cliente=self.cli_a)
+        r = self.client.patch(f'/api/guias/guias/{g.id}/', {'cliente': self.cli_b.id}, format='json')
+        self.assertEqual(r.status_code, 400, r.content)
+        g.refresh_from_db()
+        self.assertEqual(g.cliente_id, self.cli_a.id)
+
+    # --- producción ----------------------------------------------------------------
+    def test_orden_produccion_responsable_de_B_400(self):
+        from apps.produccion.models import RecetaProducto, OrdenProduccion
+        receta = RecetaProducto.objects.create(empresa=self.A, producto_terminado=self.prod_pt_a, nombre='R A')
+        payload = {'receta_id': receta.id, 'cantidad': '1', 'fecha_programada': date.today().isoformat(),
+                   'almacen_insumos_id': self.alm_a.id, 'almacen_destino_id': self.alm_a.id,
+                   'responsable_id': self.user_b.id}
+        r = self.client.post('/api/produccion/ordenes/', payload, format='json')
+        self.assertEqual(r.status_code, 400, r.content)
+        self.assertFalse(OrdenProduccion.objects.filter(empresa=self.A).exists())
+        payload['responsable_id'] = self.user_a.id  # control positivo
+        r = self.client.post('/api/produccion/ordenes/', payload, format='json')
+        self.assertEqual(r.status_code, 201, r.content)
+
+    # --- compras -------------------------------------------------------------------
+    def test_pago_compra_propia_201(self):
+        from apps.compras.models import Compra, Proveedor
+        prov_a = Proveedor.objects.create(empresa=self.A, razon_social='Prov A', ruc='20000000011')
+        compra = Compra.objects.create(empresa=self.A, proveedor=prov_a, almacen=self.alm_a,
+                                       fecha_emision=date.today(), tipo_compra='credito_30', estado='pendiente')
+        Compra.objects.filter(pk=compra.pk).update(total=Decimal('1000'))
+        with mock.patch('apps.core.services.documento_service.requests.get', side_effect=RuntimeError('offline')):
+            r = self.client.post(f'/api/compras/compras/{compra.id}/pagos/',
+                                 {'monto': '10', 'metodo_pago': 'efectivo', 'moneda': 'PEN'}, format='json')
+        self.assertEqual(r.status_code, 201, r.content)  # antes: 500 (DateField con default datetime)
+
+    def test_compra_detalle_con_compra_en_body_se_ignora(self):
+        from apps.compras.models import Compra, Proveedor, CompraDetalle
+        prov_a = Proveedor.objects.create(empresa=self.A, razon_social='Prov A', ruc='20000000011')
+        compra = Compra.objects.create(empresa=self.A, proveedor=prov_a, almacen=self.alm_a, fecha_emision=date.today())
+        otra = Compra.objects.create(empresa=self.A, proveedor=prov_a, almacen=self.alm_a, fecha_emision=date.today())
+        for compra_body in (otra.id, self.B.id):
+            r = self.client.patch(f'/api/compras/compras/{compra.id}/', {'detalles': [
+                {'compra': compra_body, 'producto': self.prod_a.id, 'cantidad': '1', 'precio_unitario': '1'}]},
+                format='json')
+            self.assertEqual(r.status_code, 200, r.content)  # antes: 500 (TypeError compra duplicada) / 400
+            self.assertEqual(list(CompraDetalle.objects.filter(compra=compra).values_list('compra_id', flat=True)), [compra.id])
+
+    # --- ventas --------------------------------------------------------------------
+    def _venta_a(self):
+        from apps.ventas.models import DetalleVenta
+        v = Venta.objects.create(empresa=self.A, cliente=self.cli_a, fecha_emision=date.today(), moneda='PEN')
+        DetalleVenta.objects.create(venta=v, producto=self.prod_pt_a, cantidad=1, precio_unitario=Decimal('10'))
+        return v
+
+    def test_venta_patch_detalle_producto_de_B_400(self):
+        from apps.ventas.models import DetalleVenta
+        v = self._venta_a()
+        r = self.client.patch(f'/api/ventas/{v.id}/', {'detalles': [
+            {'producto': self.prod_pt_b.id, 'cantidad': '1', 'precio_unitario': '1'}]}, format='json')
+        self.assertEqual(r.status_code, 400, r.content)
+        self.assertEqual(list(DetalleVenta.objects.filter(venta=v).values_list('producto_id', flat=True)), [self.prod_pt_a.id])
+
+    def test_venta_patch_detalle_con_venta_en_body_se_ignora(self):
+        from apps.ventas.models import DetalleVenta
+        v = self._venta_a()
+        r = self.client.patch(f'/api/ventas/{v.id}/', {'detalles': [
+            {'venta': self.venta_b.id, 'producto': self.prod_pt_a.id, 'cantidad': '2', 'precio_unitario': '1'}]},
+            format='json')
+        self.assertEqual(r.status_code, 200, r.content)  # antes: 500 (TypeError venta duplicada)
+        self.assertEqual(list(DetalleVenta.objects.filter(venta=v).values_list('cantidad', flat=True)), [2])
+        self.assertFalse(DetalleVenta.objects.filter(venta=self.venta_b).exists())
+
+    def test_venta_patch_cliente_id_de_B_400(self):
+        v = self._venta_a()
+        r = self.client.patch(f'/api/ventas/{v.id}/', {'cliente_id': self.cli_b.id}, format='json')
+        self.assertEqual(r.status_code, 400, r.content)  # antes: 200 y la venta quedaba con el cliente de B
+        v.refresh_from_db()
+        self.assertEqual(v.cliente_id, self.cli_a.id)
+        r = self.client.patch(f'/api/ventas/{v.id}/', {'cliente_id': self.cli_a.id, 'notas': 'ok'}, format='json')
+        self.assertEqual(r.status_code, 200, r.content)  # control positivo
+
+    def test_pago_venta_serializer_venta_de_B_invalida(self):
+        from apps.ventas.serializers import PagoVentaSerializer
+        s = PagoVentaSerializer(data={'venta': self.venta_b.id, 'fecha': date.today().isoformat(), 'monto': '1',
+                                      'metodo_pago': 'efectivo'}, context={'request': _req(self.user_a)})
+        self.assertFalse(s.is_valid())
+        self.assertIn('venta', s.errors)
+
+    # --- ai_assistant --------------------------------------------------------------
+    def test_ai_upload_sobre_mensaje_de_B_404(self):
+        from apps.ai_assistant.models import Conversation, Message
+        conv_b = Conversation.objects.create(empresa=self.B, usuario=self.user_b)
+        msg_b = Message.objects.create(conversation=conv_b, content='x', role='user')
+        for url in (f'/api/ai/messages/{msg_b.id}/upload/', f'/api/ai/conversations/{conv_b.id}/messages/{msg_b.id}/upload/'):
+            r = self.client.post(url, {}, format='json')
+            self.assertEqual(r.status_code, 404, (url, r.status_code))  # antes: 500 (TypeError pk)
+
+    def test_ai_mensajes_de_conversacion_de_B_404(self):
+        from apps.ai_assistant.models import Conversation
+        conv_b = Conversation.objects.create(empresa=self.B, usuario=self.user_b)
+        r = self.client.get(f'/api/ai/conversations/{conv_b.id}/messages/')
+        self.assertEqual(r.status_code, 404, r.content)  # antes: 200 con lista vacía
+        r = self.client.post(f'/api/ai/conversations/{conv_b.id}/messages/', {'content': 'x'}, format='json')
+        self.assertEqual(r.status_code, 404, r.content)
+
+    # --- core ----------------------------------------------------------------------
+    def test_core_perfil_usuario_de_B_400(self):
+        r = self.client.post('/api/core/perfiles/', {'usuario': self.user_b.id, 'direccion': 'x'}, format='json')
+        self.assertEqual(r.status_code, 400, r.content)  # antes: 500 (campo telefono inexistente)
+        self.assertIn('usuario', r.json())
+
+    def test_core_usuario_de_B_400_y_propio_201(self):
+        from apps.core.models import Usuario
+        r = self.client.post('/api/core/usuarios/', {'usuario': self.user_b.id, 'rol': 'admin'}, format='json')
+        self.assertEqual(r.status_code, 400, r.content)  # antes: 500 (IntegrityError empresa NULL)
+        self.assertIn('usuario', r.json())
+        r = self.client.post('/api/core/usuarios/', {'usuario': self.user_a.id, 'rol': 'admin'}, format='json')
+        self.assertEqual(r.status_code, 201, r.content)
+        self.assertEqual(Usuario.objects.get(usuario=self.user_a).empresa_id, self.A.id)
+
+    def test_core_empresa_no_se_crea_ni_borra_por_api(self):
+        r = self.client.delete(f'/api/core/empresas/{self.A.id}/')
+        self.assertEqual(r.status_code, 405, r.content)
+        self.assertTrue(Empresa.objects.filter(pk=self.A.pk).exists())
+        r = self.client.post('/api/core/empresas/', {'nombre': 'X', 'ruc': '20999999999'}, format='json')
+        self.assertEqual(r.status_code, 405, r.content)

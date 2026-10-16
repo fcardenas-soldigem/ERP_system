@@ -58,7 +58,9 @@ class ComprobantePagoSerializer(serializers.ModelSerializer):
         fields = ['id', 'archivo', 'fecha_subida', 'tipo', 'numero', 'notas']
         read_only_fields = ['fecha_subida']
 
-class DetalleVentaSerializer(serializers.ModelSerializer):
+class DetalleVentaSerializer(EmpresaScopedModelSerializer):
+    # `producto` acotado por empresa también en PUT/PATCH (VentaSerializer.validate solo lo
+    # comprobaba al crear). `venta` la fija el padre: en el body se ignora (antes TypeError 500).
     producto_nombre = serializers.CharField(source='producto.nombre', read_only=True)
     producto_sku = serializers.CharField(source='producto.sku', read_only=True)
     producto_tipo = serializers.CharField(source='producto.tipo_producto', read_only=True)
@@ -68,9 +70,7 @@ class DetalleVentaSerializer(serializers.ModelSerializer):
         fields = ['venta', 'producto', 'producto_nombre', 'producto_sku',
                  'producto_tipo', 'descripcion', 'cantidad', 'precio_unitario',
                  'origen', 'stock_descontado']
-        extra_kwargs = {
-            'venta': {'required': False}
-        }
+        read_only_fields = ['venta']
 
     def validate(self, data):
         if data.get('cantidad', 0) <= 0:
@@ -372,6 +372,19 @@ class VentaSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({
                     "metodo_pago": ["Método de pago no válido"]
                 })
+        else:
+            # UPDATE: `cliente_id` también debe ser de la empresa. Antes solo se validaba al crear y
+            # update() hacía setattr(instance, 'cliente_id', <id de otra empresa>) → la venta quedaba
+            # con un cliente ajeno (y la respuesta exponía sus datos).
+            cliente_id = data.pop('cliente_id', None)
+            if cliente_id is not None:
+                try:
+                    data['cliente'] = Cliente.objects.get(
+                        id=int(cliente_id), empresa=self.context['request'].user.empresa)
+                except (ValueError, TypeError, Cliente.DoesNotExist):
+                    raise serializers.ValidationError({
+                        "cliente_id": ["Cliente no válido o no pertenece a su empresa"]
+                    })
 
         return data
 
@@ -490,7 +503,8 @@ class OrdenVentaSerializer(EmpresaScopedModelSerializer):
         fields = '__all__'
         depth = 1 
 
-class PagoVentaSerializer(serializers.ModelSerializer):
+class PagoVentaSerializer(EmpresaScopedModelSerializer):
+    # `venta` acotada por empresa (defensa en profundidad: la vista anidada ya fuerza la venta).
     completar_pago = serializers.BooleanField(required=False, write_only=True)
     comprobante = SafeFileURLField(required=False, allow_null=True)  # lectura tolerante (no 500)
     estado_venta = serializers.CharField(read_only=True)

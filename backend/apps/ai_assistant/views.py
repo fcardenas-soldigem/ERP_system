@@ -58,6 +58,9 @@ class MessageViewSet(viewsets.ModelViewSet):
             conversation__usuario=self.request.user)
         conversation_id = self.kwargs.get('conversation_pk')
         if conversation_id is not None:
+            # La conversación de la ruta debe ser del tenant/usuario: 404 (no una lista vacía 200).
+            get_object_or_404(Conversation, id=conversation_id, empresa=self.request.user.empresa,
+                              usuario=self.request.user)
             qs = qs.filter(conversation_id=conversation_id)
         return qs
 
@@ -103,7 +106,10 @@ class MessageViewSet(viewsets.ModelViewSet):
             return error_interno(e, 'Error al procesar el mensaje')
 
     @action(detail=True, methods=['post'])
-    def upload(self, request, conversation_pk=None):
+    def upload(self, request, pk=None, conversation_pk=None):
+        # La firma no aceptaba `pk` → TypeError 500 en toda llamada. El mensaje debe ser del
+        # tenant/usuario (get_object → 404) y la conversación se toma de él, no de la URL.
+        mensaje = self.get_object()
         try:
             file = request.FILES['file']
             tipo = request.data.get('tipo')
@@ -132,7 +138,7 @@ class MessageViewSet(viewsets.ModelViewSet):
             )
 
             # Guardar el mensaje con el análisis
-            conversation = Conversation.objects.get(id=conversation_pk)
+            conversation = mensaje.conversation
             Message.objects.create(
                 conversation=conversation,
                 content=response.choices[0].message.content,

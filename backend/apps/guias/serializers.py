@@ -1,4 +1,8 @@
+from datetime import date
+
 from rest_framework import serializers
+
+from apps.core.serializers_base import EmpresaScopedModelSerializer
 from .models import GuiaRemision, ItemGuia
 
 
@@ -11,8 +15,12 @@ class ItemGuiaSerializer(serializers.ModelSerializer):
         ]
 
 
-class GuiaRemisionSerializer(serializers.ModelSerializer):
+class GuiaRemisionSerializer(EmpresaScopedModelSerializer):
+    # `cliente` acotado por empresa (antes aceptaba un cliente de otro tenant en POST/PUT/PATCH).
     items = ItemGuiaSerializer(many=True, required=False)
+    # El modelo tiene DateField(default=timezone.now) → devuelve datetime y el DateField de DRF
+    # rechaza serializarlo (500 en todo POST). Se fija aquí la fecha por defecto como date.
+    fecha_emision = serializers.DateField(required=False, default=date.today)
     creado_por_nombre = serializers.CharField(
         source='creado_por.get_full_name', read_only=True
     )
