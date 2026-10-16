@@ -281,3 +281,26 @@ class AIConversacionesPorUsuarioTests(TenantSetup):
         rm = self.client.get(f'/api/ai/conversations/{self.conv_a1.pk}/messages/')
         self.assertEqual(rm.status_code, 200, rm.content)
         self.assertEqual([m['id'] for m in self._items(rm)], [self.msg_a1.pk])
+
+
+@override_settings(ROOT_URLCONF='config.urls')
+class VentasPendientesEndpointTests(TenantSetup):
+    """A2: el frontend (Cuentas por Cobrar → ventas.service.getVentasPendientes) consume
+    GET /api/ventas/ventas_pendientes/ (VentaViewSet). La acción duplicada que se
+    eliminó vivía en /api/ventas/{venta_pk}/pagos/ventas_pendientes/ (PagoVentaViewSet)
+    y ningún cliente la usaba. Este test fija el contrato del endpoint vivo."""
+
+    def test_endpoint_vivo_y_aislado(self):
+        Venta.objects.create(
+            empresa=self.B, numero='V-B-CR', cliente=self.cli_b, fecha_emision=date.today(),
+            total=Decimal('500.00'), moneda='PEN', tipo_venta='credito_30', estado='pendiente')
+        self.client.force_authenticate(self.user_a)
+        r = self.client.get('/api/ventas/ventas_pendientes/')
+        self.assertEqual(r.status_code, 200, r.content)
+        cuerpo = r.json()
+        ventas = cuerpo.get('ventas', cuerpo) if isinstance(cuerpo, dict) else cuerpo
+        numeros = [v.get('numero') for v in ventas] if isinstance(ventas, list) else []
+        self.assertNotIn('V-B-CR', numeros, 'FUGA: A ve ventas pendientes de B')
+        # La ruta eliminada no existe (404), confirmando que no queda un duplicado.
+        r2 = self.client.get(f'/api/ventas/{self.venta_b.pk}/pagos/ventas_pendientes/')
+        self.assertEqual(r2.status_code, 404)
