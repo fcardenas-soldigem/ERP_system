@@ -12,6 +12,17 @@ class EmpresaViewSet(viewsets.ModelViewSet):
     queryset = Empresa.objects.none()
     parser_classes = (JSONParser, MultiPartParser, FormParser)
 
+    # Seguridad: la empresa se crea con `manage.py crear_tenant` (B1) y NUNCA se borra
+    # desde la API (un DELETE sobre la propia empresa haría CASCADE de todos sus datos y
+    # cualquier usuario autenticado, incluso 'readonly', podía invocarlo).
+    def create(self, request, *args, **kwargs):
+        return Response({'error': 'Las empresas se crean desde la plataforma, no desde la API.'},
+                        status=status.HTTP_405_METHOD_NOT_ALLOWED)
+
+    def destroy(self, request, *args, **kwargs):
+        return Response({'error': 'No se puede eliminar una empresa desde la API.'},
+                        status=status.HTTP_405_METHOD_NOT_ALLOWED)
+
     def get_queryset(self):
         if not self.request.user.is_authenticated:
             return Empresa.objects.none()

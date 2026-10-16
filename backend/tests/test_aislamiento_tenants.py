@@ -444,3 +444,22 @@ class MCPAislamientoTests(TenantSetup):
         self.assertEqual(rr.status_code, 404, rr.content)
         self.tok_b_obj.refresh_from_db()
         self.assertIsNone(self.tok_b_obj.revoked_at, 'A revocó el token de B')
+
+
+@override_settings(ROOT_URLCONF='config.urls')
+class EmpresaEndpointTests(TenantSetup):
+    """La API no crea ni borra empresas: el DELETE de la propia empresa hacía CASCADE de
+    todo el tenant y cualquier usuario autenticado podía ejecutarlo."""
+
+    def test_no_se_puede_borrar_ni_crear_empresa_por_api(self):
+        self.client.force_authenticate(self.user_a)
+        r = self.client.delete(f'/api/empresas/{self.A.pk}/')
+        self.assertEqual(r.status_code, 405, r.content)
+        self.assertTrue(Empresa.objects.filter(pk=self.A.pk).exists(), 'se borró la empresa (y todos sus datos)')
+        rc = self.client.post('/api/empresas/', {'nombre': 'Nueva', 'ruc': '20999999999'}, format='json')
+        self.assertEqual(rc.status_code, 405, rc.content)
+        self.assertFalse(Empresa.objects.filter(ruc='20999999999').exists())
+        # Lo propio sí se lee y edita; lo de B no existe para A.
+        self.assertEqual(self.client.get(f'/api/empresas/{self.A.pk}/').status_code, 200)
+        self.assertEqual(self.client.patch(f'/api/empresas/{self.A.pk}/', {'direccion': 'Av. X'}, format='json').status_code, 200)
+        self.assertEqual(self.client.get(f'/api/empresas/{self.B.pk}/').status_code, 404)
