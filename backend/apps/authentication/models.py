@@ -68,7 +68,7 @@ def create_user_empresa(sender, instance, created, **kwargs):
             nombre=f"Empresa de {instance.nombre} {instance.apellido}",
             ruc=get_random_string(11, '0123456789'),  # Genera un RUC temporal
             direccion="Pendiente de actualizar",
-            telefono="Pendiente de actualizar",
+            telefono="",  # Empresa.telefono es varchar(9); el placeholder anterior (23 chars) reventaba en Postgres
             email=instance.email
         )
         

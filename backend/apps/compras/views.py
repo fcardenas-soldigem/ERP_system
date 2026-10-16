@@ -36,6 +36,8 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 import json
+from django.core.exceptions import ObjectDoesNotExist
+from apps.core.errors import respuesta_error, error_interno, mensaje_seguro, es_error_de_negocio
 
 class ExcelRenderer(BaseRenderer):
     media_type = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
@@ -102,10 +104,7 @@ class CompraViewSet(viewsets.ModelViewSet):
             return Response(serializer.data)
         except Exception as e:
             logger.error('Error en retrieve: %s', e, exc_info=True)
-            return Response(
-                {'detail': str(e)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return respuesta_error(e, 'Error al obtener la compra', clave='detail')
 
     def perform_create(self, serializer):
         if not hasattr(self.request.user, 'empresa'):
@@ -144,10 +143,7 @@ class CompraViewSet(viewsets.ModelViewSet):
             return Response(data)
         except Exception as e:
             logger.error('Error en list: %s', e, exc_info=True)
-            return Response(
-                {'detail': str(e)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return respuesta_error(e, 'Error al listar compras', clave='detail')
 
     def update(self, request, *args, **kwargs):
         try:
@@ -167,10 +163,7 @@ class CompraViewSet(viewsets.ModelViewSet):
                 
                 return Response(serializer.data)
         except Exception as e:
-            return Response(
-                {"detail": str(e)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return respuesta_error(e, 'Error al actualizar la compra', clave='detail')
 
     @action(detail=True, methods=['post'])
     def cambiar_estado(self, request, pk=None):
@@ -328,7 +321,9 @@ class CompraViewSet(viewsets.ModelViewSet):
                 df = pd.read_excel(excel_file)
             
             # Validar columnas requeridas (ajustadas a tu template)
-            required_columns = ['empresa', 'proveedor', 'almacen', 'fecha', 'sku', 'nombre_producto', 'cantidad', 'precio_unitario', 'subtotal', 'igv_incluido', 'estado', 'metodo_pago']
+            # C2 (seguridad): 'empresa' ya NO es columna requerida; la empresa es SIEMPRE
+            # la del usuario autenticado. Si el Excel la trae, se ignora (con aviso).
+            required_columns = ['proveedor', 'almacen', 'fecha', 'sku', 'nombre_producto', 'cantidad', 'precio_unitario', 'subtotal', 'igv_incluido', 'estado', 'metodo_pago']
             missing_columns = [col for col in required_columns if col not in df.columns]
             if missing_columns:
                 return Response(
@@ -342,9 +337,14 @@ class CompraViewSet(viewsets.ModelViewSet):
             with transaction.atomic():
                 for index, row in df.iterrows():
                     try:
-                        # Obtener empresa
-                        from apps.empresas.models import Empresa
-                        empresa = Empresa.objects.get(nombre=row['empresa'])
+                        # C2 (seguridad): la empresa SIEMPRE es la del usuario autenticado.
+                        empresa = request.user.empresa
+                        if 'empresa' in df.columns:
+                            _emp_excel = str(row.get('empresa') or '').strip()
+                            if _emp_excel and _emp_excel != empresa.nombre:
+                                errores.append(
+                                    f"Fila {index + 2}: columna 'empresa' ({_emp_excel}) ignorada; "
+                                    f"se importa en {empresa.nombre}.")
 
                         # Obtener o crear proveedor
                         proveedor = Proveedor.objects.get(
@@ -396,7 +396,7 @@ class CompraViewSet(viewsets.ModelViewSet):
                         compras_creadas.append(compra.id)
 
                     except Exception as e:
-                        errores.append(f'Error en fila {index + 2}: {str(e)}')
+                        errores.append(f'Error en fila {index + 2}: {mensaje_seguro(e)}')
                     
             return Response({
                 'mensaje': f'Se importaron {len(compras_creadas)} compras correctamente',
@@ -405,10 +405,7 @@ class CompraViewSet(viewsets.ModelViewSet):
             })
             
         except Exception as e:
-            return Response(
-                {'error': f'Error al procesar el archivo: {str(e)}'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return error_interno(e, 'Error al procesar el archivo')
 
     @action(detail=False, methods=['get'])
     def estadisticas(self, request):
@@ -431,10 +428,7 @@ class CompraViewSet(viewsets.ModelViewSet):
                 'compras_pendientes': compras_pendientes
             })
         except Exception as e:
-            return Response(
-                {'error': str(e)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return respuesta_error(e, 'Error al obtener estadísticas de compras')
 
     @action(detail=True, methods=['get', 'post'])
     def pagos(self, request, pk=None):
@@ -511,10 +505,7 @@ class CompraViewSet(viewsets.ModelViewSet):
                 
         except Exception as e:
             logger.error('Error en pagos: %s', e, exc_info=True)
-            return Response(
-                {'detail': str(e)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return respuesta_error(e, 'Error al registrar el pago', clave='detail')
 
     @action(detail=False, methods=['get'])
     def compras_pendientes(self, request):
@@ -596,10 +587,7 @@ class CompraViewSet(viewsets.ModelViewSet):
             })
         except Exception as e:
             logger.error('Error en compras_pendientes: %s', e, exc_info=True)
-            return Response(
-                {'error': str(e)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return respuesta_error(e, 'Error al obtener compras pendientes')
 
     @action(detail=True, methods=['get'], url_path='saldo-pendiente')
     def saldo_pendiente(self, request, pk=None):
@@ -609,10 +597,7 @@ class CompraViewSet(viewsets.ModelViewSet):
             return Response({'saldo_pendiente': saldo})
         except Exception as e:
             logger.error('Error en saldo_pendiente: %s', e, exc_info=True)
-            return Response(
-                {'detail': str(e)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return respuesta_error(e, 'Error al obtener el saldo pendiente', clave='detail')
 
     @action(detail=True, methods=['get'], url_path='exportar-pdf')
     def exportar_pdf(self, request, pk=None):
@@ -667,10 +652,7 @@ class CompraViewSet(viewsets.ModelViewSet):
             serializer = ProductoSerializer(productos, many=True)
             return Response(serializer.data)
         except Exception as e:
-            return Response(
-                {'error': str(e)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return respuesta_error(e, 'Error al listar productos')
 
     def create(self, request, *args, **kwargs):
         """
@@ -698,10 +680,7 @@ class CompraViewSet(viewsets.ModelViewSet):
                             detalles_data = detalles_json
                     except Exception as e:
                         logger.error('Error al procesar detalles: %s', e, exc_info=True)
-                        return Response(
-                            {'error': f'Error al procesar detalles: {str(e)}'},
-                            status=status.HTTP_400_BAD_REQUEST
-                        )
+                        return respuesta_error(e, 'Detalles de la compra inválidos')
 
                 # Validar que haya detalles
                 if not detalles_data:
@@ -754,7 +733,9 @@ class CompraViewSet(viewsets.ModelViewSet):
 
                     except Exception as e:
                         logger.error('Error al crear detalle: %s', e, exc_info=True)
-                        raise ValueError(f'Error al procesar producto: {str(e)}')
+                        if es_error_de_negocio(e) or isinstance(e, ObjectDoesNotExist):
+                            raise ValueError(f'Error al procesar producto: {mensaje_seguro(e)}')
+                        raise  # error interno: lo convierte en 500 genérico el except exterior
                 
 
                 # Actualizar totales de la compra
@@ -775,10 +756,7 @@ class CompraViewSet(viewsets.ModelViewSet):
 
         except Exception as e:
             logger.error('Error en create CompraViewSet: %s', e, exc_info=True)
-            return Response(
-                {'error': str(e)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return respuesta_error(e, 'Error al crear la compra')
 
 class ProveedorViewSet(viewsets.ModelViewSet):
     queryset = Proveedor.objects.all()
@@ -856,10 +834,7 @@ class ProveedorViewSet(viewsets.ModelViewSet):
                 )
                 
         except Exception as e:
-            return Response(
-                {'error': f'Error interno del servidor: {str(e)}'}, 
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return error_interno(e, 'Error al consultar el RUC')
 
     @action(
         detail=False,
@@ -931,10 +906,7 @@ class ProveedorViewSet(viewsets.ModelViewSet):
 
         except Exception as e:
             logger.error("Error en exportar compras: %s", e, exc_info=True)
-            return Response(
-                {'error': str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return error_interno(e, 'Error al exportar compras')
 
 class OrdenCompraViewSet(viewsets.ModelViewSet):
     queryset = OrdenCompra.objects.all()
@@ -1087,10 +1059,15 @@ class RecepcionCompraViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, HasEmpresaPermission]
 
     def get_queryset(self):
-        return self.queryset.filter(empresa=self.request.user.empresa)
+        # RecepcionCompra NO tiene campo empresa; el tenant se resuelve vía orden.
+        return self.queryset.filter(orden__empresa=self.request.user.empresa)
 
     def perform_create(self, serializer):
-        serializer.save(empresa=self.request.user.empresa)
+        # Aísla por tenant a través de la orden (no hay campo empresa que inyectar).
+        orden = serializer.validated_data.get('orden')
+        if orden is not None and orden.empresa_id != self.request.user.empresa_id:
+            raise PermissionDenied('La orden no pertenece a tu empresa.')
+        serializer.save()
 
 class ResumenComprasMensual(viewsets.ViewSet):
     permission_classes = [IsAuthenticated, HasEmpresaPermission]

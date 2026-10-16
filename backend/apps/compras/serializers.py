@@ -15,11 +15,12 @@ from .models import (
 )
 from apps.inventario.models.producto import Producto
 from apps.inventario.models.almacen import Almacen
+from apps.core.serializers_base import EmpresaScopedModelSerializer
 from django.db import transaction
 from decimal import Decimal
 from datetime import timedelta
 
-class ProductoSerializer(serializers.ModelSerializer):
+class ProductoSerializer(EmpresaScopedModelSerializer):
     class Meta:
         model = Producto
         fields = [
@@ -29,7 +30,7 @@ class ProductoSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
 
-class AlmacenSerializer(serializers.ModelSerializer):
+class AlmacenSerializer(EmpresaScopedModelSerializer):
     class Meta:
         model = Almacen
         fields = [
@@ -38,7 +39,7 @@ class AlmacenSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
 
-class ProveedorSerializer(serializers.ModelSerializer):
+class ProveedorSerializer(EmpresaScopedModelSerializer):
     class Meta:
         model = Proveedor
         fields = ['id', 'razon_social', 'ruc', 'direccion', 'telefono', 'email', 'activo']
@@ -58,7 +59,7 @@ class ProveedorSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Ingrese un email válido")
         return value
 
-class CompraDetalleSerializer(serializers.ModelSerializer):
+class CompraDetalleSerializer(EmpresaScopedModelSerializer):
     producto_nombre = serializers.CharField(source='producto.nombre', read_only=True)
     producto_sku = serializers.CharField(source='producto.sku', read_only=True)
 
@@ -71,7 +72,7 @@ class CompraDetalleSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'subtotal', 'igv', 'total', 'created_at', 'updated_at']
 
-class ComprobantePagoSerializer(serializers.ModelSerializer):
+class ComprobantePagoSerializer(EmpresaScopedModelSerializer):
     # Lectura tolerante: si la firma de GCS falla, archivo → null (no 500).
     archivo = SafeFileURLField(required=False, allow_null=True)
 
@@ -80,7 +81,7 @@ class ComprobantePagoSerializer(serializers.ModelSerializer):
         fields = ['id', 'archivo', 'fecha_subida', 'tipo', 'numero', 'notas']
         read_only_fields = ['fecha_subida']
 
-class CompraSerializer(serializers.ModelSerializer):
+class CompraSerializer(EmpresaScopedModelSerializer):
     # comprobante = serializers.FileField(write_only=True, required=False)  # Comentamos esta línea temporalmente
     comprobante_pago = ComprobantePagoSerializer(read_only=True)
     detalles = CompraDetalleSerializer(many=True, required=False)
@@ -212,7 +213,7 @@ class CompraSerializer(serializers.ModelSerializer):
         
         return instance
 
-class PagoCompraSerializer(serializers.ModelSerializer):
+class PagoCompraSerializer(EmpresaScopedModelSerializer):
     # Lectura tolerante: si la firma de GCS falla, comprobante → null (no 500).
     comprobante = SafeFileURLField(required=False, allow_null=True)
 
@@ -261,7 +262,7 @@ class PagoCompraSerializer(serializers.ModelSerializer):
         
         return data
 
-class OrdenCompraDetalleSerializer(serializers.ModelSerializer):
+class OrdenCompraDetalleSerializer(EmpresaScopedModelSerializer):
     producto_nombre = serializers.CharField(source='producto.nombre', read_only=True)
     producto_sku    = serializers.CharField(source='producto.sku',    read_only=True)
     unidad_medida   = serializers.CharField(source='producto.unidad_medida', read_only=True)
@@ -285,7 +286,7 @@ class OrdenCompraDetalleSerializer(serializers.ModelSerializer):
         return data
 
 
-class OrdenCompraSerializer(serializers.ModelSerializer):
+class OrdenCompraSerializer(EmpresaScopedModelSerializer):
     detalles = OrdenCompraDetalleSerializer(many=True, required=False)
     proveedor_info = serializers.SerializerMethodField()
     # F2 — trazabilidad al origen de la conversión.
@@ -360,21 +361,21 @@ class OrdenCompraSerializer(serializers.ModelSerializer):
                 OrdenCompraDetalle.objects.create(orden=instance, **d)
         return instance
 
-class RecepcionCompraSerializer(serializers.ModelSerializer):
+class RecepcionCompraSerializer(EmpresaScopedModelSerializer):
     class Meta:
         model = RecepcionCompra
-        fields = ['id', 'orden_compra', 'fecha_recepcion', 'recibido_por',
+        fields = ['id', 'orden', 'fecha_recepcion', 'recibido_por',
                  'notas', 'fecha_registro', 'fecha_actualizacion']
         read_only_fields = ['id', 'fecha_registro', 'fecha_actualizacion']
 
-class CompraRecurrenteSerializer(serializers.ModelSerializer):
+class CompraRecurrenteSerializer(EmpresaScopedModelSerializer):
     class Meta:
         model = CompraRecurrente
         fields = ['id', 'empresa', 'proveedor_nombre', 'concepto', 'monto',
                  'frecuencia', 'proximo_pago', 'activo', 'notas']
 
 
-class ItemServicioCompraSerializer(serializers.ModelSerializer):
+class ItemServicioCompraSerializer(EmpresaScopedModelSerializer):
     importe = serializers.SerializerMethodField()
 
     class Meta:
@@ -388,7 +389,7 @@ class ItemServicioCompraSerializer(serializers.ModelSerializer):
         return float(obj.importe)
 
 
-class OrdenServicioCompraSerializer(serializers.ModelSerializer):
+class OrdenServicioCompraSerializer(EmpresaScopedModelSerializer):
     items = ItemServicioCompraSerializer(many=True, required=False)
     estado_display = serializers.CharField(source='get_estado_display', read_only=True)
     proveedor_info = serializers.SerializerMethodField()
@@ -448,7 +449,7 @@ class OrdenServicioCompraSerializer(serializers.ModelSerializer):
         return instance
 
 
-class OrdenServicioCompraListSerializer(serializers.ModelSerializer):
+class OrdenServicioCompraListSerializer(EmpresaScopedModelSerializer):
     estado_display = serializers.CharField(source='get_estado_display', read_only=True)
     total_items = serializers.SerializerMethodField()
 

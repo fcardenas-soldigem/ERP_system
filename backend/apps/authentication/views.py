@@ -8,7 +8,6 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from .serializers import LoginSerializer, UserSerializer
-from apps.empresas.models import Empresa
 from rest_framework import generics
 from django.core.cache import cache
 import logging
@@ -119,24 +118,23 @@ class LoginView(APIView):
 
         if user is None:
             cache.set(cache_key, attempts + 1, _LOCKOUT_SECONDS)
-            logger.warning('Login fallido — ip=%s email=%s', ip, email)
+            logger.warning('Login fallido — ip=%s', ip)  # sin email en logs (dato personal)
             return Response({'error': 'Credenciales inválidas'}, status=status.HTTP_401_UNAUTHORIZED)
 
         # Reset counter on success
         cache.delete(cache_key)
 
-        if not user.empresa:
-            empresa = Empresa.objects.first()
-            if empresa:
-                user.empresa = empresa
-                user.save(update_fields=['empresa'])
-            else:
-                return Response(
-                    {'error': 'No hay empresas disponibles en el sistema'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+        # SEGURIDAD multi-tenant: un usuario sin empresa NUNCA se asigna automáticamente
+        # a la primera empresa (antes caía en Empresa.objects.first() = tenant 1 y veía
+        # sus datos). Debe provisionarse con `crear_tenant` o asignarse en el admin.
+        if not user.empresa_id:
+            logger.warning('Login rechazado: usuario sin empresa — user_id=%s', user.id)
+            return Response(
+                {'error': 'Tu usuario no tiene una empresa asignada. Contacta al administrador.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
 
-        logger.info('Login exitoso — user=%s empresa=%s', user.email, user.empresa_id)
+        logger.info('Login exitoso — user_id=%s empresa_id=%s', user.id, user.empresa_id)
         refresh = RefreshToken.for_user(user)
         return Response({
             'token': str(refresh.access_token),
@@ -159,7 +157,7 @@ class LogoutView(APIView):
         try:
             token = RefreshToken(refresh_token_str)
             token.blacklist()
-            logger.info('Logout exitoso — user=%s', request.user.email)
+            logger.info('Logout exitoso — user_id=%s', request.user.id)
         except TokenError:
             pass  # Token ya inválido, cookie ya eliminada
 

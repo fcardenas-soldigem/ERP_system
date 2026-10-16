@@ -36,7 +36,7 @@ class LeadCreateView(APIView):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         lead = serializer.save(ip=client_ip(request))
-        logger.info('Nuevo lead #%s: %s (%s)', lead.id, lead.nombre, lead.email)
+        logger.info('Nuevo lead #%s', lead.id)
         return Response(
             {'message': 'Gracias, te contactaremos pronto.', 'id': lead.id},
             status=status.HTTP_201_CREATED,

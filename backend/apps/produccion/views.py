@@ -22,6 +22,7 @@ from .serializers import (
 )
 from .services.produccion_service import ProduccionService
 from django.core.exceptions import ValidationError as DjangoValidationError
+from apps.core.errors import mensaje_seguro
 
 
 class RecetaProductoViewSet(viewsets.ModelViewSet):
@@ -123,7 +124,7 @@ class RecetaProductoViewSet(viewsets.ModelViewSet):
             )
             return Response(resultado)
         except DjangoValidationError as e:
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': mensaje_seguro(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
 class OrdenProduccionViewSet(viewsets.ModelViewSet):
@@ -245,7 +246,7 @@ class OrdenProduccionViewSet(viewsets.ModelViewSet):
             return Response(serializer.data)
         except DjangoValidationError as e:
             return Response(
-                {'error': str(e)},
+                {'error': mensaje_seguro(e)},
                 status=status.HTTP_400_BAD_REQUEST
             )
     
@@ -268,7 +269,7 @@ class OrdenProduccionViewSet(viewsets.ModelViewSet):
                 return Response(response_serializer.data)
             except DjangoValidationError as e:
                 return Response(
-                    {'error': str(e)},
+                    {'error': mensaje_seguro(e)},
                     status=status.HTTP_400_BAD_REQUEST
                 )
         
@@ -286,7 +287,7 @@ class OrdenProduccionViewSet(viewsets.ModelViewSet):
             return Response(serializer.data)
         except DjangoValidationError as e:
             return Response(
-                {'error': str(e)},
+                {'error': mensaje_seguro(e)},
                 status=status.HTTP_400_BAD_REQUEST
             )
     
@@ -309,7 +310,7 @@ class OrdenProduccionViewSet(viewsets.ModelViewSet):
                 return Response(response_serializer.data)
             except DjangoValidationError as e:
                 return Response(
-                    {'error': str(e)},
+                    {'error': mensaje_seguro(e)},
                     status=status.HTTP_400_BAD_REQUEST
                 )
         

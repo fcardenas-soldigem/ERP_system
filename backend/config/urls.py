@@ -4,6 +4,7 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.http import JsonResponse
 from apps.authentication.views import CookieTokenObtainPairView, CookieTokenRefreshView
+from apps.agente.mcp import MCPView
 
 
 def health_check(request):
@@ -31,6 +32,8 @@ urlpatterns = [
     path('api/guias/', include('apps.guias.urls')),           # Guías de Remisión
     path('api/servicios/', include('apps.servicios.urls')),  # Órdenes de Servicio
     path('api/leads/', include('apps.leads.urls')),          # Landing: captura de leads
+    path('api/mcp/', MCPView.as_view(), name='mcp'),         # MCP remoto (agente Fase 2)
+    path('api/agente/', include('apps.agente.urls')),        # Tokens de API (UI "Conectar Claude")
 ]
 
 # ML APIs: include OPCIONAL. Si faltan dependencias pesadas (joblib/sklearn) en

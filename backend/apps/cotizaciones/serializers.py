@@ -3,10 +3,11 @@ from .models import Cotizacion, DetalleCotizacion
 from apps.ventas.models import Cliente
 from apps.inventario.models import Producto
 from apps.core.uploads import field_url_safe
+from apps.core.serializers_base import EmpresaScopedModelSerializer
 from decimal import Decimal
 
 
-class DetalleCotizacionSerializer(serializers.ModelSerializer):
+class DetalleCotizacionSerializer(EmpresaScopedModelSerializer):
     producto_nombre = serializers.CharField(source='producto.nombre', read_only=True)
     producto_codigo = serializers.CharField(source='producto.codigo', read_only=True)
     # F1 — costeo interno. Estos campos NUNCA se muestran al cliente (PDF no los usa).
@@ -185,7 +186,7 @@ class CotizacionSerializer(serializers.ModelSerializer):
         return value
 
 
-class CotizacionCreateSerializer(serializers.ModelSerializer):
+class CotizacionCreateSerializer(EmpresaScopedModelSerializer):
     """
     Serializer para crear/actualizar cotizaciones.
     Acepta 'cliente' (FK id) o los campos libres 'cliente_nombre'/'cliente_ruc'

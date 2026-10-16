@@ -43,7 +43,7 @@ class TenantMiddleware:
         empresa_uuid = self._resolve_empresa_uuid(empresa_id)
         logger.debug(
             f"Tenant context: empresa_id={empresa_id}, "
-            f"empresa_uuid={empresa_uuid}, user={request.user.username}"
+            f"empresa_uuid={empresa_uuid}, user_id={request.user.id}"
         )
         return empresa_id, empresa_uuid
 

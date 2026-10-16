@@ -74,26 +74,32 @@ class GuiaRemision(models.Model):
     def __str__(self):
         return f"{self.numero} - {self.nombre_destinatario}"
 
-    @classmethod
-    def generar_numero(cls, empresa):
+    def _siguiente_numero(self):
+        """Siguiente número de guía POR EMPRESA (GR-0001...).
+
+        Numeración atómica (select_for_update del tenant vía guardar_con_numero);
+        mismo patrón que COT/V/OC/OS. Evita duplicados bajo concurrencia.
+        """
         ultima = (
-            cls.objects.filter(empresa=empresa)
-            .order_by('-id')
-            .first()
+            GuiaRemision.objects.select_for_update()
+            .filter(empresa_id=self.empresa_id, numero__startswith='GR-')
+            .order_by('-numero').only('numero').first()
         )
-        if ultima:
+        if ultima and ultima.numero:
             try:
                 secuencia = int(ultima.numero.split('-')[1]) + 1
             except (IndexError, ValueError):
-                secuencia = 1
+                secuencia = GuiaRemision.objects.filter(empresa_id=self.empresa_id).count() + 1
         else:
             secuencia = 1
         return f"GR-{secuencia:04d}"
 
     def save(self, *args, **kwargs):
-        if not self.numero:
-            self.numero = self.generar_numero(self.empresa)
-        super().save(*args, **kwargs)
+        from apps.core.numbering import guardar_con_numero
+        guardar_con_numero(
+            self, self._siguiente_numero,
+            lambda: super(GuiaRemision, self).save(*args, **kwargs),
+        )
 
 
 class ItemGuia(models.Model):

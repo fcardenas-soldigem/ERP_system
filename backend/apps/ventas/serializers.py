@@ -8,6 +8,7 @@ from decimal import Decimal
 from django.db import models
 from django.utils import timezone
 from .models import PagoVenta  # Asegurar que PagoVenta está importado
+from apps.core.serializers_base import EmpresaScopedModelSerializer
 
 class ClienteSerializer(serializers.ModelSerializer):
     class Meta:
@@ -478,12 +479,12 @@ class VentaSerializer(serializers.ModelSerializer):
         except Exception as e:
             raise serializers.ValidationError(str(e))
 
-class FacturaSerializer(serializers.ModelSerializer):
+class FacturaSerializer(EmpresaScopedModelSerializer):
     class Meta:
         model = Factura
         fields = '__all__'
 
-class OrdenVentaSerializer(serializers.ModelSerializer):
+class OrdenVentaSerializer(EmpresaScopedModelSerializer):
     class Meta:
         model = OrdenVenta
         fields = '__all__'

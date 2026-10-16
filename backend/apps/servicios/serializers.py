@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from apps.core.serializers_base import EmpresaScopedModelSerializer
 from .models import OrdenServicio, ItemOrdenServicio, SeguimientoProveedor, HistorialEstadoOS
 
 
@@ -59,7 +60,8 @@ class HistorialEstadoOSSerializer(serializers.ModelSerializer):
         return self._estado_display(obj.estado_nuevo)
 
 
-class OrdenServicioSerializer(serializers.ModelSerializer):
+class OrdenServicioSerializer(EmpresaScopedModelSerializer):
+    # FKs (cliente, proveedor_reparacion, guia_remision, cotizacion) acotadas por empresa.
     items = ItemOrdenServicioSerializer(many=True, read_only=True)
     seguimientos = SeguimientoProveedorSerializer(many=True, read_only=True)
     historial = HistorialEstadoOSSerializer(many=True, read_only=True)

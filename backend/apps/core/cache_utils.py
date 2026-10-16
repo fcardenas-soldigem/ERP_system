@@ -108,6 +108,15 @@ def invalidate_empresa_cache(empresa_id, cache_types=None):
         invalidate_cache(key_pattern)
 
 
+def _claves_empresa(tipo, empresa_id):
+    """Claves exactas que el ERP usa para `tipo` y `empresa_id` (sin almacén/tipo).
+    Incluye la variante `<tipo>_list` que usan los `list()` de los ViewSets."""
+    return [
+        make_cache_key(tipo, empresa_id),
+        make_cache_key(f'{tipo}_list', empresa_id),
+    ]
+
+
 class CacheManager:
     """
     Gestor de cache para el ERP con métodos específicos por entidad.
@@ -133,9 +142,12 @@ class CacheManager:
     
     @staticmethod
     def invalidate_productos(empresa_id):
-        """Invalida el cache de productos de una empresa."""
-        cache_key = make_cache_key('productos', empresa_id)
-        cache.delete(cache_key)
+        """Invalida el cache de productos de una empresa (claves exactas: la de
+        CacheManager y la de ProductoViewSet.list, que antes NO se invalidaba)."""
+        cache.delete_many([
+            make_cache_key('productos', empresa_id),
+            make_cache_key('productos_list', empresa_id),
+        ])
     
     @staticmethod
     def get_inventario_mp(empresa_id, almacen_id=None, force_refresh=False):
@@ -157,8 +169,10 @@ class CacheManager:
     
     @staticmethod
     def invalidate_inventario_mp(empresa_id):
-        """Invalida cache de inventario de materias primas."""
-        invalidate_cache(f'inventario_mp:*:{empresa_id}')
+        """Invalida cache de inventario de MP. Claves exactas de la empresa: NO usa
+        invalidate_cache(), cuyo fallback es cache.clear() (borraba la caché de TODAS
+        las empresas y, con Redis, también las sesiones)."""
+        cache.delete_many(_claves_empresa('inventario_mp', empresa_id))
     
     @staticmethod
     def get_inventario_pt(empresa_id, almacen_id=None, force_refresh=False):
@@ -180,8 +194,8 @@ class CacheManager:
     
     @staticmethod
     def invalidate_inventario_pt(empresa_id):
-        """Invalida cache de inventario de productos terminados."""
-        invalidate_cache(f'inventario_pt:*:{empresa_id}')
+        """Invalida cache de inventario de PT (claves exactas de la empresa)."""
+        cache.delete_many(_claves_empresa('inventario_pt', empresa_id))
     
     @staticmethod
     def get_alertas(empresa_id, tipo=None, force_refresh=False):
@@ -203,8 +217,11 @@ class CacheManager:
     
     @staticmethod
     def invalidate_all_empresa(empresa_id):
-        """Invalida todo el cache de una empresa."""
-        invalidate_empresa_cache(empresa_id)
+        """Invalida todo el cache conocido de UNA empresa (sin tocar las demás)."""
+        claves = []
+        for tipo in ('productos', 'inventario_mp', 'inventario_pt', 'resumen', 'alertas'):
+            claves += _claves_empresa(tipo, empresa_id)
+        cache.delete_many(claves)
 
 
 # Singleton para acceso fácil

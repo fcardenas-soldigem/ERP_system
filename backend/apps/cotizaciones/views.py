@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 
 from rest_framework.pagination import PageNumberPagination
+from apps.core.errors import respuesta_error, error_interno, mensaje_seguro
 
 
 class CotizacionPagination(PageNumberPagination):
@@ -169,10 +170,7 @@ class CotizacionViewSet(viewsets.ModelViewSet):
                 )
             except Exception as e:
                 logger.exception('Error al convertir cotización %s al aceptar', cotizacion.numero)
-                return Response(
-                    {'error': f'Error al crear la venta: {str(e)}'},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
-                )
+                return error_interno(e, 'Error al crear la venta')
 
             info = getattr(venta, 'conversion_info', {}) or {}
             cotizacion.refresh_from_db()
@@ -289,10 +287,7 @@ class CotizacionViewSet(viewsets.ModelViewSet):
             )
         except Exception as e:
             logger.exception('Error al convertir cotización %s a venta', cotizacion.numero)
-            return Response(
-                {'error': f'Error al convertir a venta: {str(e)}'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return error_interno(e, 'Error al convertir a venta')
 
         info = getattr(venta, 'conversion_info', {}) or {}
         return Response({

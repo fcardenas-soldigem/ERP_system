@@ -1,3 +1,12 @@
+# Build del backend con TAG inmutable (git SHA) además de :latest.
+#   TAG=$(git rev-parse --short HEAD)
+#   gcloud builds submit --config cloudbuild.yaml --substitutions=_TAG=$TAG .
+# Los ARG del Dockerfile (DJANGO_SECRET_KEY, JWT_SIGNING_KEY, APIS_NET_PE_TOKEN) usan
+# valores dummy solo para collectstatic; los secretos reales se inyectan en Cloud Run
+# desde Secret Manager (ver DEPLOY.md §3). Nunca pasar secretos como build-args.
+substitutions:
+  _TAG: latest
+  _IMAGE: southamerica-west1-docker.pkg.dev/erp-system-468516/erp-repo/erp-backend
 steps:
   - name: 'gcr.io/cloud-builders/docker'
     args:
@@ -5,9 +14,12 @@ steps:
       - '-f'
       - 'backend/Dockerfile'
       - '-t'
-      - 'southamerica-west1-docker.pkg.dev/erp-system-468516/erp-repo/erp-backend:latest'
+      - '${_IMAGE}:${_TAG}'
+      - '-t'
+      - '${_IMAGE}:latest'
       - '.'
 images:
-  - 'southamerica-west1-docker.pkg.dev/erp-system-468516/erp-repo/erp-backend:latest'
+  - '${_IMAGE}:${_TAG}'
+  - '${_IMAGE}:latest'
 options:
   machineType: 'E2_HIGHCPU_8'
