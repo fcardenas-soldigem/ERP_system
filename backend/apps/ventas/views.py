@@ -1312,23 +1312,3 @@ class PagoVentaViewSet(viewsets.ModelViewSet):
         else:
             venta.estado = 'pendiente'
         venta.save()
-
-    @action(detail=False, methods=['get'])
-    def ventas_pendientes(self, request):
-        """
-        Obtener todas las ventas a crédito que están pendientes de pago
-        """
-        ventas = self.get_queryset().filter(
-            tipo_venta__in=['credito_30', 'credito_60'],
-            estado='pendiente'
-        ).annotate(
-            total_pagado=CoalesceFunc(
-                Sum('pagos__monto', filter=~Q(pagos__metodo_pago='pendiente')),
-                0,
-                output_field=models.DecimalField()
-            ),
-            saldo_pendiente=F('total') - F('total_pagado')
-        ).filter(saldo_pendiente__gt=0)
-
-        serializer = self.get_serializer(ventas, many=True)
-        return Response(serializer.data) 

@@ -226,19 +226,28 @@ class RouterWalkIsolationTests(TestCase):
                 continue
             tested += 1
             probadas.append(url)
-            # Savepoint por ruta: un 500 (p. ej. destroy sobre SQLite) no debe envenenar
-            # la transacción del test; y el DELETE nunca persiste (se revierte al final).
+            # Savepoint por ruta: el DELETE nunca persiste (se revierte al final) y una
+            # excepción del view no envenena la transacción del test.
+            # REGLA: cualquier 5xx (respuesta o excepción propagada) = FALLO, no se tolera.
             sid = transaction.savepoint()
             try:
-                if self.client.get(url).status_code == 200:
+                r = self.client.get(url)
+                if r.status_code >= 500:
+                    fallos.append(f'500 GET {url} ({cls.__name__}) = {r.status_code}')
+                elif r.status_code == 200:
                     fallos.append(f'FUGA GET {url} ({cls.__name__}) = 200')
-                self.client.delete(url)
+                rd = self.client.delete(url)
+                if rd.status_code >= 500:
+                    fallos.append(f'500 DELETE {url} ({cls.__name__}) = {rd.status_code}')
                 if not type(inst).objects.filter(pk=inst.pk).exists():
                     fallos.append(f'FUGA DELETE {url} borró registro de B')
-            except Exception:  # noqa: BLE001 — un error del view no es fuga
-                pass
+            except Exception as e:  # noqa: BLE001 — excepción propagada del view = 500 = FALLO
+                fallos.append(f'500 EXC {url} ({cls.__name__}): {repr(e).splitlines()[0][:120]}')
             finally:
-                transaction.savepoint_rollback(sid)
+                try:
+                    transaction.savepoint_rollback(sid)
+                except Exception:
+                    pass
 
         print('\n=== COBERTURA SUITE DINÁMICA (router walk) ===')
         print(f'Rutas de detalle: {total} | probadas: {tested} | excluidas: {len(excluidas)}')

@@ -16,8 +16,10 @@ importar_excel, numeración concurrente y caché.
 from datetime import date
 from decimal import Decimal
 
+from unittest import mock
+
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from rest_framework.test import APIClient, APIRequestFactory
 
 from apps.authentication.serializers import UserSerializer
@@ -156,3 +158,72 @@ class PrivilegeEscalationTests(TenantSetup):
         s.save()
         self.user_a.refresh_from_db()
         self.assertFalse(self.user_a.is_staff, 'is_staff no debe poder activarse vía perfil')
+
+
+@override_settings(ROOT_URLCONF='config.urls')
+class ResumenComprasAislamientoTests(TenantSetup):
+    """/api/compras/resumen/: B nunca ve los totales de compras de A."""
+
+    def test_B_no_ve_totales_de_A(self):
+        from decimal import Decimal
+        from datetime import date
+        from apps.compras.models import Compra, Proveedor
+        from apps.inventario.models.almacen import Almacen
+
+        prov_a = Proveedor.objects.create(empresa=self.A, razon_social='Prov A', ruc='20000000011')
+        alm_a = Almacen.objects.create(empresa=self.A, nombre='Alm A')
+        with mock.patch('apps.compras.models.Compra.asegurar_tipo_cambio', lambda self: None):
+            compra_a = Compra.objects.create(
+                empresa=self.A, proveedor=prov_a, almacen=alm_a, fecha_emision=date.today())
+        Compra.objects.filter(pk=compra_a.pk).update(total=Decimal('777.00'))
+
+        # B consulta el resumen: no debe ver NI el conteo NI el monto de A.
+        self.client.force_authenticate(self.user_b)
+        rb = self.client.get('/api/compras/resumen/')
+        self.assertEqual(rb.status_code, 200, rb.content)
+        self.assertEqual(rb.json()['total_compras'], 0, 'B ve el conteo de compras de A')
+        self.assertEqual(rb.json()['monto_total'], 0.0, 'B ve el monto de compras de A')
+
+        # Control positivo: A sí ve su propio total.
+        self.client.force_authenticate(self.user_a)
+        ra = self.client.get('/api/compras/resumen/')
+        self.assertEqual(ra.json()['monto_total'], 777.0)
+
+
+@override_settings(ROOT_URLCONF='config.urls')
+class AIMessagesAislamientoTests(TenantSetup):
+    """/api/ai/.../messages/: B nunca accede a las conversaciones ni mensajes de A."""
+
+    def _seed_conv_a(self):
+        from apps.ai_assistant.models import Conversation, Message
+        conv = Conversation.objects.create(empresa=self.A, usuario=self.user_a, title='Conv A')
+        msg = Message.objects.create(conversation=conv, content='secreto de A', role='user')
+        return conv, msg
+
+    def test_B_no_lee_mensajes_de_A(self):
+        conv_a, msg_a = self._seed_conv_a()
+        self.client.force_authenticate(self.user_b)
+
+        # Ruta anidada: mensajes de la conversación de A → no deben verse.
+        r = self.client.get(f'/api/ai/conversations/{conv_a.pk}/messages/')
+        self.assertNotEqual(r.status_code, 500, r.content)
+        if r.status_code == 200:
+            cuerpo = r.json()
+            items = cuerpo['results'] if isinstance(cuerpo, dict) and 'results' in cuerpo else cuerpo
+            self.assertEqual(items, [], f'FUGA: B ve mensajes de A: {items}')
+
+        # Detalle de la conversación de A → 404 (no pertenece a B).
+        rc = self.client.get(f'/api/ai/conversations/{conv_a.pk}/')
+        self.assertIn(rc.status_code, (403, 404), rc.content)
+
+    def test_B_no_escribe_en_conversacion_de_A(self):
+        conv_a, _ = self._seed_conv_a()
+        self.client.force_authenticate(self.user_b)
+        r = self.client.post(
+            f'/api/ai/conversations/{conv_a.pk}/messages/',
+            {'content': 'intruso', 'role': 'user'}, format='json')
+        self.assertIn(r.status_code, (403, 404), r.content)
+        from apps.ai_assistant.models import Message
+        self.assertFalse(
+            Message.objects.filter(conversation=conv_a, content='intruso').exists(),
+            'FUGA: B escribió en la conversación de A')

@@ -1094,10 +1094,15 @@ class RecepcionCompraViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, HasEmpresaPermission]
 
     def get_queryset(self):
-        return self.queryset.filter(empresa=self.request.user.empresa)
+        # RecepcionCompra NO tiene campo empresa; el tenant se resuelve vía orden.
+        return self.queryset.filter(orden__empresa=self.request.user.empresa)
 
     def perform_create(self, serializer):
-        serializer.save(empresa=self.request.user.empresa)
+        # Aísla por tenant a través de la orden (no hay campo empresa que inyectar).
+        orden = serializer.validated_data.get('orden')
+        if orden is not None and orden.empresa_id != self.request.user.empresa_id:
+            raise PermissionDenied('La orden no pertenece a tu empresa.')
+        serializer.save()
 
 class ResumenComprasMensual(viewsets.ViewSet):
     permission_classes = [IsAuthenticated, HasEmpresaPermission]

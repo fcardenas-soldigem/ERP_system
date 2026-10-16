@@ -39,12 +39,20 @@ class MessageViewSet(viewsets.ModelViewSet):
     serializer_class = MessageSerializer
 
     def get_queryset(self):
+        # Aislamiento por tenant: los mensajes se filtran por la empresa dueña de la
+        # conversación. Sin esto, B podía leer los mensajes de A pasando el id de su
+        # conversación en la ruta anidada.
+        qs = Message.objects.filter(conversation__empresa=self.request.user.empresa)
         conversation_id = self.kwargs.get('conversation_pk')
-        return Message.objects.filter(conversation_id=conversation_id)
+        if conversation_id is not None:
+            qs = qs.filter(conversation_id=conversation_id)
+        return qs
 
     def perform_create(self, serializer):
+        # La conversación debe ser de la empresa del usuario (404 si es de otro tenant).
         conversation_id = self.kwargs.get('conversation_pk')
-        conversation = Conversation.objects.get(id=conversation_id)
+        conversation = get_object_or_404(
+            Conversation, id=conversation_id, empresa=self.request.user.empresa)
         serializer.save(conversation=conversation)
 
         try:
