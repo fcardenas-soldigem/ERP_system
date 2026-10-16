@@ -101,6 +101,12 @@ defecto con `DJANGO_DEBUG=False`; se deja explícito).
 ```bash
 export SECRETS="DJANGO_SECRET_KEY=django-secret-key:latest,JWT_SIGNING_KEY=jwt-signing-key:latest,APIS_NET_PE_TOKEN=apis-net-pe-token:latest,DB_PASSWORD=db-password:latest"
 # Si hay Redis:  SECRETS="$SECRETS,REDIS_URL=redis-url:latest"
+# Asistente IA (OBLIGATORIO si el chat está habilitado). `--set-secrets` y
+# `--env-vars-file` REEMPLAZAN todo el entorno de la revisión: si se omiten,
+# el chat responde 503 "asistente no configurado" (antes: 500). Crear los
+# secretos openai-api-key / openai-assistant-id igual que en §3.
+SECRETS="$SECRETS,OPENAI_API_KEY=openai-api-key:latest,OPENAI_ASSISTANT_ID=openai-assistant-id:latest"
+# Si se usa el analista con Claude:  SECRETS="$SECRETS,CLAUDE_API_KEY=claude-api-key:latest"
 ```
 
 ## 4. Migraciones con un Cloud Run Job (antes de mover tráfico)

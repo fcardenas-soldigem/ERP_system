@@ -33,6 +33,13 @@ ESTADOS_EXCLUIDOS_COMPRA = ('borrador', 'anulada')
 # Equivalente positivo, para filter(estado__in=...) en las vistas de series.
 ESTADOS_DEVENGO_VENTA = ('pendiente', 'pagado')
 ESTADOS_DEVENGO_COMPRA = ('pendiente', 'pagada')
+# SALDOS (por cobrar / por pagar): además de borrador y anulado, un documento
+# marcado 'pagado'/'pagada' NO tiene saldo aunque no tenga filas de pago
+# (contado por defecto en Compra.save, importador, marcar_como_pagada, ventas
+# creadas ya pagadas). Calcular el saldo solo como total − pagos sumaba como
+# deuda todo lo pagado sin PagoVenta/PagoCompra (prod: 718k / 541k).
+ESTADOS_SIN_SALDO_VENTA = ESTADOS_EXCLUIDOS_VENTA + ('pagado',)
+ESTADOS_SIN_SALDO_COMPRA = ESTADOS_EXCLUIDOS_COMPRA + ('pagada',)
 
 
 class MetricasService:
@@ -157,9 +164,10 @@ class MetricasService:
     def cuentas_por_cobrar(self) -> dict:
         """
         DEFINICIÓN ÚNICA de "Por cobrar" (Dashboard y Finanzas la usan):
-        ventas no anuladas ni borrador con saldo pendiente > 0
-        (saldo = total − pagos_total), en PEN con el TC del documento.
-        Incluye contado sin pagar y créditos; resta pagos parciales.
+        ventas en estado 'pendiente' (no pagadas, anuladas ni borrador) con
+        saldo > 0 (saldo = total − pagos_total), en PEN con el TC del documento.
+        Incluye contado sin pagar y créditos; resta pagos parciales. Una venta
+        'pagado' no tiene saldo aunque pagos_total sea 0.
         """
         saldo_pen = (F('total') - F('pagos_total')) * Case(
             When(tipo_cambio__isnull=False, then=F('tipo_cambio')),
@@ -169,7 +177,7 @@ class MetricasService:
         )
         qs = (
             Venta.objects.filter(empresa=self.empresa)
-            .exclude(estado__in=ESTADOS_EXCLUIDOS_VENTA)
+            .exclude(estado__in=ESTADOS_SIN_SALDO_VENTA)
             .annotate(saldo=F('total') - F('pagos_total'))
             .filter(saldo__gt=0)
         )
@@ -187,8 +195,9 @@ class MetricasService:
     def cuentas_por_pagar(self) -> dict:
         """
         DEFINICIÓN ÚNICA de "Por pagar" (Dashboard y Finanzas la usan):
-        compras no anuladas ni borrador con saldo pendiente > 0, en PEN con
-        el TC del documento, CUALQUIER forma de pago (contado incluido).
+        compras (facturas, no OC) en estado 'pendiente' con saldo > 0, en PEN
+        con el TC del documento, CUALQUIER forma de pago (contado incluido).
+        Una compra 'pagada' no tiene saldo aunque no tenga filas de PagoCompra.
 
         Compra no tiene pagos_total denormalizado (los pagos viven en
         PagoCompra con moneda propia), así que el saldo se calcula con
@@ -198,7 +207,7 @@ class MetricasService:
         """
         qs = (
             Compra.objects.filter(empresa=self.empresa)
-            .exclude(estado__in=ESTADOS_EXCLUIDOS_COMPRA)
+            .exclude(estado__in=ESTADOS_SIN_SALDO_COMPRA)
             .prefetch_related('pagos')
         )
         total = Decimal('0')

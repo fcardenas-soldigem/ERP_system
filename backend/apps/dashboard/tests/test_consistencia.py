@@ -174,3 +174,75 @@ class ComparacionesContraCeroTests(TestCase):
         self.assertTrue(sem['incompleto'])
         self.assertLess(sem['puntuacion'], 100)
         self.assertIn('faltan costos', sem['mensaje'].lower())
+
+
+class SaldosIgnoranDocumentosPagadosTests(TestCase):
+    """Hotfix saldos (prod: por cobrar S/ 718k y por pagar S/ 541k con todo pagado).
+
+    'Por cobrar' / 'Por pagar' son SALDOS: solo documentos en estado 'pendiente'
+    con saldo > 0. Un documento marcado 'pagado'/'pagada' NO tiene saldo aunque no
+    tenga filas de pago (contado por defecto en Compra.save, importador,
+    marcar_como_pagada). Una OC sin factura nunca es cuenta por pagar.
+    """
+
+    def setUp(self):
+        cache.clear()
+        from apps.compras.models import Proveedor
+        from apps.inventario.models.almacen import Almacen
+        self.emp, self.cli = _base()
+        self.prov = Proveedor.objects.create(
+            empresa=self.emp, ruc='20111111113', razon_social='PROV 2 SAC',
+            telefono='999', email='p2@p.com', direccion='Av. 2',
+        )
+        self.almacen = Almacen.objects.create(empresa=self.emp, nombre='C2', direccion='x')
+        hoy = date.today()
+        self.m = MetricasService(self.emp, hoy.replace(day=1), hoy)
+
+    def _escenario(self):
+        from apps.compras.models import Compra, OrdenCompra
+        # 1) Venta PAGADA en PEN sin filas de pago (pagos_total = 0) → saldo 0.
+        _venta(self.emp, self.cli, total='1180', estado='pagado', pagos='0')
+        # 2) Venta PENDIENTE en USD → única cuenta por cobrar: 100 × 3.40 = 340.
+        _venta(self.emp, self.cli, total='100', moneda='USD', tc=Decimal('3.40'))
+        # 3) OC aprobada SIN factura → no es cuenta por pagar.
+        with mock.patch.object(tc_mod, 'get_tc_venta', return_value=Decimal('3.50')):
+            oc = OrdenCompra.objects.create(
+                empresa=self.emp, proveedor=self.prov, fecha_entrega=date.today(),
+                estado='aprobada', moneda='PEN',
+            )
+        OrdenCompra.objects.filter(id=oc.id).update(total=Decimal('5000'))
+        # 4) Compra contado PAGADA sin filas de PagoCompra → saldo 0.
+        with mock.patch.object(tc_mod, 'get_tc_venta', return_value=Decimal('3.50')):
+            c = Compra.objects.create(
+                empresa=self.emp, proveedor=self.prov, almacen=self.almacen,
+                fecha_emision=date.today(), tipo_compra='contado', moneda='PEN',
+            )
+        Compra.objects.filter(id=c.id).update(total=Decimal('2360'))
+        c.refresh_from_db()
+        self.assertEqual(c.estado, 'pagada', 'contado sin pagos queda pagada por defecto')
+        self.assertFalse(c.pagos.exists())
+
+    def test_por_cobrar_solo_la_pendiente_convertida(self):
+        self._escenario()
+        cxc = self.m.cuentas_por_cobrar()
+        self.assertEqual(cxc['total_pen'], 340.0)
+        self.assertEqual(cxc['cantidad'], 1)
+
+    def test_por_pagar_cero_con_todo_pagado_y_oc_sin_factura(self):
+        self._escenario()
+        cxp = self.m.cuentas_por_pagar()
+        self.assertEqual(cxp['total_pen'], 0.0)
+        self.assertEqual(cxp['cantidad'], 0)
+
+    def test_marcar_como_pagada_saca_la_venta_del_saldo(self):
+        v = _venta(self.emp, self.cli, total='500', tipo='credito_30')
+        self.assertEqual(self.m.cuentas_por_cobrar()['total_pen'], 500.0)
+        v.marcar_como_pagada()  # no crea PagoVenta; pagos_total sigue en 0
+        self.assertEqual(self.m.cuentas_por_cobrar()['total_pen'], 0.0)
+
+    def test_finanzas_lee_los_mismos_saldos(self):
+        self._escenario()
+        hoy = date.today()
+        flujo = FinanzasService(self.emp, hoy.replace(day=1), hoy).calcular_flujo_caja()
+        self.assertEqual(flujo['cxc_pendiente'], 340.0)
+        self.assertEqual(flujo['cxp_pendiente'], 0.0)
