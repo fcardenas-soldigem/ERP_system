@@ -17,6 +17,12 @@ from rest_framework.views import APIView
 from rest_framework.parsers import MultiPartParser, FormParser
 from django.utils import timezone
 from apps.core.errors import respuesta_error, error_interno, mensaje_seguro
+from .exceptions import AsistenteIANoConfigurado
+
+
+def _asistente_no_configurado(exc):
+    """503 (no 500): falta configuración del servidor, no es un fallo interno."""
+    return Response({'error': str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
 def get_openai_client():
     try:
@@ -552,6 +558,8 @@ class ThreadViewWithTools(APIView):
                 'message': result['message']
             })
             
+        except AsistenteIANoConfigurado as e:
+            return _asistente_no_configurado(e)
         except Exception as e:
             return error_interno(e, 'Error al crear la conversación')
 
@@ -594,6 +602,8 @@ class MessageViewWithTools(APIView):
             
             return Response({'message': response})
             
+        except AsistenteIANoConfigurado as e:
+            return _asistente_no_configurado(e)
         except Exception as e:
             return error_interno(e, 'Error al procesar el mensaje')
 
@@ -607,6 +617,8 @@ class MessageViewWithTools(APIView):
             
             return Response({'messages': messages})
             
+        except AsistenteIANoConfigurado as e:
+            return _asistente_no_configurado(e)
         except Exception as e:
             return error_interno(e, 'Error al obtener los mensajes')
 

@@ -3,6 +3,7 @@ import json
 import time
 from django.conf import settings
 from .analista_executor import AnalistaExecutor
+from ..exceptions import AsistenteIANoConfigurado
 from ..tools.analista_tools import ANALISTA_TOOLS
 
 class OpenAIServiceWithTools:
@@ -12,7 +13,13 @@ class OpenAIServiceWithTools:
     """
     
     def __init__(self):
-        self.client = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
+        # Sin clave, openai.OpenAI() lanza OpenAIError y la vista respondía 500
+        # (prod, revisión 00036: secreto OPENAI_API_KEY ausente). Lo convertimos
+        # en un error de configuración explícito → 503 con mensaje claro.
+        api_key = getattr(settings, 'OPENAI_API_KEY', None)
+        if not api_key:
+            raise AsistenteIANoConfigurado()
+        self.client = openai.OpenAI(api_key=api_key)
         
     def create_thread(self, user):
         """Crear un nuevo thread con mensaje de bienvenida"""
