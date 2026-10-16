@@ -29,6 +29,7 @@ import { FaImage, FaBuilding, FaPhone, FaEnvelope, FaMapMarkerAlt, FaIdCard, FaT
 import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { PageHeader } from '../components/ui';
+import ConectarClaude from '../components/ConectarClaude';
 
 const Configuracion = () => {
     const toast = useToast();
@@ -640,6 +641,9 @@ const Configuracion = () => {
                         Guardar Cambios
                     </Button>
                 </HStack>
+
+                {/* Conectar Claude (MCP) — tokens de API */}
+                <ConectarClaude />
             </VStack>
         </Box>
     );
