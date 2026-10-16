@@ -7,6 +7,7 @@ from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from apps.core.errors import respuesta_error, error_interno, mensaje_seguro
 
 from apps.inventario.models.almacen import Almacen
 from apps.inventario.models.categoria import Categoria
@@ -97,9 +98,9 @@ class UploadView(APIView):
         except Exception as exc:
             logger.error("Error en preview: %s", exc, exc_info=True)
             importacion.estado = 'error'
-            importacion.errores_json = [str(exc)]
+            importacion.errores_json = [mensaje_seguro(exc)]
             importacion.save(update_fields=['estado', 'errores_json'])
-            return Response({'error': str(exc)}, status=400)
+            return respuesta_error(exc, 'Error al generar la vista previa')
 
 
 # ─── GET /api/importador/preview/<id>/ ────────────────────────────────────────
@@ -166,7 +167,7 @@ class ConfirmarView(APIView):
                 with transaction.atomic():
                     svc.run(hojas_config, modo_parcial=False)
         except Exception as exc:
-            return Response({'error': str(exc)}, status=500)
+            return error_interno(exc, 'Error al ejecutar la importación')
 
         return Response(ImportacionExcelSerializer(imp).data)
 

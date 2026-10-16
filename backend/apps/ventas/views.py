@@ -35,6 +35,7 @@ from rest_framework.pagination import PageNumberPagination
 from django.db import models
 from openpyxl import Workbook
 from django.shortcuts import get_object_or_404
+from apps.core.errors import respuesta_error, error_interno, mensaje_seguro
 
 class VentaPagination(PageNumberPagination):
     page_size = 10
@@ -246,7 +247,7 @@ class ClienteViewSet(viewsets.ModelViewSet):
                         })
 
                     except Exception as e:
-                        errores.append(f'Fila {index + 2}: Error inesperado - {str(e)}')
+                        errores.append(f'Fila {index + 2}: Error inesperado - {mensaje_seguro(e)}')
 
             return Response({
                 'success': True,
@@ -263,10 +264,7 @@ class ClienteViewSet(viewsets.ModelViewSet):
             }, status=status.HTTP_200_OK)
 
         except Exception as e:
-            return Response({
-                'success': False,
-                'error': f'Error al procesar archivo: {str(e)}'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_interno(e, 'Error al procesar archivo', extra={'success': False})
 
     @action(detail=False, methods=['get'])
     def descargar_plantilla_excel(self, request):
@@ -409,10 +407,7 @@ class ClienteViewSet(viewsets.ModelViewSet):
             return response
 
         except Exception as e:
-            return Response({
-                'success': False,
-                'error': f'Error al generar plantilla Excel: {str(e)}'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_interno(e, 'Error al generar plantilla Excel', extra={'success': False})
 
 class FacturaViewSet(viewsets.ModelViewSet):
     serializer_class = FacturaSerializer
@@ -568,10 +563,7 @@ class VentaViewSet(viewsets.ModelViewSet):
             serializer = self.get_serializer(venta)
             return Response(serializer.data)
         except Exception as e:
-            return Response(
-                {"detail": str(e)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return respuesta_error(e, 'Error al registrar el pago', clave='detail')
 
     @action(detail=True, methods=['post'], url_path='cambiar-estado-operativo')
     def cambiar_estado_operativo(self, request, pk=None):
@@ -773,10 +765,7 @@ class VentaViewSet(viewsets.ModelViewSet):
             return response
         except Exception as e:
             logger.error("Error en exportar_excel: %s", e, exc_info=True)
-            return Response(
-                {'error': str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return error_interno(e, 'Error al exportar ventas')
 
     @action(detail=False, methods=['POST'], parser_classes=[MultiPartParser, FormParser])
     def importar_excel(self, request):
@@ -904,7 +893,7 @@ class VentaViewSet(viewsets.ModelViewSet):
                         ventas_creadas.append(venta.id)
 
                     except Exception as e:
-                        errores.append(f'Error en fila {index + 2}: {str(e)}')
+                        errores.append(f'Error en fila {index + 2}: {mensaje_seguro(e)}')
 
             return Response({
                 'mensaje': f'Se importaron {len(ventas_creadas)} ventas correctamente',
@@ -913,10 +902,7 @@ class VentaViewSet(viewsets.ModelViewSet):
             })
 
         except Exception as e:
-            return Response(
-                {'error': f'Error al procesar el archivo: {str(e)}'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return error_interno(e, 'Error al procesar el archivo')
 
     @action(detail=False, methods=['get'])
     def estadisticas_ultimos_30_dias(self, request):
@@ -935,10 +921,7 @@ class VentaViewSet(viewsets.ModelViewSet):
             })
         except Exception as e:
             logger.error("Error al obtener estadísticas: %s", e, exc_info=True)
-            return Response(
-                {'error': f'Error al obtener estadísticas: {str(e)}'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return error_interno(e, 'Error al obtener estadísticas')
 
     @action(detail=False, methods=['get'])
     def total_ultimos_30_dias(self, request):
@@ -959,10 +942,7 @@ class VentaViewSet(viewsets.ModelViewSet):
             })
         except Exception as e:
             logger.error("Error al calcular total ventas: %s", e, exc_info=True)
-            return Response(
-                {'error': f'Error al calcular total: {str(e)}'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return error_interno(e, 'Error al calcular total')
 
     @action(detail=False, methods=['get'])
     def igv_recaudado(self, request):
@@ -985,10 +965,7 @@ class VentaViewSet(viewsets.ModelViewSet):
             })
         except Exception as e:
             logger.error("Error al calcular IGV: %s", e, exc_info=True)
-            return Response(
-                {'error': f'Error al calcular IGV: {str(e)}'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return error_interno(e, 'Error al calcular IGV')
 
     @action(detail=False, methods=['get'])
     def productos_mas_vendidos(self, request):
@@ -1062,10 +1039,7 @@ class VentaViewSet(viewsets.ModelViewSet):
             )
         except Exception as e:
             logger.error("Error al eliminar venta: %s", e, exc_info=True)
-            return Response(
-                {'error': str(e)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return respuesta_error(e, 'Error al eliminar la venta')
 
     @action(detail=False, methods=['get'])
     def descargar_template(self, request):
@@ -1125,10 +1099,7 @@ class VentaViewSet(viewsets.ModelViewSet):
                 'ventas_pendientes': ventas_pendientes
             })
         except Exception as e:
-            return Response(
-                {'error': str(e)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return respuesta_error(e, 'Error al obtener estadísticas de ventas')
 
     @action(detail=True, methods=['get', 'post'])
     def pagos(self, request, pk=None):
@@ -1211,10 +1182,7 @@ class VentaViewSet(viewsets.ModelViewSet):
                 
         except Exception as e:
             logger.error("Error al procesar pago: %s", e, exc_info=True)
-            return Response(
-                {'error': str(e)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return respuesta_error(e, 'Error al procesar el pago')
 
     @action(detail=True, methods=['get'])
     def saldo(self, request, pk=None):

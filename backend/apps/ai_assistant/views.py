@@ -16,6 +16,7 @@ from datetime import datetime
 from rest_framework.views import APIView
 from rest_framework.parsers import MultiPartParser, FormParser
 from django.utils import timezone
+from apps.core.errors import respuesta_error, error_interno, mensaje_seguro
 
 def get_openai_client():
     try:
@@ -93,10 +94,7 @@ class MessageViewSet(viewsets.ModelViewSet):
             )
 
         except Exception as e:
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return error_interno(e, 'Error al procesar el mensaje')
 
     @action(detail=True, methods=['post'])
     def upload(self, request, conversation_pk=None):
@@ -138,10 +136,7 @@ class MessageViewSet(viewsets.ModelViewSet):
             return Response({"message": "Archivo analizado exitosamente"})
 
         except Exception as e:
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return error_interno(e, 'Error al analizar el archivo')
 
 class AIInsightViewSet(viewsets.ModelViewSet):
     queryset = AIInsight.objects.all()
@@ -211,10 +206,7 @@ class AIAssistantViewSet(viewsets.ModelViewSet):
             result = assistant.procesar_archivo(file, tipo)
             return Response(result)
         except Exception as e:
-            return Response(
-                {'error': str(e)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return respuesta_error(e, 'Error al procesar el archivo')
 
     @action(detail=False, methods=['post'])
     def create_conversation(self, request):
@@ -319,7 +311,7 @@ class ThreadView(APIView):
             }, status=status.HTTP_201_CREATED)
             
         except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_interno(e, 'Error al crear la conversación')
 
 class MessageView(APIView):
     permission_classes = [IsAuthenticated]
@@ -346,7 +338,7 @@ class MessageView(APIView):
             return Response({'error': 'Conversación no encontrada'}, 
                           status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_interno(e, 'Error al procesar el mensaje')
 
     def get(self, request, thread_id):
         try:
@@ -365,10 +357,7 @@ class MessageView(APIView):
                 ]
             })
         except Exception as e:
-            return Response(
-                {'error': str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return error_interno(e, 'Error al obtener los mensajes')
 
 class FileUploadView(APIView):
     parser_classes = (MultiPartParser, FormParser)
@@ -397,10 +386,7 @@ class FileUploadView(APIView):
             })
 
         except Exception as e:
-            return Response(
-                {'error': str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return error_interno(e, 'Error al subir el archivo')
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
@@ -433,10 +419,7 @@ def generar_reporte_ventas(request):
         })
         
     except Exception as e:
-        return Response(
-            {'error': f'Error al generar reporte: {str(e)}'},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+        return error_interno(e, 'Error al generar reporte')
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -458,10 +441,7 @@ def analizar_inventario_inteligente(request):
         })
         
     except Exception as e:
-        return Response(
-            {'error': f'Error al analizar inventario: {str(e)}'},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+        return error_interno(e, 'Error al analizar inventario')
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -483,10 +463,7 @@ def detectar_oportunidades_comerciales(request):
         })
         
     except Exception as e:
-        return Response(
-            {'error': f'Error al detectar oportunidades: {str(e)}'},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+        return error_interno(e, 'Error al detectar oportunidades')
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
@@ -542,10 +519,7 @@ def consulta_analista_libre(request):
         })
         
     except Exception as e:
-        return Response(
-            {'error': f'Error al procesar consulta: {str(e)}'},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+        return error_interno(e, 'Error al procesar consulta')
 
 class ThreadViewWithTools(APIView):
     """
@@ -579,10 +553,7 @@ class ThreadViewWithTools(APIView):
             })
             
         except Exception as e:
-            return Response(
-                {'error': f'Error creating thread: {str(e)}'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return error_interno(e, 'Error al crear la conversación')
 
 class MessageViewWithTools(APIView):
     """
@@ -624,10 +595,7 @@ class MessageViewWithTools(APIView):
             return Response({'message': response})
             
         except Exception as e:
-            return Response(
-                {'error': f'Error processing message: {str(e)}'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return error_interno(e, 'Error al procesar el mensaje')
 
     def get(self, request, thread_id):
         """Obtener mensajes del thread"""
@@ -640,10 +608,7 @@ class MessageViewWithTools(APIView):
             return Response({'messages': messages})
             
         except Exception as e:
-            return Response(
-                {'error': f'Error retrieving messages: {str(e)}'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return error_interno(e, 'Error al obtener los mensajes')
 
 class VentasAssistantView(APIView):
     """
@@ -667,10 +632,7 @@ class VentasAssistantView(APIView):
             })
             
         except Exception as e:
-            return Response(
-                {'error': str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return error_interno(e, 'Error al crear la conversación de ventas')
 
 class VentasMessageView(APIView):
     """
@@ -696,10 +658,7 @@ class VentasMessageView(APIView):
             return Response({'response': response})
             
         except Exception as e:
-            return Response(
-                {'error': str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return error_interno(e, 'Error al procesar el mensaje')
 
     def get(self, request, thread_id):
         """Obtener mensajes del thread de ventas"""
@@ -725,10 +684,7 @@ class VentasMessageView(APIView):
             return Response({'messages': messages_data})
             
         except Exception as e:
-            return Response(
-                {'error': str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return error_interno(e, 'Error al obtener los mensajes')
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -747,10 +703,7 @@ def get_or_create_ventas_conversation(request):
         })
         
     except Exception as e:
-        return Response(
-            {'error': str(e)},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+        return error_interno(e, 'Error al obtener la conversación de ventas')
 
 class ComprasAssistantView(APIView):
     """
@@ -774,10 +727,7 @@ class ComprasAssistantView(APIView):
             })
             
         except Exception as e:
-            return Response(
-                {'error': str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return error_interno(e, 'Error al crear la conversación de compras')
 
 class ComprasMessageView(APIView):
     """
@@ -803,10 +753,7 @@ class ComprasMessageView(APIView):
             return Response({'response': response})
             
         except Exception as e:
-            return Response(
-                {'error': str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return error_interno(e, 'Error al procesar el mensaje')
 
     def get(self, request, thread_id):
         """Obtener mensajes del thread de compras"""
@@ -832,10 +779,7 @@ class ComprasMessageView(APIView):
             return Response({'messages': messages_data})
             
         except Exception as e:
-            return Response(
-                {'error': str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return error_interno(e, 'Error al obtener los mensajes')
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -854,7 +798,4 @@ def get_or_create_compras_conversation(request):
         })
         
     except Exception as e:
-        return Response(
-            {'error': str(e)},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        ) 
+        return error_interno(e, 'Error al obtener la conversación de compras')

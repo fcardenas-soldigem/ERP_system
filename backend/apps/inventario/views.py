@@ -677,7 +677,7 @@ class ImportarProductosAPIView(views.APIView):
                         productos_creados += 1
                         
                     except Exception as e:
-                        errores.append(f"Fila {index + 2}: {str(e)}")
+                        errores.append(f"Fila {index + 2}: {mensaje_seguro(e)}")
             
             return Response({
                 'success': True,
@@ -688,7 +688,7 @@ class ImportarProductosAPIView(views.APIView):
             })
             
         except Exception as e:
-            return Response({'error': f'Error procesando archivo: {str(e)}'}, status=500)
+            return error_interno(e, 'Error procesando archivo')
 
 def descargar_template(request):
     """Descarga template de Excel para importar productos"""
@@ -1442,9 +1442,9 @@ class InventarioMateriasPrimasViewSet(viewsets.ModelViewSet):
                 }, status=status.HTTP_201_CREATED)
                 
         except ValidationError as e:
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': mensaje_seguro(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_interno(e, 'Error al registrar la entrada')
     
     @action(detail=True, methods=['post'])
     def reservar(self, request, pk=None):
@@ -1491,7 +1491,7 @@ class InventarioMateriasPrimasViewSet(viewsets.ModelViewSet):
                 })
                 
         except ValidationError as e:
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': mensaje_seguro(e)}, status=status.HTTP_400_BAD_REQUEST)
     
     @action(detail=True, methods=['post'])
     def liberar_reserva(self, request, pk=None):
@@ -1517,7 +1517,7 @@ class InventarioMateriasPrimasViewSet(viewsets.ModelViewSet):
             })
             
         except ValidationError as e:
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': mensaje_seguro(e)}, status=status.HTTP_400_BAD_REQUEST)
     
     @action(detail=True, methods=['post'])
     def ajustar(self, request, pk=None):
@@ -1564,7 +1564,7 @@ class InventarioMateriasPrimasViewSet(viewsets.ModelViewSet):
                 })
                 
         except ValidationError as e:
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': mensaje_seguro(e)}, status=status.HTTP_400_BAD_REQUEST)
     
     @action(detail=False, methods=['get'])
     def valor_total(self, request):
@@ -1683,9 +1683,9 @@ class InventarioProductosTerminadosViewSet(viewsets.ModelViewSet):
                 }, status=status.HTTP_201_CREATED)
                 
         except ValidationError as e:
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': mensaje_seguro(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_interno(e, 'Error al registrar la entrada de producción')
     
     @action(detail=False, methods=['post'])
     def salida_venta(self, request):
@@ -1740,9 +1740,9 @@ class InventarioProductosTerminadosViewSet(viewsets.ModelViewSet):
                 }, status=status.HTTP_201_CREATED)
                 
         except ValidationError as e:
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': mensaje_seguro(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_interno(e, 'Error al registrar la salida por venta')
     
     @action(detail=True, methods=['post'])
     def reservar(self, request, pk=None):
@@ -1789,7 +1789,7 @@ class InventarioProductosTerminadosViewSet(viewsets.ModelViewSet):
                 })
                 
         except ValidationError as e:
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': mensaje_seguro(e)}, status=status.HTTP_400_BAD_REQUEST)
     
     @action(detail=True, methods=['post'])
     def liberar_reserva(self, request, pk=None):
@@ -1815,7 +1815,7 @@ class InventarioProductosTerminadosViewSet(viewsets.ModelViewSet):
             })
             
         except ValidationError as e:
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': mensaje_seguro(e)}, status=status.HTTP_400_BAD_REQUEST)
     
     @action(detail=True, methods=['post'])
     def ajustar(self, request, pk=None):
@@ -1862,7 +1862,7 @@ class InventarioProductosTerminadosViewSet(viewsets.ModelViewSet):
                 })
                 
         except ValidationError as e:
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': mensaje_seguro(e)}, status=status.HTTP_400_BAD_REQUEST)
     
     @action(detail=False, methods=['get'])
     def valor_total(self, request):
@@ -2041,6 +2041,7 @@ from rest_framework.parsers import MultiPartParser, FormParser
 from django.http import HttpResponse
 import tempfile
 import os
+from apps.core.errors import respuesta_error, error_interno, mensaje_seguro
 
 
 @api_view(['GET'])
@@ -2068,10 +2069,7 @@ def descargar_plantilla_inventario(request):
         return response
     
     except Exception as e:
-        return Response(
-            {'error': f'Error al generar plantilla: {str(e)}'},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+        return error_interno(e, 'Error al generar plantilla')
 
 
 @api_view(['POST'])
@@ -2158,10 +2156,7 @@ def cargar_inventario_masivo(request):
             except:
                 pass
         
-        return Response(
-            {'error': f'Error al procesar archivo: {str(e)}'},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+        return error_interno(e, 'Error al procesar archivo')
 
 
 @api_view(['POST'])
@@ -2240,7 +2235,4 @@ def validar_archivo_inventario(request):
         return Response(resultado)
         
     except Exception as e:
-        return Response(
-            {'error': f'Error al validar archivo: {str(e)}'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+        return respuesta_error(e, 'Error al validar archivo')

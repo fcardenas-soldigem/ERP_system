@@ -21,6 +21,7 @@ import logging
 from django.db.models.functions import TruncDate, ExtractMonth
 from calendar import monthrange
 from django.db.models import FloatField
+from apps.core.errors import respuesta_error, error_interno, mensaje_seguro
 from decimal import Decimal
 
 logger = logging.getLogger(__name__)
@@ -449,7 +450,7 @@ def get_dashboard_stats(request):
         cache.set(cache_key, data, 120)
         return Response(data)
     except Exception as e:
-        return Response({'error': str(e)}, status=500)
+        return error_interno(e, 'Error al obtener estadísticas del dashboard')
 
 class UtilityDashboardView(APIView):
     permission_classes = [IsAuthenticated]

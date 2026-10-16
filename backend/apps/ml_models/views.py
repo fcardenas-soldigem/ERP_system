@@ -8,6 +8,7 @@ from apps.ml_models.models import MLModel, TrainingJob, MLPrediction
 from apps.ml_models.services.training_service import TrainingService
 from apps.ml_models.services.data_extractor import DataExtractor
 import time
+from apps.core.errors import respuesta_error, error_interno, mensaje_seguro
 
 
 class MLModelViewSet(viewsets.ViewSet):
@@ -70,10 +71,7 @@ class MLModelViewSet(viewsets.ViewSet):
                 'error': str(e)
             }, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
-            return Response({
-                'success': False,
-                'error': f'Error al entrenar modelo: {str(e)}'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_interno(e, 'Error al entrenar modelo', extra={'success': False})
     
     @action(detail=False, methods=['post'], url_path='train/churn')
     def train_churn(self, request):
@@ -103,7 +101,7 @@ class MLModelViewSet(viewsets.ViewSet):
         except ValueError as e:
             return Response({'success': False, 'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
-            return Response({'success': False, 'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_interno(e, 'Error al entrenar modelo', extra={'success': False})
     
     @action(detail=False, methods=['post'], url_path='train/recommendations')
     def train_recommendations(self, request):
@@ -143,7 +141,7 @@ class MLModelViewSet(viewsets.ViewSet):
         except ValueError as e:
             return Response({'success': False, 'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
-            return Response({'success': False, 'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_interno(e, 'Error al entrenar modelo', extra={'success': False})
     
     @action(detail=False, methods=['post'], url_path='train/all')
     def train_all(self, request):
@@ -176,7 +174,7 @@ class MLModelViewSet(viewsets.ViewSet):
             }, status=status.HTTP_200_OK)
             
         except Exception as e:
-            return Response({'success': False, 'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_interno(e, 'Error al entrenar modelos', extra={'success': False})
     
     @action(detail=False, methods=['get'], url_path='list')
     def list_models(self, request):
@@ -207,7 +205,7 @@ class MLModelViewSet(viewsets.ViewSet):
             })
             
         except Exception as e:
-            return Response({'success': False, 'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_interno(e, 'Error al listar modelos', extra={'success': False})
     
     @action(detail=False, methods=['get'], url_path='status')
     def check_status(self, request):
@@ -248,7 +246,7 @@ class MLModelViewSet(viewsets.ViewSet):
             })
             
         except Exception as e:
-            return Response({'success': False, 'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_interno(e, 'Error al obtener el estado de los modelos', extra={'success': False})
     
     @action(detail=False, methods=['post'], url_path='predict/rfm')
     def predict_rfm(self, request):
@@ -302,7 +300,7 @@ class MLModelViewSet(viewsets.ViewSet):
         except ValueError as e:
             return Response({'success': False, 'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
-            return Response({'success': False, 'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_interno(e, 'Error al segmentar clientes', extra={'success': False})
     
     @action(detail=False, methods=['post'], url_path='predict/churn')
     def predict_churn(self, request):
@@ -354,7 +352,7 @@ class MLModelViewSet(viewsets.ViewSet):
         except ValueError as e:
             return Response({'success': False, 'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
-            return Response({'success': False, 'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_interno(e, 'Error al predecir churn', extra={'success': False})
     
     @action(detail=False, methods=['post'], url_path='predict/recommendations')
     def predict_recommendations(self, request):
@@ -404,7 +402,7 @@ class MLModelViewSet(viewsets.ViewSet):
         except ValueError as e:
             return Response({'success': False, 'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
-            return Response({'success': False, 'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_interno(e, 'Error al generar recomendaciones', extra={'success': False})
     
     @action(detail=False, methods=['get'], url_path='training-history')
     def training_history(self, request):
@@ -437,4 +435,4 @@ class MLModelViewSet(viewsets.ViewSet):
             })
             
         except Exception as e:
-            return Response({'success': False, 'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return error_interno(e, 'Error al listar trabajos', extra={'success': False})

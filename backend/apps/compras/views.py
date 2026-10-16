@@ -36,6 +36,8 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 import json
+from django.core.exceptions import ObjectDoesNotExist
+from apps.core.errors import respuesta_error, error_interno, mensaje_seguro, es_error_de_negocio
 
 class ExcelRenderer(BaseRenderer):
     media_type = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
@@ -102,10 +104,7 @@ class CompraViewSet(viewsets.ModelViewSet):
             return Response(serializer.data)
         except Exception as e:
             logger.error('Error en retrieve: %s', e, exc_info=True)
-            return Response(
-                {'detail': str(e)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return respuesta_error(e, 'Error al obtener la compra', clave='detail')
 
     def perform_create(self, serializer):
         if not hasattr(self.request.user, 'empresa'):
@@ -144,10 +143,7 @@ class CompraViewSet(viewsets.ModelViewSet):
             return Response(data)
         except Exception as e:
             logger.error('Error en list: %s', e, exc_info=True)
-            return Response(
-                {'detail': str(e)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return respuesta_error(e, 'Error al listar compras', clave='detail')
 
     def update(self, request, *args, **kwargs):
         try:
@@ -167,10 +163,7 @@ class CompraViewSet(viewsets.ModelViewSet):
                 
                 return Response(serializer.data)
         except Exception as e:
-            return Response(
-                {"detail": str(e)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return respuesta_error(e, 'Error al actualizar la compra', clave='detail')
 
     @action(detail=True, methods=['post'])
     def cambiar_estado(self, request, pk=None):
@@ -403,7 +396,7 @@ class CompraViewSet(viewsets.ModelViewSet):
                         compras_creadas.append(compra.id)
 
                     except Exception as e:
-                        errores.append(f'Error en fila {index + 2}: {str(e)}')
+                        errores.append(f'Error en fila {index + 2}: {mensaje_seguro(e)}')
                     
             return Response({
                 'mensaje': f'Se importaron {len(compras_creadas)} compras correctamente',
@@ -412,10 +405,7 @@ class CompraViewSet(viewsets.ModelViewSet):
             })
             
         except Exception as e:
-            return Response(
-                {'error': f'Error al procesar el archivo: {str(e)}'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return error_interno(e, 'Error al procesar el archivo')
 
     @action(detail=False, methods=['get'])
     def estadisticas(self, request):
@@ -438,10 +428,7 @@ class CompraViewSet(viewsets.ModelViewSet):
                 'compras_pendientes': compras_pendientes
             })
         except Exception as e:
-            return Response(
-                {'error': str(e)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return respuesta_error(e, 'Error al obtener estadísticas de compras')
 
     @action(detail=True, methods=['get', 'post'])
     def pagos(self, request, pk=None):
@@ -518,10 +505,7 @@ class CompraViewSet(viewsets.ModelViewSet):
                 
         except Exception as e:
             logger.error('Error en pagos: %s', e, exc_info=True)
-            return Response(
-                {'detail': str(e)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return respuesta_error(e, 'Error al registrar el pago', clave='detail')
 
     @action(detail=False, methods=['get'])
     def compras_pendientes(self, request):
@@ -603,10 +587,7 @@ class CompraViewSet(viewsets.ModelViewSet):
             })
         except Exception as e:
             logger.error('Error en compras_pendientes: %s', e, exc_info=True)
-            return Response(
-                {'error': str(e)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return respuesta_error(e, 'Error al obtener compras pendientes')
 
     @action(detail=True, methods=['get'], url_path='saldo-pendiente')
     def saldo_pendiente(self, request, pk=None):
@@ -616,10 +597,7 @@ class CompraViewSet(viewsets.ModelViewSet):
             return Response({'saldo_pendiente': saldo})
         except Exception as e:
             logger.error('Error en saldo_pendiente: %s', e, exc_info=True)
-            return Response(
-                {'detail': str(e)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return respuesta_error(e, 'Error al obtener el saldo pendiente', clave='detail')
 
     @action(detail=True, methods=['get'], url_path='exportar-pdf')
     def exportar_pdf(self, request, pk=None):
@@ -674,10 +652,7 @@ class CompraViewSet(viewsets.ModelViewSet):
             serializer = ProductoSerializer(productos, many=True)
             return Response(serializer.data)
         except Exception as e:
-            return Response(
-                {'error': str(e)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return respuesta_error(e, 'Error al listar productos')
 
     def create(self, request, *args, **kwargs):
         """
@@ -705,10 +680,7 @@ class CompraViewSet(viewsets.ModelViewSet):
                             detalles_data = detalles_json
                     except Exception as e:
                         logger.error('Error al procesar detalles: %s', e, exc_info=True)
-                        return Response(
-                            {'error': f'Error al procesar detalles: {str(e)}'},
-                            status=status.HTTP_400_BAD_REQUEST
-                        )
+                        return respuesta_error(e, 'Detalles de la compra inválidos')
 
                 # Validar que haya detalles
                 if not detalles_data:
@@ -761,7 +733,9 @@ class CompraViewSet(viewsets.ModelViewSet):
 
                     except Exception as e:
                         logger.error('Error al crear detalle: %s', e, exc_info=True)
-                        raise ValueError(f'Error al procesar producto: {str(e)}')
+                        if es_error_de_negocio(e) or isinstance(e, ObjectDoesNotExist):
+                            raise ValueError(f'Error al procesar producto: {mensaje_seguro(e)}')
+                        raise  # error interno: lo convierte en 500 genérico el except exterior
                 
 
                 # Actualizar totales de la compra
@@ -782,10 +756,7 @@ class CompraViewSet(viewsets.ModelViewSet):
 
         except Exception as e:
             logger.error('Error en create CompraViewSet: %s', e, exc_info=True)
-            return Response(
-                {'error': str(e)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return respuesta_error(e, 'Error al crear la compra')
 
 class ProveedorViewSet(viewsets.ModelViewSet):
     queryset = Proveedor.objects.all()
@@ -863,10 +834,7 @@ class ProveedorViewSet(viewsets.ModelViewSet):
                 )
                 
         except Exception as e:
-            return Response(
-                {'error': f'Error interno del servidor: {str(e)}'}, 
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return error_interno(e, 'Error al consultar el RUC')
 
     @action(
         detail=False,
@@ -938,10 +906,7 @@ class ProveedorViewSet(viewsets.ModelViewSet):
 
         except Exception as e:
             logger.error("Error en exportar compras: %s", e, exc_info=True)
-            return Response(
-                {'error': str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return error_interno(e, 'Error al exportar compras')
 
 class OrdenCompraViewSet(viewsets.ModelViewSet):
     queryset = OrdenCompra.objects.all()
