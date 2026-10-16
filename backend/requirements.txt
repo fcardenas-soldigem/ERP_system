@@ -52,7 +52,9 @@ google-cloud-storage==2.18.2
 # ============================================
 # INTEGRACIONES IA
 # ============================================
-openai==1.54.0
+openai==1.54.0               # adaptador LLM_PROVIDER=openai (chat.completions + tools)
+google-genai==2.31.0         # adaptador LLM_PROVIDER=vertex (Gemini en Vertex AI, ADC)
+PyYAML==6.0.2                # evals/preguntas.yaml (manage.py eval_llm)
 
 # ============================================
 # MACHINE LEARNING (opcional: pip install -r requirements_ml.txt)

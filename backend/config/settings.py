@@ -383,10 +383,19 @@ AUTHENTICATION_BACKENDS = [
     'django.contrib.auth.backends.ModelBackend',
 ]
 
-# OpenAI Configuration
-OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
-OPENAI_ASSISTANT_ID = os.getenv('OPENAI_ASSISTANT_ID')
-OPENAI_MODEL = os.getenv('OPENAI_MODEL', 'gpt-4')
+# === LLM (asistente IA) — capa propia, sin API de Assistants ===
+# LLM_PROVIDER: 'vertex' (Gemini en Vertex AI, ADC, sin API key; por defecto) u 'openai'
+# (cualquier API compatible con chat.completions: LLM_BASE_URL + LLM_API_KEY).
+# Modelos verificados en la doc de Vertex (2026-10-16): gemini-3.1-flash-lite (GA, solo
+# endpoints global/us/eu) y gemini-2.5-flash-lite (GA, se retira el 2026-10-20).
+LLM_PROVIDER = os.getenv('LLM_PROVIDER', 'vertex').lower()
+LLM_MODEL = os.getenv('LLM_MODEL', 'gemini-3.1-flash-lite')
+LLM_LOCATION = os.getenv('LLM_LOCATION', 'global')
+LLM_PROJECT = os.getenv('LLM_PROJECT', os.getenv('GS_PROJECT_ID', ''))
+LLM_BASE_URL = os.getenv('LLM_BASE_URL') or None
+LLM_API_KEY = os.getenv('LLM_API_KEY')
+LLM_TIMEOUT = float(os.getenv('LLM_TIMEOUT', '30'))      # segundos → 502 si se excede
+LLM_HISTORIAL_N = int(os.getenv('LLM_HISTORIAL_N', '20'))  # mensajes de contexto por turno
 
 # Claude API Configuration (para Analista Comercial)
 CLAUDE_API_KEY = os.getenv('CLAUDE_API_KEY')
