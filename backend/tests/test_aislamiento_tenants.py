@@ -304,3 +304,53 @@ class VentasPendientesEndpointTests(TenantSetup):
         # La ruta eliminada no existe (404), confirmando que no queda un duplicado.
         r2 = self.client.get(f'/api/ventas/{self.venta_b.pk}/pagos/ventas_pendientes/')
         self.assertEqual(r2.status_code, 404)
+
+
+@override_settings(ROOT_URLCONF='config.urls')
+class ImportarExcelYOCSAislamientoTests(TenantSetup):
+    """A4: C2 (Excel con columna empresa=B → se importa en A, con aviso) y
+    A3-OCS (orden de servicio de compra con proveedor de B → 400)."""
+
+    def setUp(self):
+        super().setUp()
+        from apps.compras.models import Proveedor
+        from apps.inventario.models.almacen import Almacen
+        self.prov_a = Proveedor.objects.create(empresa=self.A, razon_social='Prov A', ruc='20000000011')
+        self.prov_b = Proveedor.objects.create(empresa=self.B, razon_social='Prov B', ruc='20000000012')
+        self.alm_a = Almacen.objects.create(empresa=self.A, nombre='Alm A')
+
+    def test_C2_excel_con_empresa_B_queda_en_A_con_aviso(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from apps.compras.models import Compra
+        csv = (
+            'empresa,proveedor,almacen,fecha,sku,nombre_producto,cantidad,precio_unitario,subtotal,igv_incluido,estado,metodo_pago\n'
+            f'{self.B.nombre},Prov A,Alm A,2026-10-01,SKU-IMP,Prod Imp,2,10,20,si,pendiente,efectivo\n'
+        ).encode()
+        self.client.force_authenticate(self.user_a)
+        r = self.client.post('/api/compras/compras/importar_excel/',
+                             {'file': SimpleUploadedFile('c.csv', csv, content_type='text/csv')},
+                             format='multipart')
+        self.assertEqual(r.status_code, 200, r.content)
+        cuerpo = r.json()
+        self.assertEqual(len(cuerpo['compras_creadas']), 1, cuerpo)
+        compra = Compra.objects.get(pk=cuerpo['compras_creadas'][0])
+        self.assertEqual(compra.empresa_id, self.A.id, 'FUGA: la compra se importó en la empresa del Excel')
+        self.assertFalse(Compra.objects.filter(empresa=self.B).exists())
+        avisos = [e for e in cuerpo['errores'] if 'ignorada' in e and self.B.nombre in e]
+        self.assertEqual(len(avisos), 1, f'falta el aviso de columna empresa ignorada: {cuerpo["errores"]}')
+
+    def test_A3_OCS_proveedor_de_B_rechazado_y_propio_ok(self):
+        from apps.compras.models import OrdenServicioCompra
+        self.client.force_authenticate(self.user_a)
+        base = {'fecha_emision': str(date.today()), 'moneda': 'PEN',
+                'items': [{'trabajo': 'Reparación', 'cantidad': 1, 'costo_unitario': '50.00'}]}
+        r = self.client.post('/api/compras/ordenes-servicio/', {**base, 'proveedor': self.prov_b.id}, format='json')
+        self.assertEqual(r.status_code, 400, r.content)
+        self.assertIn('proveedor', r.json())
+        self.assertFalse(OrdenServicioCompra.objects.filter(proveedor=self.prov_b).exists())
+        ok = self.client.post('/api/compras/ordenes-servicio/', {**base, 'proveedor': self.prov_a.id}, format='json')
+        self.assertEqual(ok.status_code, 201, ok.content)
+        self.assertEqual(ok.json()['empresa'], self.A.id)
+        # Tampoco por PATCH se puede colgar un proveedor ajeno.
+        rp = self.client.patch(f"/api/compras/ordenes-servicio/{ok.json()['id']}/", {'proveedor': self.prov_b.id}, format='json')
+        self.assertEqual(rp.status_code, 400, rp.content)
