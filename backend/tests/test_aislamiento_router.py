@@ -40,7 +40,9 @@ def _mk(out, by_name, fn):
         out.setdefault('_errores', []).append(str(e).splitlines()[0][:90])
 
 
-def _seed_b(empresa, user):
+def _seed_b(empresa, user, tag='B', n=2):
+    """Siembra datos de una empresa. `tag`/`n` parametrizan los literales únicos para poder
+    sembrar también a A (tag='A', n=1) en la suite de escrituras sin colisionar."""
     from apps.ventas.models import Cliente, Venta, PagoVenta, Factura, OrdenVenta
     from apps.compras.models import (Proveedor, Compra, OrdenCompra, OrdenServicioCompra,
                                      RecepcionCompra, PagoCompra)
@@ -56,19 +58,21 @@ def _seed_b(empresa, user):
     from apps.core.models import Usuario, Perfil
 
     out, by_name = {Empresa: empresa}, {'empresa': empresa}
-    cli = Cliente.objects.create(empresa=empresa, nombre='Cliente B', documento='10000000002', tipo_documento='ruc')
+    cli = Cliente.objects.create(empresa=empresa, nombre=f'Cliente {tag}', documento=f'1000000000{n}', tipo_documento='ruc')
     out[Cliente] = cli; by_name['cliente'] = cli
-    prov = Proveedor.objects.create(empresa=empresa, razon_social='Prov B', ruc='20000000012')
+    prov = Proveedor.objects.create(empresa=empresa, razon_social=f'Prov {tag}', ruc=f'2000000001{n}')
     out[Proveedor] = prov; by_name['proveedor'] = prov
-    alm = Almacen.objects.create(empresa=empresa, nombre='Alm B')
+    alm = Almacen.objects.create(empresa=empresa, nombre=f'Alm {tag}')
     out[Almacen] = alm; by_name['almacen'] = alm
-    cat = Categoria.objects.create(empresa=empresa, nombre='Cat B')
+    cat = Categoria.objects.create(empresa=empresa, nombre=f'Cat {tag}')
     out[Categoria] = cat; by_name['categoria'] = cat
-    prod = Producto.objects.create(empresa=empresa, sku='SKU-B', nombre='Prod B')
+    prod = Producto.objects.create(empresa=empresa, sku=f'SKU-{tag}', nombre=f'Prod {tag}')
     out[Producto] = prod; by_name['producto'] = prod
+    # Producto TERMINADO (ventas/productos-terminados exigen FINISHED; `prod` es RAW).
+    by_name['producto_pt'] = Producto.objects.create(empresa=empresa, sku=f'SKU-PT-{tag}', nombre=f'Prod PT {tag}', tipo_producto='FINISHED')
     venta = Venta.objects.create(empresa=empresa, cliente=cli, fecha_emision=date.today(), total=Decimal('100'), moneda='PEN')
     out[Venta] = venta; by_name['venta'] = venta
-    catg = CategoriaGasto.objects.create(empresa=empresa, nombre='CatGasto B')
+    catg = CategoriaGasto.objects.create(empresa=empresa, nombre=f'CatGasto {tag}')
     out[CategoriaGasto] = catg; by_name['categoriagasto'] = catg
 
     _mk(out, by_name, lambda: Cotizacion.objects.create(empresa=empresa, cliente=cli, usuario_creador=user, asunto='x', fecha_vencimiento=date.today(), moneda='PEN'))
@@ -96,9 +100,9 @@ def _seed_b(empresa, user):
         venta.refresh_from_db()
         return PagoVenta.objects.create(venta=venta, fecha=date.today(), monto=Decimal('10'), metodo_pago='efectivo')
     _mk(out, by_name, _pagoventa)
-    _mk(out, by_name, lambda: Factura.objects.create(venta=venta, cliente=cli, numero_factura='F-B1'))
-    _mk(out, by_name, lambda: OrdenVenta.objects.create(empresa=empresa, cliente=cli, numero_orden='OV-B1', fecha_orden=date.today(), fecha_entrega=date.today(), subtotal=Decimal('10'), igv=Decimal('1'), total=Decimal('11')))
-    _mk(out, by_name, lambda: GuiaRemision.objects.create(empresa=empresa, numero='G-B1', fecha_traslado=date.today(), motivo='traslado_tecnico', nombre_destinatario='x', direccion_origen='a', direccion_destino='b', creado_por=user))
+    _mk(out, by_name, lambda: Factura.objects.create(venta=venta, cliente=cli, numero_factura=f'F-{tag}1'))
+    _mk(out, by_name, lambda: OrdenVenta.objects.create(empresa=empresa, cliente=cli, numero_orden=f'OV-{tag}1', fecha_orden=date.today(), fecha_entrega=date.today(), subtotal=Decimal('10'), igv=Decimal('1'), total=Decimal('11')))
+    _mk(out, by_name, lambda: GuiaRemision.objects.create(empresa=empresa, numero=f'G-{tag}1', fecha_traslado=date.today(), motivo='traslado_tecnico', nombre_destinatario='x', direccion_origen='a', direccion_destino='b', creado_por=user))
     _mk(out, by_name, lambda: OrdenServicio.objects.create(empresa=empresa, cliente=cli, proveedor_reparacion=prov, creado_por=user))
     _mk(out, by_name, lambda: Stock.objects.create(empresa=empresa, producto=prod, almacen=alm))
     _mk(out, by_name, lambda: Conversation.objects.create(empresa=empresa, usuario=user))
@@ -106,20 +110,32 @@ def _seed_b(empresa, user):
     _mk(out, by_name, lambda: Usuario.objects.create(usuario=user, empresa=empresa, rol='readonly'))
     _mk(out, by_name, lambda: Perfil.objects.get_or_create(usuario=user)[0])
     from apps.agente.models import ApiToken
-    _mk(out, by_name, lambda: ApiToken.generar(empresa, 'Token B', creado_por=user)[0])
+    _mk(out, by_name, lambda: ApiToken.generar(empresa, f'Token {tag}', creado_por=user)[0])
 
     from django.apps import apps as djapps
     GM = djapps.get_model
     _mk(out, by_name, lambda: GM('inventario.AjusteInventario').objects.create(motivo='x', tipo='entrada', producto=prod, almacen=alm, cantidad=1, costo_unitario=Decimal('1')))
-    _mk(out, by_name, lambda: GM('inventario.InventarioMateriasPrimas').objects.create(empresa=empresa, producto=prod, almacen=alm))
-    _mk(out, by_name, lambda: GM('inventario.InventarioProductosTerminados').objects.create(empresa=empresa, producto=prod, almacen=alm))
+    _mk(out, by_name, lambda: GM('inventario.InventarioMateriasPrimas').objects.create(empresa=empresa, producto=prod, almacen=alm, cantidad_disponible=Decimal('100'), cantidad_reservada=Decimal('10')))
+    _mk(out, by_name, lambda: GM('inventario.InventarioProductosTerminados').objects.create(empresa=empresa, producto=by_name['producto_pt'], almacen=alm, cantidad_disponible=Decimal('100'), cantidad_reservada=Decimal('10')))
     _mk(out, by_name, lambda: GM('inventario.MovimientoInventario').objects.create(empresa=empresa, producto=prod, almacen=alm, fecha=timezone.now(), tipo_movimiento='entrada', tipo_documento='ajuste'))
-    _mk(out, by_name, lambda: GM('produccion.RecetaProducto').objects.create(empresa=empresa, producto_terminado=prod, nombre='Receta B'))
+    _mk(out, by_name, lambda: GM('produccion.RecetaProducto').objects.create(empresa=empresa, producto_terminado=prod, nombre=f'Receta {tag}'))
     if GM('produccion.RecetaProducto') in out:
         _mk(out, by_name, lambda: GM('produccion.OrdenProduccion').objects.create(
-            empresa=empresa, numero='OP-B1', receta=out[GM('produccion.RecetaProducto')],
+            empresa=empresa, numero=f'OP-{tag}1', receta=out[GM('produccion.RecetaProducto')],
             cantidad_planificada=Decimal('1'), fecha_programada=date.today(),
             almacen_insumos=alm, almacen_destino=alm))
+    # Hijos con FK (los usa la suite de escrituras para *_id en acciones custom y rutas anidadas).
+    from apps.ventas.models import DetalleVenta
+    from apps.cotizaciones.models import DetalleCotizacion
+    from apps.ai_assistant.models import Message
+    _mk(out, by_name, lambda: DetalleVenta.objects.create(venta=venta, producto=prod, cantidad=1, precio_unitario=Decimal('10')))
+    if Cotizacion in out:
+        _mk(out, by_name, lambda: DetalleCotizacion.objects.create(
+            cotizacion=out[Cotizacion], producto=prod, codigo='x', descripcion='x', cantidad=1, precio_unitario=Decimal('10')))
+    if Conversation in out:
+        _mk(out, by_name, lambda: Message.objects.create(conversation=out[Conversation], content='hola', role='user'))
+    _mk(out, by_name, lambda: GM('importador.ImportacionExcel').objects.create(
+        empresa=empresa, usuario=user, nombre_archivo='x.xlsx', estado='preview'))
     return out, by_name
 
 
