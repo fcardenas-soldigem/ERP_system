@@ -189,3 +189,24 @@ La migración de media a GCS (`migrar_media_a_gcs`, `auditar_archivos`) ya está
 el procedimiento detallado quedó en el historial de git de este archivo
 (`git show 9bc27e4:DEPLOY.md`). Resumen: `GS_BUCKET_NAME` + `GS_PROJECT_ID` activan GCS
 con URLs firmadas v4 vía IAM `signBlob`; sin esas variables se usa disco local (dev).
+
+---
+
+## Migraciones nuevas vs `main` (C2)
+
+`git diff --name-status main...HEAD -- 'backend/apps/*/migrations/*.py'` y
+`makemigrations --check --dry-run` → **No changes detected** (no hay cambios de modelo sin migración).
+
+| Migración | Operaciones | ¿Reversible? | ¿Bloquea tablas existentes? | ¿Añade NOT NULL sin default a tabla existente? |
+|---|---|---|---|---|
+| `agente/0001_initial` | `CreateModel ApiToken` (FK → `empresas_empresa` CASCADE, FK → usuario SET_NULL, `token_hash` unique), `CreateModel AgenteAccionLog` (FK → empresa, FK → apitoken), `AddIndex token_hash` | **Sí** (`migrate agente zero` borra las dos tablas; no hay datos que preservar) | **No**: `CREATE TABLE`/`CREATE INDEX` sobre tablas nuevas y vacías. Las FK toman un lock breve (`SHARE ROW EXCLUSIVE`) sobre `empresas_empresa` y `authentication_customuser` solo durante el `ADD CONSTRAINT` (milisegundos: la tabla referenciante está vacía) | **No**: todas las columnas NOT NULL (`empresa`, `nombre`, `token_hash`, …) nacen con la tabla; no se altera ninguna tabla existente. La lección de `ventas/0019` (NOT NULL nuevo en tabla existente deja sin DEFAULT físico al código viejo) **no aplica** |
+
+Conclusión: migración puramente aditiva → se puede aplicar **antes** del deploy y el
+código de la revisión anterior sigue funcionando durante el canary. Depende de
+`empresas/0008_alter_empresa_firma_aprobado_and_more`, que ya está en `main`.
+
+Cambios de **datos** sin migración: ninguno. Cambios de comportamiento que afectan a
+filas existentes: ninguno (el login ya no asigna empresa a usuarios huérfanos; si en
+prod existiera un usuario con `empresa=NULL`, dejará de poder entrar hasta asignarle
+empresa en el admin — revisar con `SELECT id FROM authentication_customuser WHERE empresa_id IS NULL;`
+antes del deploy).
