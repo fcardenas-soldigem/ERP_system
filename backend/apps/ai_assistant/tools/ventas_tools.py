@@ -1,6 +1,5 @@
 from typing import List, Optional
 from pydantic import BaseModel, Field
-from openai import pydantic_function_tool
 
 class ProductoVentaParams(BaseModel):
     producto_sku: str = Field(description="SKU del producto a vender")
@@ -21,16 +20,5 @@ class BuscarProductosParams(BaseModel):
 class BuscarClientesParams(BaseModel):
     query: str = Field(description="Término de búsqueda para clientes (nombre o documento)")
 
-# Tools específicos para ventas
-CREAR_VENTA_TOOL = pydantic_function_tool(CrearVentaParams, name="crear_venta", description="Crear una nueva venta con productos específicos. Todos los campos son obligatorios: cliente_id, tipo_venta, metodo_pago, productos (con producto_sku, cantidad, precio_unitario)")
-
-BUSCAR_PRODUCTOS_TOOL = pydantic_function_tool(BuscarProductosParams, name="buscar_productos", description="Buscar productos disponibles por nombre, descripción o SKU")
-
-BUSCAR_CLIENTES_TOOL = pydantic_function_tool(BuscarClientesParams, name="buscar_clientes", description="Buscar clientes por nombre o documento para obtener su ID")
-
-# Lista de herramientas para el asistente de ventas
-VENTAS_TOOLS = [
-    CREAR_VENTA_TOOL,
-    BUSCAR_PRODUCTOS_TOOL,
-    BUSCAR_CLIENTES_TOOL
-] 
+# Las ToolSpec (nombre, descripción, schema) se construyen en services/perfiles.py
+# a partir de estos modelos pydantic, independientes del proveedor de LLM.

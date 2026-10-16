@@ -10,17 +10,15 @@ from apps.empresas.models import Empresa
 from .models import Conversation, Message, AIInsight, AIAction
 import pandas as pd
 import numpy as np
-from openai import OpenAI
 import anthropic
 import json
 logger = logging.getLogger(__name__)
 
 class AIAssistantService:
     def __init__(self, conversation):
+        # Solo contexto de BD y carga de archivos. El chat vive en services/chat.py.
         self.conversation = conversation
         self.empresa = conversation.empresa
-        self.client = OpenAI(api_key=settings.OPENAI_API_KEY)
-        self.assistant_id = settings.OPENAI_ASSISTANT_ID
 
     def get_user_conversation_history(self):
         """
@@ -314,169 +312,6 @@ class AIAssistantService:
         except Exception as e:
             logger.error(f"Error generando insights proactivos: {e}")
             return []
-
-    def process_message(self, content):
-        """
-        Procesa un mensaje del usuario con acceso completo a los datos del ERP y memoria inteligente
-        """
-        try:
-            # Guardar el mensaje del usuario
-            Message.objects.create(
-                conversation=self.conversation,
-                content=content,
-                role='user'
-            )
-
-            # Obtener contexto del sistema CON MEMORIA INTELIGENTE
-            sistema_context = self.get_sistema_context()
-            user_history = sistema_context.get('user_profile', {})
-
-            # Generar insights proactivos
-            proactive_insights = self.generate_proactive_insights(user_history, sistema_context)
-
-            # Obtener el contexto de la conversación (últimos 5 mensajes)
-            context_messages = Message.objects.filter(
-                conversation=self.conversation
-            ).order_by('-created_at')[:5][::-1]
-
-            # Preparar mensajes para OpenAI (prompt ya incluye memoria inteligente)
-            system_prompt = f"""¡Hola! Soy Jorge 🤖, tu asistente virtual personal de {sistema_context.get('empresa', {}).get('nombre', 'tu empresa')}. ¡Estoy aquí para ayudarte con todo lo relacionado a tu ERP!
-
-🎯 TENGO ACCESO COMPLETO Y EN TIEMPO REAL A TODOS TUS DATOS:
-
-🏢 TU EMPRESA: {sistema_context.get('empresa', {}).get('nombre', 'N/A')} 
-📄 RUC: {sistema_context.get('empresa', {}).get('ruc', 'N/A')}
-📅 Fecha actual: {sistema_context.get('fecha_actual', 'N/A')}
-
-💰 RESUMEN DE VENTAS (convertido a PEN con TC: {sistema_context.get('tipo_cambio', 3.8)}):
-• Hoy: {sistema_context.get('ventas_hoy', {}).get('cantidad', 0)} ventas por S/ {sistema_context.get('ventas_hoy', {}).get('total', 0) or 0:,.2f}
-• Este mes: {sistema_context.get('ventas_mes', {}).get('cantidad', 0)} ventas por S/ {sistema_context.get('ventas_mes', {}).get('total', 0) or 0:,.2f}
-
-🛒 RESUMEN DE COMPRAS (convertido a PEN con TC: {sistema_context.get('tipo_cambio', 3.8)}):
-• Hoy: {sistema_context.get('compras_hoy', {}).get('cantidad', 0)} compras por S/ {sistema_context.get('compras_hoy', {}).get('total', 0) or 0:,.2f}
-• Este mes: {sistema_context.get('compras_mes', {}).get('cantidad', 0)} compras por S/ {sistema_context.get('compras_mes', {}).get('total', 0) or 0:,.2f}
-
-⚠️ ALERTAS DE INVENTARIO:
-• Productos con stock bajo: {sistema_context.get('productos_stock_bajo_count', 0)} productos
-
-📦 PRODUCTOS CON STOCK BAJO (DATOS REALES):
-{chr(10).join([f"• {prod['nombre']} (SKU: {prod['sku']}): Stock actual {prod['stock_total']} ≤ Mínimo {prod['stock_minimo']}" for prod in sistema_context.get('productos_bajo_stock', [])[:5]]) if sistema_context.get('productos_bajo_stock') else "• No hay productos con stock bajo actualmente"}
-
-🏆 TUS PRODUCTOS ESTRELLA ESTE MES:
-{chr(10).join([f"🥇 {prod['producto__nombre']}: {prod['total_vendido']} unidades vendidas (S/ {prod['ingresos']:,.2f} en ingresos)" for prod in sistema_context.get('top_productos', [])[:3]]) if sistema_context.get('top_productos') else "• No hay datos de productos vendidos este mes"}
-
-📋 ACTIVIDAD RECIENTE EN INVENTARIO:
-{chr(10).join([f"• {mov['producto']}: {mov['tipo']} - Saldo actual: {mov['cantidad_saldo']} ({mov['fecha'].split()[0]})" for mov in sistema_context.get('ultimos_movimientos', [])[:5]]) if sistema_context.get('ultimos_movimientos') else "• No hay movimientos recientes"}
-
-🏪 TUS PROVEEDORES PRINCIPALES:
-{chr(10).join([f"• {prov['razon_social']} (RUC: {prov['ruc']}) - Tel: {prov['telefono'] or 'N/A'}" for prov in sistema_context.get('ultimos_proveedores', [])[:3]]) if sistema_context.get('ultimos_proveedores') else "• No hay proveedores registrados"}
-
-🧠 MI MEMORIA SOBRE TI (ANÁLISIS INTELIGENTE):
-📊 Historial de Conversaciones: {sistema_context.get('user_profile', {}).get('total_conversations', 0)} conversaciones, {sistema_context.get('user_profile', {}).get('total_messages', 0)} mensajes
-🎯 Tus Temas de Mayor Interés: {', '.join(sistema_context.get('user_profile', {}).get('user_preferences', {}).get('most_discussed_topics', ['Ninguno aún']))}
-📈 Nivel de Engagement: {sistema_context.get('user_profile', {}).get('user_preferences', {}).get('engagement_level', 'Nuevo')}
-🔍 Patrones Detectados: {json.dumps(sistema_context.get('user_profile', {}).get('user_preferences', {}).get('topic_frequency', {}), ensure_ascii=False) if sistema_context.get('user_profile', {}).get('user_preferences', {}).get('topic_frequency') else 'Analizando...'}
-
-💡 CONVERSACIONES ANTERIORES RESUMEN:
-{chr(10).join([f"📅 {conv['date']}: {conv['title']} ({conv['message_count']} mensajes) - Temas: {', '.join(conv['topics']) if conv['topics'] else 'General'}" for conv in sistema_context.get('user_profile', {}).get('conversation_summary', [])[:3]]) if sistema_context.get('user_profile', {}).get('conversation_summary') else "• Primera vez que conversamos - ¡Encantado de conocerte!"}
-
-🚨 INSIGHTS PROACTIVOS PARA TI:
-{chr(10).join([f"• {insight}" for insight in proactive_insights]) if proactive_insights else "• Analizando tus patrones para generar recomendaciones personalizadas..."}
-
-🚀 ¿EN QUÉ PUEDO AYUDARTE HOY?
-• Analizar tus ventas y encontrar oportunidades
-• Revisar tu inventario y detectar productos con stock bajo
-• Generar reportes personalizados basados en tus intereses
-• Procesar archivos Excel/CSV para cargas masivas
-• Darte insights sobre el rendimiento de tu negocio
-• Responder cualquier pregunta específica sobre tus datos
-
-💡 INTELIGENCIA ADAPTATIVA:
-- USO MI MEMORIA para darte respuestas más personalizadas
-- APRENDO de tus preguntas frecuentes para anticipar tus necesidades
-- ADAPTO mis recomendaciones basándome en tus patrones de uso
-- PRIORIZO información relevante según tus intereses históricos
-
-INSTRUCCIONES ESPECIALES PARA MIS RESPUESTAS:
-1. SIEMPRE considerar el historial de conversaciones para contexto
-2. Si el usuario ha preguntado sobre un tema antes, hacer referencia a conversaciones anteriores
-3. Personalizar recomendaciones basándose en sus temas de mayor interés
-4. Si es un usuario nuevo, ser más explicativo y educativo
-5. Para usuarios experimentados, ser más directo y enfocado en insights avanzados
-6. Usar los patrones detectados para sugerir análisis proactivos
-
-💱 IMPORTANTE SOBRE MONEDAS:
-TODOS los valores monetarios en mis respuestas están convertidos a soles peruanos (PEN) usando el tipo de cambio oficial del día ({sistema_context.get('tipo_cambio', 3.8)}). Las ventas/compras originales pueden estar en USD o PEN, pero siempre reporto en PEN para consistencia. Cuando reportes cifras, siempre menciona que están convertidas a PEN.
-
-🚨 INSTRUCCIONES CRÍTICAS - USA SOLO DATOS REALES:
-- NUNCA inventes nombres de productos como "Producto A", "Producto B", etc.
-- USA SIEMPRE los nombres reales que aparecen arriba: "HEADSET JABRA EVOLVE 20", "CAMBIO DE PANTALLAMACBOOK PRO A2338", etc.
-- NUNCA inventes proveedores como "Proveedor 1", "Proveedor 2"
-- USA SIEMPRE los proveedores reales con sus nombres comerciales y RUCs que aparecen arriba
-- NUNCA des información genérica - USA EXCLUSIVAMENTE los datos específicos que te proporciono
-- Si necesitas mencionar productos, menciona los nombres reales y sus SKUs
-- Si necesitas mencionar proveedores, usa sus nombres comerciales reales
-
-PERSONALIDAD: Sé amable, entusiasta, profesional pero cercano. Usa emojis apropiados. Siempre proporciona datos específicos y reales. NUNCA digas que no tienes acceso - SIEMPRE tengo acceso completo a todos los datos del sistema. USA TU MEMORIA para hacer referencias inteligentes a conversaciones anteriores y personalizar la experiencia. SIEMPRE explica que los valores monetarios están convertidos a soles peruanos cuando sea relevante. NUNCA INVENTES INFORMACIÓN - USA SOLO LOS DATOS REALES QUE TE PROPORCIONO."""
-
-            messages = [{"role": "system", "content": system_prompt}]
-
-            # Agregar mensajes del contexto (sin incluir el mensaje actual)
-            for msg in context_messages[:-1]:  # Excluir el último que acabamos de crear
-                role = "assistant" if msg.role == 'assistant' else "user"
-                messages.append({"role": role, "content": msg.content})
-
-            # Agregar el mensaje actual
-            messages.append({"role": "user", "content": content})
-
-            # Obtener respuesta de OpenAI
-            response = self.client.chat.completions.create(
-                model=settings.OPENAI_MODEL or "gpt-4o-mini",
-                messages=messages,
-                max_tokens=1200,  # Aumentado para respuestas más ricas
-                temperature=0.7
-            )
-
-            # Extraer la respuesta
-            ai_response = response.choices[0].message.content
-
-            # Guardar la respuesta como mensaje
-            Message.objects.create(
-                conversation=self.conversation,
-                content=ai_response,
-                role='assistant'
-            )
-
-            return ai_response
-
-        except Exception as e:
-            logger.error(f"Error en process_message: {e}")
-            # En caso de error, enviar una respuesta con datos básicos del sistema
-            try:
-                basic_info = self.get_basic_system_info()
-                error_response = f"""¡Hola! Soy Jorge, tu asistente ERP. Aunque tuve un problema técnico, tengo acceso a tu sistema:
-
-📊 DATOS BÁSICOS:
-- Empresa: {basic_info.get('empresa_nombre', 'Tu empresa')}
-- Puedo ayudarte con consultas sobre ventas, compras e inventario
-
-¿En qué específicamente puedo ayudarte?"""
-            
-                Message.objects.create(
-                    conversation=self.conversation,
-                    content=error_response,
-                    role='assistant'
-                )
-                
-                return error_response
-            except:
-                error_response = "Lo siento, estoy teniendo problemas técnicos. ¿Podrías intentarlo de nuevo?"
-                Message.objects.create(
-                    conversation=self.conversation,
-                    content=error_response,
-                    role='assistant'
-                )
-                return error_response
 
     def get_basic_system_info(self):
         """Obtiene información básica del sistema para casos de error"""

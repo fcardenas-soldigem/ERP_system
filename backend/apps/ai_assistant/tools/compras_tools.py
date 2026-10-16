@@ -1,6 +1,5 @@
 from typing import List, Optional
 from pydantic import BaseModel, Field
-from openai import pydantic_function_tool
 
 class ProductoCompraParams(BaseModel):
     producto_sku: str = Field(description="SKU del producto a comprar")
@@ -25,35 +24,5 @@ class BuscarProductosComprasParams(BaseModel):
 class BuscarAlmacenesParams(BaseModel):
     query: str = Field(description="Término de búsqueda para almacenes (nombre o dirección)")
 
-# Tools específicos para compras
-CREAR_COMPRA_TOOL = pydantic_function_tool(
-    CrearCompraParams, 
-    name="crear_compra", 
-    description="Crear una nueva orden de compra con productos específicos. Todos los campos son obligatorios: proveedor_id, almacen_id, tipo_compra, metodo_pago, productos (con producto_sku, cantidad, precio_unitario)"
-)
-
-BUSCAR_PRODUCTOS_COMPRAS_TOOL = pydantic_function_tool(
-    BuscarProductosComprasParams, 
-    name="buscar_productos", 
-    description="Buscar productos disponibles para compra por nombre, descripción o SKU"
-)
-
-BUSCAR_PROVEEDORES_TOOL = pydantic_function_tool(
-    BuscarProveedoresParams, 
-    name="buscar_proveedores", 
-    description="Buscar proveedores por razón social o RUC para obtener su ID"
-)
-
-BUSCAR_ALMACENES_TOOL = pydantic_function_tool(
-    BuscarAlmacenesParams, 
-    name="buscar_almacenes", 
-    description="Buscar almacenes disponibles por nombre o dirección para obtener su ID"
-)
-
-# Lista de herramientas para el asistente de compras
-COMPRAS_TOOLS = [
-    CREAR_COMPRA_TOOL,
-    BUSCAR_PRODUCTOS_COMPRAS_TOOL,
-    BUSCAR_PROVEEDORES_TOOL,
-    BUSCAR_ALMACENES_TOOL
-] 
+# Las ToolSpec (nombre, descripción, schema) se construyen en services/perfiles.py
+# a partir de estos modelos pydantic, independientes del proveedor de LLM.

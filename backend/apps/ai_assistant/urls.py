@@ -8,7 +8,6 @@ from .views import (
     AIAssistantViewSet,
     ThreadView,
     MessageView,
-    FileUploadView,
     ThreadViewWithTools,
     MessageViewWithTools,
     VentasAssistantView,
@@ -40,7 +39,6 @@ urlpatterns = [
     path('threads/<str:thread_id>/messages/', MessageView.as_view(), name='message-list'),
     path('threads-tools/', ThreadViewWithTools.as_view(), name='thread-tools-list'),
     path('threads-tools/<str:thread_id>/messages/', MessageViewWithTools.as_view(), name='message-tools-list'),
-    path('files/upload/', FileUploadView.as_view(), name='file-upload'),
     # Rutas del asistente de ventas especializado
     path('ventas-assistant/', VentasAssistantView.as_view(), name='ventas-assistant'),
     path('ventas-assistant/<str:thread_id>/messages/', VentasMessageView.as_view(), name='ventas-messages'),
