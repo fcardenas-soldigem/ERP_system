@@ -1,0 +1,716 @@
+{
+ "modelo": "gemini-3.1-flash-lite",
+ "proveedor": "vertex",
+ "resumen": {
+  "preguntas": 40,
+  "errores": 0,
+  "tool_correcta_pct": 100.0,
+  "params_correctos_pct": 100.0,
+  "latencia_p50_ms": 1326,
+  "latencia_p95_ms": 1898,
+  "tokens_in": 22308,
+  "tokens_out": 1621,
+  "costo_usd_corrida": 0.008008,
+  "costo_usd_por_1000_preguntas": 0.2002
+ },
+ "filas": [
+  {
+   "id": "q01",
+   "rep": 0,
+   "perfil": "jorge",
+   "esperado_tool": "analizar_ventas",
+   "tool": "analizar_ventas",
+   "params": {
+    "periodo": "mes"
+   },
+   "tool_ok": true,
+   "params_ok": true,
+   "error": null,
+   "latencia_ms": 2304,
+   "tokens_in": 515,
+   "tokens_out": 19,
+   "respuesta_len": 62
+  },
+  {
+   "id": "q02",
+   "rep": 0,
+   "perfil": "jorge",
+   "esperado_tool": "analizar_ventas",
+   "tool": "analizar_ventas",
+   "params": {
+    "periodo": "semana"
+   },
+   "tool_ok": true,
+   "params_ok": true,
+   "error": null,
+   "latencia_ms": 1334,
+   "tokens_in": 516,
+   "tokens_out": 20,
+   "respuesta_len": 62
+  },
+  {
+   "id": "q03",
+   "rep": 0,
+   "perfil": "jorge",
+   "esperado_tool": "analizar_ventas",
+   "tool": "analizar_ventas",
+   "params": {
+    "periodo": "año"
+   },
+   "tool_ok": true,
+   "params_ok": true,
+   "error": null,
+   "latencia_ms": 1898,
+   "tokens_in": 515,
+   "tokens_out": 19,
+   "respuesta_len": 62
+  },
+  {
+   "id": "q04",
+   "rep": 0,
+   "perfil": "jorge",
+   "esperado_tool": "analizar_ventas",
+   "tool": "analizar_ventas",
+   "params": {
+    "periodo": "trimestre",
+    "fecha_fin": "2026-09-30",
+    "fecha_inicio": "2026-06-01"
+   },
+   "tool_ok": true,
+   "params_ok": true,
+   "error": null,
+   "latencia_ms": 1396,
+   "tokens_in": 528,
+   "tokens_out": 54,
+   "respuesta_len": 62
+  },
+  {
+   "id": "q05",
+   "rep": 0,
+   "perfil": "jorge",
+   "esperado_tool": "analizar_inventario",
+   "tool": "analizar_inventario",
+   "params": {
+    "stock_minimo": 10
+   },
+   "tool_ok": true,
+   "params_ok": true,
+   "error": null,
+   "latencia_ms": 1291,
+   "tokens_in": 514,
+   "tokens_out": 20,
+   "respuesta_len": 62
+  },
+  {
+   "id": "q06",
+   "rep": 0,
+   "perfil": "jorge",
+   "esperado_tool": "analizar_inventario",
+   "tool": "analizar_inventario",
+   "params": {
+    "stock_minimo": 5
+   },
+   "tool_ok": true,
+   "params_ok": true,
+   "error": null,
+   "latencia_ms": 1042,
+   "tokens_in": 521,
+   "tokens_out": 19,
+   "respuesta_len": 62
+  },
+  {
+   "id": "q07",
+   "rep": 0,
+   "perfil": "jorge",
+   "esperado_tool": "analizar_inventario",
+   "tool": "analizar_inventario",
+   "params": {
+    "stock_minimo": 10
+   },
+   "tool_ok": true,
+   "params_ok": true,
+   "error": null,
+   "latencia_ms": 1315,
+   "tokens_in": 521,
+   "tokens_out": 20,
+   "respuesta_len": 62
+  },
+  {
+   "id": "q08",
+   "rep": 0,
+   "perfil": "jorge",
+   "esperado_tool": "analizar_clientes",
+   "tool": "analizar_clientes",
+   "params": {
+    "top_clientes": 5,
+    "periodo": "mes"
+   },
+   "tool_ok": true,
+   "params_ok": true,
+   "error": null,
+   "latencia_ms": 1173,
+   "tokens_in": 517,
+   "tokens_out": 24,
+   "respuesta_len": 62
+  },
+  {
+   "id": "q09",
+   "rep": 0,
+   "perfil": "jorge",
+   "esperado_tool": "analizar_clientes",
+   "tool": "analizar_clientes",
+   "params": {
+    "top_clientes": 5,
+    "periodo": "trimestre"
+   },
+   "tool_ok": true,
+   "params_ok": true,
+   "error": null,
+   "latencia_ms": 1222,
+   "tokens_in": 513,
+   "tokens_out": 25,
+   "respuesta_len": 62
+  },
+  {
+   "id": "q10",
+   "rep": 0,
+   "perfil": "jorge",
+   "esperado_tool": "consulta_libre",
+   "tool": "consulta_libre",
+   "params": {
+    "consulta": "¿Qué proveedores tenemos registrados y cuál conviene para reponer?"
+   },
+   "tool_ok": true,
+   "params_ok": true,
+   "error": null,
+   "latencia_ms": 1123,
+   "tokens_in": 519,
+   "tokens_out": 27,
+   "respuesta_len": 62
+  },
+  {
+   "id": "q11",
+   "rep": 0,
+   "perfil": "jorge",
+   "esperado_tool": "consulta_libre",
+   "tool": "consulta_libre",
+   "params": {
+    "consulta": "¿Qué oportunidades comerciales detectas en los datos actuales de la empresa?"
+   },
+   "tool_ok": true,
+   "params_ok": true,
+   "error": null,
+   "latencia_ms": 1558,
+   "tokens_in": 516,
+   "tokens_out": 29,
+   "respuesta_len": 62
+  },
+  {
+   "id": "q12",
+   "rep": 0,
+   "perfil": "jorge",
+   "esperado_tool": null,
+   "tool": null,
+   "params": null,
+   "tool_ok": true,
+   "params_ok": true,
+   "error": null,
+   "latencia_ms": 1499,
+   "tokens_in": 517,
+   "tokens_out": 142,
+   "respuesta_len": 626
+  },
+  {
+   "id": "q13",
+   "rep": 0,
+   "perfil": "ventas",
+   "esperado_tool": "buscar_clientes",
+   "tool": "buscar_clientes",
+   "params": {
+    "query": "Cliente Demo 1"
+   },
+   "tool_ok": true,
+   "params_ok": true,
+   "error": null,
+   "latencia_ms": 1072,
+   "tokens_in": 566,
+   "tokens_out": 19,
+   "respuesta_len": 62
+  },
+  {
+   "id": "q14",
+   "rep": 0,
+   "perfil": "ventas",
+   "esperado_tool": "buscar_productos",
+   "tool": "buscar_productos",
+   "params": {
+    "query": "DEMO-0012-01"
+   },
+   "tool_ok": true,
+   "params_ok": true,
+   "error": null,
+   "latencia_ms": 1258,
+   "tokens_in": 578,
+   "tokens_out": 25,
+   "respuesta_len": 62
+  },
+  {
+   "id": "q15",
+   "rep": 0,
+   "perfil": "ventas",
+   "esperado_tool": {
+    "en": [
+     "buscar_clientes",
+     "buscar_productos"
+    ]
+   },
+   "tool": "buscar_clientes",
+   "params": {
+    "query": "Cliente Demo 2"
+   },
+   "tool_ok": true,
+   "params_ok": true,
+   "error": null,
+   "latencia_ms": 1655,
+   "tokens_in": 588,
+   "tokens_out": 37,
+   "respuesta_len": 62
+  },
+  {
+   "id": "q16",
+   "rep": 0,
+   "perfil": "ventas",
+   "esperado_tool": null,
+   "tool": null,
+   "params": null,
+   "tool_ok": true,
+   "params_ok": true,
+   "error": null,
+   "latencia_ms": 1358,
+   "tokens_in": 562,
+   "tokens_out": 106,
+   "respuesta_len": 403
+  },
+  {
+   "id": "q17",
+   "rep": 0,
+   "perfil": "compras",
+   "esperado_tool": "buscar_proveedores",
+   "tool": "buscar_proveedores",
+   "params": {
+    "query": "Proveedor Demo 2"
+   },
+   "tool_ok": true,
+   "params_ok": true,
+   "error": null,
+   "latencia_ms": 1448,
+   "tokens_in": 660,
+   "tokens_out": 20,
+   "respuesta_len": 62
+  },
+  {
+   "id": "q18",
+   "rep": 0,
+   "perfil": "compras",
+   "esperado_tool": "buscar_almacenes",
+   "tool": "buscar_almacenes",
+   "params": {
+    "query": ""
+   },
+   "tool_ok": true,
+   "params_ok": true,
+   "error": null,
+   "latencia_ms": 1039,
+   "tokens_in": 657,
+   "tokens_out": 17,
+   "respuesta_len": 62
+  },
+  {
+   "id": "q19",
+   "rep": 0,
+   "perfil": "compras",
+   "esperado_tool": {
+    "en": [
+     "buscar_proveedores",
+     "buscar_productos",
+     "buscar_almacenes"
+    ]
+   },
+   "tool": "buscar_productos",
+   "params": {
+    "query": "Stock Bajo A"
+   },
+   "tool_ok": true,
+   "params_ok": true,
+   "error": null,
+   "latencia_ms": 1328,
+   "tokens_in": 676,
+   "tokens_out": 37,
+   "respuesta_len": 62
+  },
+  {
+   "id": "q20",
+   "rep": 0,
+   "perfil": "compras",
+   "esperado_tool": null,
+   "tool": null,
+   "params": null,
+   "tool_ok": true,
+   "params_ok": true,
+   "error": null,
+   "latencia_ms": 1638,
+   "tokens_in": 655,
+   "tokens_out": 126,
+   "respuesta_len": 457
+  },
+  {
+   "id": "q01",
+   "rep": 1,
+   "perfil": "jorge",
+   "esperado_tool": "analizar_ventas",
+   "tool": "analizar_ventas",
+   "params": {
+    "periodo": "mes"
+   },
+   "tool_ok": true,
+   "params_ok": true,
+   "error": null,
+   "latencia_ms": 975,
+   "tokens_in": 515,
+   "tokens_out": 19,
+   "respuesta_len": 62
+  },
+  {
+   "id": "q02",
+   "rep": 1,
+   "perfil": "jorge",
+   "esperado_tool": "analizar_ventas",
+   "tool": "analizar_ventas",
+   "params": {
+    "periodo": "semana"
+   },
+   "tool_ok": true,
+   "params_ok": true,
+   "error": null,
+   "latencia_ms": 1410,
+   "tokens_in": 516,
+   "tokens_out": 20,
+   "respuesta_len": 62
+  },
+  {
+   "id": "q03",
+   "rep": 1,
+   "perfil": "jorge",
+   "esperado_tool": "analizar_ventas",
+   "tool": "analizar_ventas",
+   "params": {
+    "periodo": "año"
+   },
+   "tool_ok": true,
+   "params_ok": true,
+   "error": null,
+   "latencia_ms": 1221,
+   "tokens_in": 515,
+   "tokens_out": 19,
+   "respuesta_len": 62
+  },
+  {
+   "id": "q04",
+   "rep": 1,
+   "perfil": "jorge",
+   "esperado_tool": "analizar_ventas",
+   "tool": "analizar_ventas",
+   "params": {
+    "fecha_inicio": "2026-06-01",
+    "periodo": "trimestre",
+    "fecha_fin": "2026-09-30"
+   },
+   "tool_ok": true,
+   "params_ok": true,
+   "error": null,
+   "latencia_ms": 1617,
+   "tokens_in": 528,
+   "tokens_out": 54,
+   "respuesta_len": 62
+  },
+  {
+   "id": "q05",
+   "rep": 1,
+   "perfil": "jorge",
+   "esperado_tool": "analizar_inventario",
+   "tool": "analizar_inventario",
+   "params": {
+    "stock_minimo": 5
+   },
+   "tool_ok": true,
+   "params_ok": true,
+   "error": null,
+   "latencia_ms": 1071,
+   "tokens_in": 514,
+   "tokens_out": 19,
+   "respuesta_len": 62
+  },
+  {
+   "id": "q06",
+   "rep": 1,
+   "perfil": "jorge",
+   "esperado_tool": "analizar_inventario",
+   "tool": "analizar_inventario",
+   "params": {
+    "stock_minimo": 5
+   },
+   "tool_ok": true,
+   "params_ok": true,
+   "error": null,
+   "latencia_ms": 1136,
+   "tokens_in": 521,
+   "tokens_out": 19,
+   "respuesta_len": 62
+  },
+  {
+   "id": "q07",
+   "rep": 1,
+   "perfil": "jorge",
+   "esperado_tool": "analizar_inventario",
+   "tool": "analizar_inventario",
+   "params": {
+    "stock_minimo": 10
+   },
+   "tool_ok": true,
+   "params_ok": true,
+   "error": null,
+   "latencia_ms": 1193,
+   "tokens_in": 521,
+   "tokens_out": 20,
+   "respuesta_len": 62
+  },
+  {
+   "id": "q08",
+   "rep": 1,
+   "perfil": "jorge",
+   "esperado_tool": "analizar_clientes",
+   "tool": "analizar_clientes",
+   "params": {
+    "top_clientes": 5,
+    "periodo": "mes"
+   },
+   "tool_ok": true,
+   "params_ok": true,
+   "error": null,
+   "latencia_ms": 1153,
+   "tokens_in": 517,
+   "tokens_out": 24,
+   "respuesta_len": 62
+  },
+  {
+   "id": "q09",
+   "rep": 1,
+   "perfil": "jorge",
+   "esperado_tool": "analizar_clientes",
+   "tool": "analizar_clientes",
+   "params": {
+    "top_clientes": 5,
+    "periodo": "trimestre"
+   },
+   "tool_ok": true,
+   "params_ok": true,
+   "error": null,
+   "latencia_ms": 1439,
+   "tokens_in": 513,
+   "tokens_out": 25,
+   "respuesta_len": 62
+  },
+  {
+   "id": "q10",
+   "rep": 1,
+   "perfil": "jorge",
+   "esperado_tool": "consulta_libre",
+   "tool": "consulta_libre",
+   "params": {
+    "consulta": "¿Qué proveedores tenemos registrados y cuál conviene para reponer?"
+   },
+   "tool_ok": true,
+   "params_ok": true,
+   "error": null,
+   "latencia_ms": 1255,
+   "tokens_in": 519,
+   "tokens_out": 27,
+   "respuesta_len": 62
+  },
+  {
+   "id": "q11",
+   "rep": 1,
+   "perfil": "jorge",
+   "esperado_tool": "consulta_libre",
+   "tool": "consulta_libre",
+   "params": {
+    "consulta": "¿Qué oportunidades comerciales detectas en los datos actuales de la empresa?"
+   },
+   "tool_ok": true,
+   "params_ok": true,
+   "error": null,
+   "latencia_ms": 1167,
+   "tokens_in": 516,
+   "tokens_out": 29,
+   "respuesta_len": 62
+  },
+  {
+   "id": "q12",
+   "rep": 1,
+   "perfil": "jorge",
+   "esperado_tool": null,
+   "tool": null,
+   "params": null,
+   "tool_ok": true,
+   "params_ok": true,
+   "error": null,
+   "latencia_ms": 2289,
+   "tokens_in": 517,
+   "tokens_out": 127,
+   "respuesta_len": 572
+  },
+  {
+   "id": "q13",
+   "rep": 1,
+   "perfil": "ventas",
+   "esperado_tool": "buscar_clientes",
+   "tool": "buscar_clientes",
+   "params": {
+    "query": "Cliente Demo 1"
+   },
+   "tool_ok": true,
+   "params_ok": true,
+   "error": null,
+   "latencia_ms": 1053,
+   "tokens_in": 566,
+   "tokens_out": 19,
+   "respuesta_len": 62
+  },
+  {
+   "id": "q14",
+   "rep": 1,
+   "perfil": "ventas",
+   "esperado_tool": "buscar_productos",
+   "tool": "buscar_productos",
+   "params": {
+    "query": "DEMO-0012-01"
+   },
+   "tool_ok": true,
+   "params_ok": true,
+   "error": null,
+   "latencia_ms": 1483,
+   "tokens_in": 578,
+   "tokens_out": 25,
+   "respuesta_len": 62
+  },
+  {
+   "id": "q15",
+   "rep": 1,
+   "perfil": "ventas",
+   "esperado_tool": {
+    "en": [
+     "buscar_clientes",
+     "buscar_productos"
+    ]
+   },
+   "tool": "buscar_clientes",
+   "params": {
+    "query": "Cliente Demo 2"
+   },
+   "tool_ok": true,
+   "params_ok": true,
+   "error": null,
+   "latencia_ms": 1372,
+   "tokens_in": 588,
+   "tokens_out": 37,
+   "respuesta_len": 62
+  },
+  {
+   "id": "q16",
+   "rep": 1,
+   "perfil": "ventas",
+   "esperado_tool": null,
+   "tool": null,
+   "params": null,
+   "tool_ok": true,
+   "params_ok": true,
+   "error": null,
+   "latencia_ms": 1745,
+   "tokens_in": 562,
+   "tokens_out": 122,
+   "respuesta_len": 450
+  },
+  {
+   "id": "q17",
+   "rep": 1,
+   "perfil": "compras",
+   "esperado_tool": "buscar_proveedores",
+   "tool": "buscar_proveedores",
+   "params": {
+    "query": "Proveedor Demo 2"
+   },
+   "tool_ok": true,
+   "params_ok": true,
+   "error": null,
+   "latencia_ms": 1450,
+   "tokens_in": 660,
+   "tokens_out": 20,
+   "respuesta_len": 62
+  },
+  {
+   "id": "q18",
+   "rep": 1,
+   "perfil": "compras",
+   "esperado_tool": "buscar_almacenes",
+   "tool": "buscar_almacenes",
+   "params": {
+    "query": ""
+   },
+   "tool_ok": true,
+   "params_ok": true,
+   "error": null,
+   "latencia_ms": 1242,
+   "tokens_in": 657,
+   "tokens_out": 17,
+   "respuesta_len": 62
+  },
+  {
+   "id": "q19",
+   "rep": 1,
+   "perfil": "compras",
+   "esperado_tool": {
+    "en": [
+     "buscar_proveedores",
+     "buscar_productos",
+     "buscar_almacenes"
+    ]
+   },
+   "tool": "buscar_productos",
+   "params": {
+    "query": "Stock Bajo A"
+   },
+   "tool_ok": true,
+   "params_ok": true,
+   "error": null,
+   "latencia_ms": 1324,
+   "tokens_in": 676,
+   "tokens_out": 37,
+   "respuesta_len": 62
+  },
+  {
+   "id": "q20",
+   "rep": 1,
+   "perfil": "compras",
+   "esperado_tool": null,
+   "tool": null,
+   "params": null,
+   "tool_ok": true,
+   "params_ok": true,
+   "error": null,
+   "latencia_ms": 1508,
+   "tokens_in": 655,
+   "tokens_out": 137,
+   "respuesta_len": 506
+  }
+ ]
+}

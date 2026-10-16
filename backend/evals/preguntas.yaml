@@ -1,0 +1,131 @@
+# Eval de selección de herramienta del asistente (manage.py eval_llm --model X).
+#
+# 20 preguntas reales de una PYME distribuidora sobre los datos de `seed_demo`
+# (empresa "Demo Con Stock", RUC 20000000012: 2 clientes "Cliente Demo 1/2 (Demo Con
+# Stock)", 3 proveedores "Proveedor Demo N (Demo Con Stock)", 6 productos
+# DEMO-0012-01..06 con perfiles de stock, ventas USD/PEN, 1 compra pagada).
+#
+# Por pregunta: perfil del asistente, tool esperada (null = debe responder sin tool o
+# pedir datos) y parámetros esperados. Matchers de parámetros:
+#   valor literal           → igualdad (strings sin distinguir mayúsculas)
+#   {en: [a, b]}            → el valor está en la lista
+#   {contiene: "texto"}     → substring, sin distinguir mayúsculas
+#   {presente: true}        → basta con que venga
+# Las tools NO se ejecutan durante el eval (se registra la llamada del modelo).
+empresa_ruc: "20000000012"
+usuario: demo-constock@local.dev
+
+preguntas:
+  # ── Jorge (analista): ventas ──
+  - id: q01
+    perfil: jorge
+    pregunta: "¿Cómo estuvieron las ventas este mes?"
+    tool: analizar_ventas
+    params: {periodo: mes}
+  - id: q02
+    perfil: jorge
+    pregunta: "Dame un resumen de las ventas de esta semana"
+    tool: analizar_ventas
+    params: {periodo: semana}
+  - id: q03
+    perfil: jorge
+    pregunta: "¿Cuánto vendimos en el año?"
+    tool: analizar_ventas
+    params: {periodo: {en: [año, anio, year]}}
+  - id: q04
+    perfil: jorge
+    pregunta: "Analiza las ventas entre el 1 de junio y el 30 de setiembre de este año"
+    tool: analizar_ventas
+    params: {fecha_inicio: {contiene: "-06-01"}, fecha_fin: {contiene: "-09-30"}}
+  # ── Jorge: inventario ──
+  - id: q05
+    perfil: jorge
+    pregunta: "¿Qué productos tienen stock bajo?"
+    tool: analizar_inventario
+    params: {}
+  - id: q06
+    perfil: jorge
+    pregunta: "Muéstrame los productos con menos de 5 unidades en stock"
+    tool: analizar_inventario
+    params: {stock_minimo: 5}
+  - id: q07
+    perfil: jorge
+    pregunta: "¿Cómo está el inventario en general, qué debería reponer?"
+    tool: analizar_inventario
+    params: {}
+  # ── Jorge: clientes ──
+  - id: q08
+    perfil: jorge
+    pregunta: "¿Quiénes fueron mis mejores clientes este mes?"
+    tool: analizar_clientes
+    params: {periodo: mes}
+  - id: q09
+    perfil: jorge
+    pregunta: "Top 5 clientes del trimestre"
+    tool: analizar_clientes
+    params: {periodo: trimestre, top_clientes: 5}
+  # ── Jorge: consulta libre ──
+  - id: q10
+    perfil: jorge
+    pregunta: "¿Qué proveedores tenemos registrados y cuál conviene para reponer?"
+    tool: consulta_libre
+    params: {consulta: {presente: true}}
+  - id: q11
+    perfil: jorge
+    pregunta: "¿Qué oportunidades comerciales ves en nuestros datos?"
+    tool: consulta_libre
+    params: {consulta: {presente: true}}
+  # ── Jorge: no debe llamar tools ──
+  - id: q12
+    perfil: jorge
+    pregunta: "Hola Jorge, ¿qué puedes hacer por mí?"
+    tool: null
+    params: {}
+  # ── Asistente de ventas ──
+  - id: q13
+    perfil: ventas
+    pregunta: "Busca al cliente Cliente Demo 1"
+    tool: buscar_clientes
+    params: {query: {contiene: "demo 1"}}
+  - id: q14
+    perfil: ventas
+    pregunta: "¿Tenemos el producto DEMO-0012-01? ¿a qué precio?"
+    tool: buscar_productos
+    params: {query: {contiene: "DEMO-0012-01"}}
+  - id: q15
+    perfil: ventas
+    pregunta: "Quiero registrar una venta al contado para Cliente Demo 2: 3 unidades de Stock Alto A a 100 soles, pago en efectivo"
+    # Falta el ID del cliente y el SKU → el modelo debe buscar primero, no crear a ciegas.
+    tool: {en: [buscar_clientes, buscar_productos]}
+    params: {}
+  - id: q16
+    perfil: ventas
+    pregunta: "Crea una venta"
+    # Sin datos suficientes debe PREGUNTAR, no llamar crear_venta.
+    tool: null
+    params: {}
+    tool_prohibida: crear_venta
+  # ── Asistente de compras ──
+  - id: q17
+    perfil: compras
+    pregunta: "Busca el proveedor Proveedor Demo 2"
+    tool: buscar_proveedores
+    params: {query: {contiene: "demo 2"}}
+  - id: q18
+    perfil: compras
+    pregunta: "¿Qué almacenes tenemos?"
+    # "listar todos" → el modelo manda query vacío; basta con la tool correcta.
+    tool: buscar_almacenes
+    params: {}
+  - id: q19
+    perfil: compras
+    pregunta: "Necesito comprar 50 unidades de Stock Bajo A al Proveedor Demo 1, ¿me ayudas a registrarla?"
+    tool: {en: [buscar_proveedores, buscar_productos, buscar_almacenes]}
+    params: {}
+    tool_prohibida: crear_compra
+  - id: q20
+    perfil: compras
+    pregunta: "Registra una compra"
+    tool: null
+    params: {}
+    tool_prohibida: crear_compra
