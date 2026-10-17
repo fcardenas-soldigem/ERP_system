@@ -101,7 +101,6 @@ defecto con `DJANGO_DEBUG=False`; se deja explícito).
 ```bash
 export SECRETS="DJANGO_SECRET_KEY=django-secret-key:latest,JWT_SIGNING_KEY=jwt-signing-key:latest,APIS_NET_PE_TOKEN=apis-net-pe-token:latest,DB_PASSWORD=db-password:latest"
 # Si hay Redis:  SECRETS="$SECRETS,REDIS_URL=redis-url:latest"
-# Analista comercial (Claude), opcional:  SECRETS="$SECRETS,CLAUDE_API_KEY=claude-api-key:latest"
 # El asistente IA (Jorge, ventas, compras) NO usa secretos: ver §3.1 (Vertex AI + ADC).
 ```
 

@@ -397,8 +397,6 @@ LLM_API_KEY = os.getenv('LLM_API_KEY')
 LLM_TIMEOUT = float(os.getenv('LLM_TIMEOUT', '30'))      # segundos → 502 si se excede
 LLM_HISTORIAL_N = int(os.getenv('LLM_HISTORIAL_N', '20'))  # mensajes de contexto por turno
 
-# Claude API Configuration (para Analista Comercial)
-CLAUDE_API_KEY = os.getenv('CLAUDE_API_KEY')
 
 # Configuración para archivos temporales
 MEDIA_URL = '/media/'
