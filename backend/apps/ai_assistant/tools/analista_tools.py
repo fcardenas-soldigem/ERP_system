@@ -1,6 +1,5 @@
 from typing import List, Optional
 from pydantic import BaseModel, Field
-from openai import pydantic_function_tool
 
 class AnalisisVentasParams(BaseModel):
     periodo: str = Field(description="Período para análisis: 'semana', 'mes', 'trimestre', 'año'")
@@ -18,35 +17,5 @@ class AnalisisClientesParams(BaseModel):
 class ConsultaLibreParams(BaseModel):
     consulta: str = Field(description="Consulta libre sobre datos comerciales")
 
-# Tools específicos para análisis (sin crear ventas/compras)
-ANALIZAR_VENTAS_TOOL = pydantic_function_tool(
-    AnalisisVentasParams, 
-    name="analizar_ventas", 
-    description="Analizar performance de ventas en un período específico, tendencias y métricas clave"
-)
-
-ANALIZAR_INVENTARIO_TOOL = pydantic_function_tool(
-    AnalisisInventarioParams, 
-    name="analizar_inventario", 
-    description="Analizar estado del inventario, productos con stock bajo, rotación de productos"
-)
-
-ANALIZAR_CLIENTES_TOOL = pydantic_function_tool(
-    AnalisisClientesParams, 
-    name="analizar_clientes", 
-    description="Analizar comportamiento de clientes, top compradores, frecuencia de compra"
-)
-
-CONSULTA_LIBRE_TOOL = pydantic_function_tool(
-    ConsultaLibreParams, 
-    name="consulta_libre", 
-    description="Responder consultas libres sobre datos comerciales, tendencias y oportunidades"
-)
-
-# Lista de herramientas para Jorge como analista comercial
-ANALISTA_TOOLS = [
-    ANALIZAR_VENTAS_TOOL,
-    ANALIZAR_INVENTARIO_TOOL, 
-    ANALIZAR_CLIENTES_TOOL,
-    CONSULTA_LIBRE_TOOL
-] 
+# Las ToolSpec (nombre, descripción, schema) se construyen en services/perfiles.py
+# a partir de estos modelos pydantic, independientes del proveedor de LLM.

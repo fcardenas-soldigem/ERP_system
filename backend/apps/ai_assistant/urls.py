@@ -8,7 +8,6 @@ from .views import (
     AIAssistantViewSet,
     ThreadView,
     MessageView,
-    FileUploadView,
     ThreadViewWithTools,
     MessageViewWithTools,
     VentasAssistantView,
@@ -17,10 +16,6 @@ from .views import (
     ComprasAssistantView,
     ComprasMessageView,
     get_or_create_compras_conversation,
-    generar_reporte_ventas,
-    analizar_inventario_inteligente,
-    detectar_oportunidades_comerciales,
-    consulta_analista_libre
 )
 
 router = DefaultRouter()
@@ -40,7 +35,6 @@ urlpatterns = [
     path('threads/<str:thread_id>/messages/', MessageView.as_view(), name='message-list'),
     path('threads-tools/', ThreadViewWithTools.as_view(), name='thread-tools-list'),
     path('threads-tools/<str:thread_id>/messages/', MessageViewWithTools.as_view(), name='message-tools-list'),
-    path('files/upload/', FileUploadView.as_view(), name='file-upload'),
     # Rutas del asistente de ventas especializado
     path('ventas-assistant/', VentasAssistantView.as_view(), name='ventas-assistant'),
     path('ventas-assistant/<str:thread_id>/messages/', VentasMessageView.as_view(), name='ventas-messages'),
@@ -49,9 +43,4 @@ urlpatterns = [
     path('compras-assistant/', ComprasAssistantView.as_view(), name='compras-assistant'),
     path('compras-assistant/<str:thread_id>/messages/', ComprasMessageView.as_view(), name='compras-messages'),
     path('compras-assistant/conversation/', get_or_create_compras_conversation, name='compras-conversation'),
-    # Rutas del analista Jorge
-    path('analista/reporte-ventas/', generar_reporte_ventas, name='generar-reporte-ventas'),
-    path('analista/inventario/', analizar_inventario_inteligente, name='analizar-inventario'),
-    path('analista/oportunidades/', detectar_oportunidades_comerciales, name='detectar-oportunidades'),
-    path('analista/consulta/', consulta_analista_libre, name='consulta-analista-libre'),
 ] 
