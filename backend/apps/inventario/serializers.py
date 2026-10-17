@@ -8,6 +8,15 @@ from django.db.models import Sum
 from apps.empresas.models import Empresa
 from apps.core.serializers_base import EmpresaScopedModelSerializer
 
+
+def _validar_ref_tenant(empresa, model, pk, campo):
+    """Un `*_id` libre (compra_id, venta_id, orden_produccion_id) que se guarda como referencia
+    debe apuntar a un objeto de la MISMA empresa; si no, 400 (nunca referenciar datos de otro tenant)."""
+    if pk in (None, ''):
+        return
+    if not model.objects.filter(pk=pk, empresa=empresa).exists():
+        raise serializers.ValidationError({campo: f'{model._meta.verbose_name} no encontrada'})
+
 class AlmacenSerializer(serializers.ModelSerializer):
     empresa = serializers.PrimaryKeyRelatedField(read_only=True)
     class Meta:
@@ -348,8 +357,9 @@ class AjusteInventarioSerializer(serializers.ModelSerializer):
         model = AjusteInventario
         fields = '__all__'
 
-class MovimientoInventarioSerializer(serializers.ModelSerializer):
-    """Serializer para movimientos de inventario (Kardex)"""
+class MovimientoInventarioSerializer(EmpresaScopedModelSerializer):
+    """Serializer para movimientos de inventario (Kardex). FKs (producto, almacén) acotadas por
+    empresa: también en PUT/PATCH de /kardex/{id}/."""
     
     producto_nombre = serializers.CharField(source='producto.nombre', read_only=True)
     producto_sku = serializers.CharField(source='producto.sku', read_only=True)
@@ -810,6 +820,9 @@ class EntradaCompraSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 {'costo_unitario': 'El costo unitario no puede ser negativo'}
             )
+
+        from apps.compras.models import Compra
+        _validar_ref_tenant(empresa, Compra, data.get('compra_id'), 'compra_id')
         
         return data
 
@@ -845,6 +858,9 @@ class SalidaProduccionSerializer(serializers.Serializer):
                 {'almacen_id': 'Almacén no encontrado'}
             )
         
+        from apps.produccion.models import OrdenProduccion
+        _validar_ref_tenant(empresa, OrdenProduccion, data.get('orden_produccion_id'), 'orden_produccion_id')
+
         # Verificar stock disponible
         try:
             inventario = InventarioMateriasPrimas.objects.get(
@@ -917,6 +933,9 @@ class EntradaProduccionSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 {'cantidad': 'La cantidad debe ser mayor a 0'}
             )
+
+        from apps.produccion.models import OrdenProduccion
+        _validar_ref_tenant(empresa, OrdenProduccion, data.get('orden_produccion_id'), 'orden_produccion_id')
         
         return data
 
@@ -956,6 +975,9 @@ class SalidaVentaSerializer(serializers.Serializer):
                 {'almacen_id': 'Almacén no encontrado'}
             )
         
+        from apps.ventas.models import Venta
+        _validar_ref_tenant(empresa, Venta, data.get('venta_id'), 'venta_id')
+
         # Verificar stock disponible
         try:
             inventario = InventarioProductosTerminados.objects.get(

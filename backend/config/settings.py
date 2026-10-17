@@ -112,7 +112,7 @@ INSTALLED_APPS = [
     'apps.dashboard',
     'apps.ai_assistant',
     'apps.core',
-    'apps.ml_models',  # Machine Learning models
+    'apps.ml_models',  # Machine Learning models (rutas solo con ML_ENABLED=true; ver config/urls.py)
     'apps.cotizaciones',  # Cotizaciones
     'apps.produccion',   # Producción
     'apps.finanzas',     # Módulo de Finanzas
@@ -133,7 +133,11 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
-    'apps.core.middleware.tenant.TenantMiddleware',
+    # Sin TenantMiddleware (eliminado): hacía `SET app.current_empresa` leyendo request.user,
+    # pero DRF autentica el JWT dentro de la vista, así que aquí el usuario era anónimo y nunca
+    # se fijaba nada; además no hay ninguna política RLS que lo consuma y un SET de sesión con
+    # CONN_MAX_AGE>0 puede filtrarse entre peticiones. Quien necesite el GUC (RAG fase 2) debe
+    # usar `SET LOCAL` dentro de su propia transaction.atomic(). Ver tests/test_sin_tenant_middleware.py.
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -440,11 +444,10 @@ LOGGING = {
             'level': 'DEBUG' if DEBUG else 'INFO',
             'propagate': False,
         },
-        'apps.core.middleware.tenant': {
-            'handlers': ['console'],
-            'level': 'DEBUG' if DEBUG else 'WARNING',
-            'propagate': False,
-        },
     },
 }
 
+# Módulo ML (apps.ml_models): sus rutas /api/ml/ solo se montan con ML_ENABLED=true.
+# Por defecto apagado en prod: ML_AUDIT.md — predict rfm/churn devuelven 500, los .pkl viven en
+# disco efímero y el entrenamiento es síncrono sin permiso de admin. El código se conserva.
+ML_ENABLED = os.getenv('ML_ENABLED', 'false').lower() in ('1', 'true', 'yes')

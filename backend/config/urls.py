@@ -36,13 +36,22 @@ urlpatterns = [
     path('api/agente/', include('apps.agente.urls')),        # Tokens de API (UI "Conectar Claude")
 ]
 
-# ML APIs: include OPCIONAL. Si faltan dependencias pesadas (joblib/sklearn) en
-# el entorno, no debe romper el resto del URLconf (el módulo ML es opcional).
-try:
-    urlpatterns.append(path('api/ml/', include('apps.ml_models.urls')))
-except Exception as _ml_exc:  # pragma: no cover
-    import logging
-    logging.getLogger(__name__).warning('ml_models URLs deshabilitadas: %s', _ml_exc)
+
+
+def rutas_ml(enabled):
+    """Rutas /api/ml/ solo con ML_ENABLED=true (default False → 404). El include es opcional:
+    si faltan dependencias pesadas (joblib/sklearn) no debe romper el resto del URLconf."""
+    if not enabled:
+        return []
+    try:
+        return [path('api/ml/', include('apps.ml_models.urls'))]
+    except Exception as _ml_exc:  # pragma: no cover
+        import logging
+        logging.getLogger(__name__).warning('ml_models URLs deshabilitadas: %s', _ml_exc)
+        return []
+
+
+urlpatterns += rutas_ml(settings.ML_ENABLED)
 
 # Solo mapear estáticos vía Django si DEBUG=True. En producción usa WhiteNoise.
 if settings.DEBUG:

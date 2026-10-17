@@ -352,10 +352,11 @@ class OrdenProduccionCreateSerializer(serializers.Serializer):
         
         responsable = None
         if validated_data.get('responsable_id'):
+            # Solo usuarios de la MISMA empresa (antes aceptaba cualquier usuario del sistema).
             try:
-                responsable = User.objects.get(id=validated_data['responsable_id'])
+                responsable = User.objects.get(id=validated_data['responsable_id'], empresa=empresa)
             except User.DoesNotExist:
-                pass
+                raise serializers.ValidationError({'responsable_id': 'Responsable no válido'})
         
         orden = ProduccionService.crear_orden_produccion(
             empresa=empresa,

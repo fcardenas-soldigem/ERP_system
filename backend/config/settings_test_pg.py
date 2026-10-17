@@ -39,3 +39,7 @@ def _crear_tablas_unmanaged(sender, **kwargs):
 
 
 post_migrate.connect(_crear_tablas_unmanaged, dispatch_uid='test_pg_crear_unmanaged')
+
+# Permite correr varias suites en paralelo contra el mismo Postgres local.
+import os  # noqa: E402
+DATABASES['default'].setdefault('TEST', {})['NAME'] = os.getenv('TEST_DB_NAME', 'test_erp')

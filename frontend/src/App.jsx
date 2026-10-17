@@ -204,7 +204,7 @@ function App() {
 
                                 {/* AVANZADO */}
                                 <Route path="ai-assistant" element={<AIAssistant />} />
-                                <Route path="ml-dashboard" element={<MLDashboard />} />
+                                {import.meta.env.VITE_ML_ENABLED === 'true' && <Route path="ml-dashboard" element={<MLDashboard />} />}
                                 <Route path="configuracion" element={<Configuracion />} />
 
                                 <Route path="*" element={<NotFound />} />

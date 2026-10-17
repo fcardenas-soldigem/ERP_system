@@ -22,6 +22,16 @@ class EmpresaViewSet(viewsets.ModelViewSet):
     serializer_class = EmpresaSerializer
     permission_classes = [IsAuthenticated]
 
+    # Mismo cierre que apps/empresas/views.py: esta ruta duplicada (/api/core/empresas/) seguía
+    # permitiendo a cualquier usuario autenticado BORRAR su empresa en cascada (204) o crear otra.
+    def create(self, request, *args, **kwargs):
+        return Response({'error': 'Las empresas se crean desde la plataforma, no desde la API.'},
+                        status=status.HTTP_405_METHOD_NOT_ALLOWED)
+
+    def destroy(self, request, *args, **kwargs):
+        return Response({'error': 'No se puede eliminar una empresa desde la API.'},
+                        status=status.HTTP_405_METHOD_NOT_ALLOWED)
+
     def get_queryset(self):
         user = self.request.user
         if user.is_superuser:
@@ -33,6 +43,10 @@ class EmpresaViewSet(viewsets.ModelViewSet):
 class UsuarioViewSet(viewsets.ModelViewSet):
     serializer_class = UsuarioSerializer
     permission_classes = [IsAuthenticated]
+
+    def perform_create(self, serializer):
+        # `empresa` es de solo lectura en el serializer; sin esto el INSERT fallaba (NOT NULL → 500).
+        serializer.save(empresa=self.request.user.empresa)
 
     def get_queryset(self):
         user = self.request.user

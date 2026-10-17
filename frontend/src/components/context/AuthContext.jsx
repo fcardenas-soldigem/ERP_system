@@ -1,5 +1,5 @@
 import React, { createContext, useState, useContext, useEffect, useRef } from 'react';
-import { authService } from '../../services/auth.service';
+import { authService, mensajeErrorLogin, MENSAJE_SIN_EMPRESA } from '../../services/auth.service';
 import { useToast } from '@chakra-ui/react';
 import { useNavigate } from 'react-router-dom';
 import AppLoading from '../common/AppLoading';
@@ -49,9 +49,13 @@ export const AuthProvider = ({ children }) => {
                     localStorage.setItem('empresa_id', userData.empresa_info.id.toString());
                 }
             }
-        } catch {
+        } catch (error) {
             setUser(null);
             setIsAuthenticated(false);
+            // Sesión válida pero usuario sin empresa: decirlo, no dejarlo en el login sin explicación.
+            if (error?.response?.status === 403) {
+                toast({ title: 'Sin empresa asignada', description: MENSAJE_SIN_EMPRESA, status: 'warning', duration: 8000, isClosable: true });
+            }
         } finally {
             setLoading(false);
         }
@@ -83,7 +87,7 @@ export const AuthProvider = ({ children }) => {
             console.error('Error de login:', error);
             toast({
                 title: 'Error de inicio de sesión',
-                description: error.response?.data?.detail || 'Credenciales inválidas',
+                description: mensajeErrorLogin(error),
                 status: 'error',
                 duration: 5000,
                 isClosable: true,

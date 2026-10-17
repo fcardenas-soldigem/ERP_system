@@ -13,6 +13,7 @@ import {
   Heading,
 } from '@chakra-ui/react';
 import { useAuth } from '../context/AuthContext';
+import { mensajeErrorLogin } from '../../services/auth.service';
 
 const Login = () => {
   const [credentials, setCredentials] = useState({
@@ -35,7 +36,7 @@ const Login = () => {
       console.error('Error en login:', error);
       toast({
         title: 'Error de autenticación',
-        description: error.response?.data?.detail || 'Credenciales inválidas',
+        description: mensajeErrorLogin(error),
         status: 'error',
         duration: 3000,
       });

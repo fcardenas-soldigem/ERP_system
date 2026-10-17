@@ -1455,6 +1455,11 @@ class InventarioMateriasPrimasViewSet(viewsets.ModelViewSet):
         
         if cantidad <= 0:
             return Response({'error': 'La cantidad debe ser mayor a 0'}, status=status.HTTP_400_BAD_REQUEST)
+        if orden_produccion_id:
+            # La OP referenciada debe ser del tenant (404 si no): nunca apuntar a datos de otra empresa.
+            from django.shortcuts import get_object_or_404
+            from apps.produccion.models import OrdenProduccion
+            get_object_or_404(OrdenProduccion, pk=orden_produccion_id, empresa=request.user.empresa)
         
         try:
             with transaction.atomic():
@@ -1753,6 +1758,11 @@ class InventarioProductosTerminadosViewSet(viewsets.ModelViewSet):
         
         if cantidad <= 0:
             return Response({'error': 'La cantidad debe ser mayor a 0'}, status=status.HTTP_400_BAD_REQUEST)
+        if venta_id:
+            # La venta referenciada debe ser del tenant (404 si no).
+            from django.shortcuts import get_object_or_404
+            from apps.ventas.models import Venta
+            get_object_or_404(Venta, pk=venta_id, empresa=request.user.empresa)
         
         try:
             with transaction.atomic():

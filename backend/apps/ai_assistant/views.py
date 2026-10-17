@@ -58,6 +58,9 @@ class MessageViewSet(viewsets.ModelViewSet):
             conversation__usuario=self.request.user)
         conversation_id = self.kwargs.get('conversation_pk')
         if conversation_id is not None:
+            # La conversación de la ruta debe ser del tenant/usuario: 404 (no una lista vacía 200).
+            get_object_or_404(Conversation, id=conversation_id, empresa=self.request.user.empresa,
+                              usuario=self.request.user)
             qs = qs.filter(conversation_id=conversation_id)
         return qs
 
@@ -103,7 +106,10 @@ class MessageViewSet(viewsets.ModelViewSet):
             return error_interno(e, 'Error al procesar el mensaje')
 
     @action(detail=True, methods=['post'])
-    def upload(self, request, conversation_pk=None):
+    def upload(self, request, pk=None, conversation_pk=None):
+        # La firma no aceptaba `pk` → TypeError 500 en toda llamada. El mensaje debe ser del
+        # tenant/usuario (get_object → 404) y la conversación se toma de él, no de la URL.
+        mensaje = self.get_object()
         try:
             file = request.FILES['file']
             tipo = request.data.get('tipo')
@@ -132,7 +138,7 @@ class MessageViewSet(viewsets.ModelViewSet):
             )
 
             # Guardar el mensaje con el análisis
-            conversation = Conversation.objects.get(id=conversation_pk)
+            conversation = mensaje.conversation
             Message.objects.create(
                 conversation=conversation,
                 content=response.choices[0].message.content,
@@ -330,7 +336,8 @@ class MessageView(APIView):
                               status=status.HTTP_400_BAD_REQUEST)
 
             # Obtener conversación
-            conversation = Conversation.objects.get(thread_id=thread_id, usuario=request.user)
+            conversation = Conversation.objects.get(thread_id=thread_id, usuario=request.user,
+                                                    empresa=request.user.empresa)
             
             # ✨ USAR AIAssistantService con acceso completo a datos
             assistant = ai_services.AIAssistantService(conversation)
@@ -347,6 +354,10 @@ class MessageView(APIView):
             return error_interno(e, 'Error al procesar el mensaje')
 
     def get(self, request, thread_id):
+        # El hilo debe ser del usuario Y de su empresa (REVIEW_ESCRITURAS P1): si no, 404.
+        # Fuera del try: el except genérico convertiría el Http404 en 500.
+        get_object_or_404(Conversation, thread_id=thread_id, usuario=request.user,
+                          empresa=request.user.empresa)
         try:
             # Crear una instancia del cliente de OpenAI
             client = get_openai_client()
@@ -572,6 +583,10 @@ class MessageViewWithTools(APIView):
 
     def post(self, request, thread_id):
         """Enviar mensaje con soporte para tools"""
+        # El hilo debe ser del usuario Y de su empresa (REVIEW_ESCRITURAS P1): si no, 404.
+        # Fuera del try: el except genérico convertiría el Http404 en 500.
+        get_object_or_404(Conversation, thread_id=thread_id, usuario=request.user,
+                          empresa=request.user.empresa)
         try:
             from .services.openai_service_tools import OpenAIServiceWithTools
             
@@ -588,8 +603,7 @@ class MessageViewWithTools(APIView):
                     {'error': 'Usuario no tiene empresa asignada'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-            
-            
+
             # Crear servicio con tools
             openai_service = OpenAIServiceWithTools()
             
@@ -609,9 +623,12 @@ class MessageViewWithTools(APIView):
 
     def get(self, request, thread_id):
         """Obtener mensajes del thread"""
+        # El hilo debe ser del usuario Y de su empresa (REVIEW_ESCRITURAS P1): si no, 404.
+        # Fuera del try: el except genérico convertiría el Http404 en 500.
+        get_object_or_404(Conversation, thread_id=thread_id, usuario=request.user,
+                          empresa=request.user.empresa)
         try:
             from .services.openai_service_tools import OpenAIServiceWithTools
-            
             openai_service = OpenAIServiceWithTools()
             messages = openai_service.get_thread_messages(thread_id)
             

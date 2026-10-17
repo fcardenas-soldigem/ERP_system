@@ -103,7 +103,8 @@ const MENU_SECTIONS = [
     collapsible: true,
     items: [
       { name: 'Asistente Virtual', icon: FaRobot, path: '/app/ai-assistant' },
-      { name: 'Machine Learning',  icon: FaBrain, path: '/app/ml-dashboard' },
+      // Módulo ML apagado por defecto en prod (backend: ML_ENABLED). Se muestra solo con VITE_ML_ENABLED=true.
+      ...(import.meta.env.VITE_ML_ENABLED === 'true' ? [{ name: 'Machine Learning',  icon: FaBrain, path: '/app/ml-dashboard' }] : []),
     ],
   },
 ];
