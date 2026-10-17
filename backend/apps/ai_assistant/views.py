@@ -123,6 +123,10 @@ class MessageViewSet(viewsets.ModelViewSet):
             conversation__usuario=self.request.user)
         conversation_id = self.kwargs.get('conversation_pk')
         if conversation_id is not None:
+            # La conversación de la ruta debe ser del tenant/usuario: 404 (no una lista vacía 200).
+            # Misma semántica que sec/escrituras-cruzadas para que ambas ramas converjan.
+            get_object_or_404(Conversation, id=conversation_id, empresa=self.request.user.empresa,
+                              usuario=self.request.user)
             qs = qs.filter(conversation_id=conversation_id)
         return qs
 

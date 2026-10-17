@@ -305,6 +305,15 @@ class AislamientoAsistenteTests(AsistenteBase):
         self.assertEqual(r.status_code, 404, r.content)
         self.assertEqual(self.client.get(f'/api/ai/threads-tools/{self.tid_a}/messages/').status_code, 404)
 
+    def test_mensajes_anidados_de_conversacion_ajena_404(self):
+        conv_a = Conversation.objects.get(thread_id=self.tid_a)
+        self.client.force_authenticate(self.user_b)
+        self.assertEqual(self.client.get(f'/api/ai/conversations/{conv_a.pk}/messages/').status_code, 404)
+        self.client.force_authenticate(self.user_a2)
+        self.assertEqual(self.client.get(f'/api/ai/conversations/{conv_a.pk}/messages/').status_code, 404)
+        self.client.force_authenticate(self.user_a)
+        self.assertEqual(self.client.get(f'/api/ai/conversations/{conv_a.pk}/messages/').status_code, 200)
+
     def test_el_perfil_del_endpoint_debe_coincidir(self):
         # Un thread de Jorge no se puede usar desde el asistente de ventas (tools de escritura).
         r = self.client.post(f'/api/ai/ventas-assistant/{self.tid_a}/messages/', {'message': 'crea una venta'}, format='json')
