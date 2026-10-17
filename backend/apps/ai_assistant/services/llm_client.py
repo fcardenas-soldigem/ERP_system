@@ -145,9 +145,12 @@ class VertexClient(LLMClient):
         except ImportError as e:  # pragma: no cover - dependencia pineada
             raise LLMNoConfigurado(f'google-genai no instalado: {e}')
         try:
+            # Sin reintentos automáticos del SDK (backoff exponencial): el timeout debe ser
+            # un límite real para responder 502 en LLM_TIMEOUT s, no en minutos.
             self._client = genai.Client(
                 vertexai=True, project=self.project, location=self.location,
-                http_options=types.HttpOptions(timeout=int(self.timeout * 1000)),  # ms
+                http_options=types.HttpOptions(timeout=int(self.timeout * 1000),  # ms
+                                               retry_options=types.HttpRetryOptions(attempts=1)),
             )
         except Exception as e:  # DefaultCredentialsError y similares
             raise self._traducir(e)
