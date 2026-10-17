@@ -28,6 +28,9 @@ class ChatIASinApiKeyTests(TestCase):
         self.user.empresa = self.empresa
         self.user.save()
         self.client.force_authenticate(self.user)
+        # El hilo debe existir y ser del usuario (REVIEW P1): si no, 404 antes de tocar OpenAI.
+        from apps.ai_assistant.models import Conversation
+        Conversation.objects.create(empresa=self.empresa, usuario=self.user, thread_id='thread_x', title='x')
 
     def _assert_503_sin_detalle(self, r):
         self.assertEqual(r.status_code, 503, r.content)

@@ -336,7 +336,8 @@ class MessageView(APIView):
                               status=status.HTTP_400_BAD_REQUEST)
 
             # Obtener conversación
-            conversation = Conversation.objects.get(thread_id=thread_id, usuario=request.user)
+            conversation = Conversation.objects.get(thread_id=thread_id, usuario=request.user,
+                                                    empresa=request.user.empresa)
             
             # ✨ USAR AIAssistantService con acceso completo a datos
             assistant = ai_services.AIAssistantService(conversation)
@@ -353,6 +354,10 @@ class MessageView(APIView):
             return error_interno(e, 'Error al procesar el mensaje')
 
     def get(self, request, thread_id):
+        # El hilo debe ser del usuario Y de su empresa (REVIEW_ESCRITURAS P1): si no, 404.
+        # Fuera del try: el except genérico convertiría el Http404 en 500.
+        get_object_or_404(Conversation, thread_id=thread_id, usuario=request.user,
+                          empresa=request.user.empresa)
         try:
             # Crear una instancia del cliente de OpenAI
             client = get_openai_client()
@@ -578,6 +583,10 @@ class MessageViewWithTools(APIView):
 
     def post(self, request, thread_id):
         """Enviar mensaje con soporte para tools"""
+        # El hilo debe ser del usuario Y de su empresa (REVIEW_ESCRITURAS P1): si no, 404.
+        # Fuera del try: el except genérico convertiría el Http404 en 500.
+        get_object_or_404(Conversation, thread_id=thread_id, usuario=request.user,
+                          empresa=request.user.empresa)
         try:
             from .services.openai_service_tools import OpenAIServiceWithTools
             
@@ -594,8 +603,7 @@ class MessageViewWithTools(APIView):
                     {'error': 'Usuario no tiene empresa asignada'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-            
-            
+
             # Crear servicio con tools
             openai_service = OpenAIServiceWithTools()
             
@@ -615,9 +623,12 @@ class MessageViewWithTools(APIView):
 
     def get(self, request, thread_id):
         """Obtener mensajes del thread"""
+        # El hilo debe ser del usuario Y de su empresa (REVIEW_ESCRITURAS P1): si no, 404.
+        # Fuera del try: el except genérico convertiría el Http404 en 500.
+        get_object_or_404(Conversation, thread_id=thread_id, usuario=request.user,
+                          empresa=request.user.empresa)
         try:
             from .services.openai_service_tools import OpenAIServiceWithTools
-            
             openai_service = OpenAIServiceWithTools()
             messages = openai_service.get_thread_messages(thread_id)
             

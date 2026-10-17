@@ -202,14 +202,8 @@ Soy **Jorge**, tu analista comercial especializado en el ERP de {empresa_name}.
         """Guardar mensaje del usuario en la base de datos"""
         try:
             from ..models import Conversation, Message
-            conversation, created = Conversation.objects.get_or_create(
-                thread_id=thread_id,
-                usuario=user,
-                defaults={
-                    'title': f'Conversación {thread_id[:8]}...',
-                    'empresa': user.empresa
-                }
-            )
+            # Solo la conversación del usuario en su empresa; nunca get_or_create (REVIEW P1).
+            conversation = Conversation.objects.get(thread_id=thread_id, usuario=user, empresa=user.empresa)
             Message.objects.create(
                 conversation=conversation,
                 role='user',
@@ -222,14 +216,8 @@ Soy **Jorge**, tu analista comercial especializado en el ERP de {empresa_name}.
         """Guardar mensaje del asistente en la base de datos"""
         try:
             from ..models import Conversation, Message
-            conversation, created = Conversation.objects.get_or_create(
-                thread_id=thread_id,
-                usuario=user,
-                defaults={
-                    'title': f'Conversación {thread_id[:8]}...',
-                    'empresa': user.empresa
-                }
-            )
+            # Solo la conversación del usuario en su empresa; nunca get_or_create (REVIEW P1).
+            conversation = Conversation.objects.get(thread_id=thread_id, usuario=user, empresa=user.empresa)
             Message.objects.create(
                 conversation=conversation,
                 role='assistant',

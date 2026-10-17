@@ -793,3 +793,33 @@ class EscriturasCruzadasRouterWalkTests(TenantSetup):
         self.assertTrue(Empresa.objects.filter(pk=self.A.pk).exists())
         r = self.client.post('/api/core/empresas/', {'nombre': 'X', 'ruc': '20999999999'}, format='json')
         self.assertEqual(r.status_code, 405, r.content)
+
+
+@override_settings(ROOT_URLCONF='config.urls')
+class ThreadsIAPorTenantTests(TenantSetup):
+    """REVIEW_ESCRITURAS P1: /threads*/<thread_id>/messages/ debe verificar que la conversación sea
+    del usuario y de su empresa ANTES de tocar OpenAI. Antes, un usuario de A con el thread_id
+    de B leía y escribía en su hilo (y se le creaba una Conversation de A sobre el thread de B)."""
+
+    def setUp(self):
+        super().setUp()
+        from apps.ai_assistant.models import Conversation
+        self.conv_b = Conversation.objects.create(empresa=self.B, usuario=self.user_b,
+                                                  thread_id='thread_de_B_secreto', title='B')
+
+    def test_a_no_lee_ni_escribe_el_hilo_de_b(self):
+        from apps.ai_assistant.models import Conversation
+        self.client.force_authenticate(self.user_a)
+        for url in (f'/api/ai/threads/{self.conv_b.thread_id}/messages/',
+                    f'/api/ai/threads-tools/{self.conv_b.thread_id}/messages/'):
+            self.assertEqual(self.client.get(url).status_code, 404, url)
+            r = self.client.post(url, {'content': 'intruso'}, format='json')
+            self.assertEqual(r.status_code, 404, (url, r.content[:200]))
+        self.assertFalse(Conversation.objects.filter(thread_id=self.conv_b.thread_id, empresa=self.A).exists(),
+                         'no debe crearse una Conversation de A sobre el thread de B')
+        self.assertEqual(self.conv_b.messages.count(), 0)
+
+    def test_mismo_tenant_otro_usuario_tampoco(self):
+        otro_b = self._user('b2@b.pe', self.B)
+        self.client.force_authenticate(otro_b)
+        self.assertEqual(self.client.get(f'/api/ai/threads-tools/{self.conv_b.thread_id}/messages/').status_code, 404)
