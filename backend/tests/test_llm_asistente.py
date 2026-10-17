@@ -168,6 +168,53 @@ class RespuestaYToolsTests(AsistenteBase):
         self.assertEqual(r.status_code, 400)
 
 
+class WriteToolsFlagTests(AsistenteBase):
+    """LLM_WRITE_TOOLS (default False): crear_venta/crear_compra fuera del schema y rechazadas."""
+
+    def _tools_enviadas_ventas(self):
+        fake = self._con_fake([texto('ok')])
+        v = self.client.post('/api/ai/ventas-assistant/').json()
+        self.client.post(f"/api/ai/ventas-assistant/{v['thread_id']}/messages/", {'message': 'hola'}, format='json')
+        return {t.name for t in fake.llamadas[0][2]}
+
+    def test_por_defecto_sin_tools_de_escritura_en_el_schema(self):
+        from django.conf import settings
+        self.assertFalse(settings.LLM_WRITE_TOOLS)
+        nombres = self._tools_enviadas_ventas()
+        self.assertEqual(nombres, {'buscar_productos', 'buscar_clientes'})
+        from apps.ai_assistant.services.perfiles import PERFILES
+        self.assertEqual({t.name for t in PERFILES['compras'].tools_activas()},
+                         {'buscar_productos', 'buscar_proveedores', 'buscar_almacenes'})
+
+    @override_settings(LLM_WRITE_TOOLS=True)
+    def test_con_flag_se_exponen(self):
+        nombres = self._tools_enviadas_ventas()
+        self.assertEqual(nombres, {'crear_venta', 'buscar_productos', 'buscar_clientes'})
+
+    def test_ejecutor_rechaza_crear_venta_con_flag_apagada(self):
+        self._con_fake([tool('crear_venta', {'cliente_id': 1, 'tipo_venta': 'contado', 'metodo_pago': 'efectivo',
+                                             'productos': [{'producto_sku': 'X', 'cantidad': 1, 'precio_unitario': 1}]}),
+                        texto('No puedo registrar ventas.')])
+        with mock.patch('apps.ai_assistant.services.ventas_executor.VentasExecutor.crear_venta') as cv:
+            v = self.client.post('/api/ai/ventas-assistant/').json()
+            r = self.client.post(f"/api/ai/ventas-assistant/{v['thread_id']}/messages/", {'message': 'crea la venta'},
+                                 format='json')
+        self.assertEqual(r.status_code, 200, r.content)
+        cv.assert_not_called()
+        from apps.ventas.models import Venta
+        self.assertEqual(Venta.objects.filter(empresa=self.A).count(), 0)
+
+    @override_settings(LLM_WRITE_TOOLS=True)
+    def test_con_flag_el_ejecutor_si_llama(self):
+        self._con_fake([tool('crear_venta', {'cliente_id': 1}), texto('Venta creada.')])
+        with mock.patch('apps.ai_assistant.services.ventas_executor.VentasExecutor.crear_venta',
+                        return_value={'success': True}) as cv:
+            v = self.client.post('/api/ai/ventas-assistant/').json()
+            self.client.post(f"/api/ai/ventas-assistant/{v['thread_id']}/messages/", {'message': 'crea la venta'},
+                             format='json')
+        cv.assert_called_once_with(cliente_id=1)
+
+
 class ErroresProveedorTests(AsistenteBase):
     def test_sin_credenciales_503(self):
         self._con_fake([lc.LLMNoConfigurado('DefaultCredentialsError')])

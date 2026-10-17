@@ -396,6 +396,9 @@ LLM_BASE_URL = os.getenv('LLM_BASE_URL') or None
 LLM_API_KEY = os.getenv('LLM_API_KEY')
 LLM_TIMEOUT = float(os.getenv('LLM_TIMEOUT', '30'))      # segundos → 502 si se excede
 LLM_HISTORIAL_N = int(os.getenv('LLM_HISTORIAL_N', '20'))  # mensajes de contexto por turno
+# Tools que MODIFICAN datos (crear_venta, crear_compra): por defecto NO se exponen al modelo
+# (quedan fuera del schema) y el ejecutor las rechaza. Activar solo con confirmación UI.
+LLM_WRITE_TOOLS = os.getenv('LLM_WRITE_TOOLS', 'false').lower() in ('1', 'true', 'yes')
 
 
 # Configuración para archivos temporales

@@ -126,7 +126,7 @@ class AsistenteChat:
         mensajes = list(historial)
         for ronda in range(1, MAX_RONDAS_TOOLS + 1):
             t0 = time.monotonic()
-            resp: LLMResponse = self.cliente.chat(system, mensajes, list(self.perfil.tools))
+            resp: LLMResponse = self.cliente.chat(system, mensajes, list(self.perfil.tools_activas()))
             ms = int((time.monotonic() - t0) * 1000)
             self.traza.rondas = ronda
             self.traza.tokens_entrada += resp.tokens_entrada

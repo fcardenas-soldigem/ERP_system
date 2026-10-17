@@ -64,5 +64,5 @@ def schema_de_pydantic(modelo: Type[BaseModel]) -> dict:
     return _resolver(bruto, defs)
 
 
-def tool_de_pydantic(modelo: Type[BaseModel], name: str, description: str) -> ToolSpec:
-    return ToolSpec(name=name, description=description, parameters=schema_de_pydantic(modelo))
+def tool_de_pydantic(modelo: Type[BaseModel], name: str, description: str, escritura: bool = False) -> ToolSpec:
+    return ToolSpec(name=name, description=description, parameters=schema_de_pydantic(modelo), escritura=escritura)

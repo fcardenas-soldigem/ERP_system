@@ -67,6 +67,7 @@ class ToolSpec:
     name: str
     description: str
     parameters: dict  # JSON Schema (subconjunto OpenAPI 3.0, sin $ref)
+    escritura: bool = False  # modifica datos (crear_venta…); solo se expone con LLM_WRITE_TOOLS=True
 
 
 @dataclass

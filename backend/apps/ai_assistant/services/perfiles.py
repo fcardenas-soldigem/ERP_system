@@ -11,6 +11,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
+from django.conf import settings
+
 from .tool_specs import tool_de_pydantic
 from ..tools import analista_tools as at
 from ..tools import compras_tools as ct
@@ -53,14 +55,28 @@ PROMPT_COMPRAS = _BASE + (
 )
 
 
+def write_tools_habilitadas() -> bool:
+    """LLM_WRITE_TOOLS (default False): con False las tools de escritura NO existen para el
+    modelo (fuera del schema) y el ejecutor las rechaza aunque el modelo las invoque."""
+    return bool(getattr(settings, 'LLM_WRITE_TOOLS', False))
+
+
 @dataclass(frozen=True)
 class Perfil:
     clave: str
     titulo: str              # título por defecto de la Conversation
     system_prompt: str
-    tools: tuple
+    tools: tuple             # todas las definidas; ver tools_activas()
     executor_factory: Callable  # (user) -> objeto con execute_function(name, args)
-    escribe: bool            # tiene tools que modifican datos
+    escribe: bool            # define tools que modifican datos (sujetas a LLM_WRITE_TOOLS)
+
+    def tools_activas(self) -> tuple:
+        if write_tools_habilitadas():
+            return self.tools
+        return tuple(t for t in self.tools if not t.escritura)
+
+    def nombres_escritura(self) -> frozenset:
+        return frozenset(t.name for t in self.tools if t.escritura)
 
 
 def _exec_analista(user):
@@ -70,25 +86,31 @@ def _exec_analista(user):
 
 def _exec_ventas(user):
     from .ventas_executor import VentasExecutor
-    return _Despachador(VentasExecutor(user), ('crear_venta', 'buscar_productos', 'buscar_clientes'))
+    return _Despachador(VentasExecutor(user), ('crear_venta', 'buscar_productos', 'buscar_clientes'),
+                        escritura=('crear_venta',))
 
 
 def _exec_compras(user):
     from .compras_executor import ComprasExecutor
     return _Despachador(ComprasExecutor(user),
-                        ('crear_compra', 'buscar_productos', 'buscar_proveedores', 'buscar_almacenes'))
+                        ('crear_compra', 'buscar_productos', 'buscar_proveedores', 'buscar_almacenes'),
+                        escritura=('crear_compra',))
 
 
 class _Despachador:
     """Adapta ejecutores con un método por tool al contrato execute_function."""
 
-    def __init__(self, ejecutor, permitidas):
+    def __init__(self, ejecutor, permitidas, escritura=()):
         self._e = ejecutor
         self._permitidas = set(permitidas)
+        self._escritura = set(escritura)
 
     def execute_function(self, name, arguments):
         if name not in self._permitidas:
             return {'success': False, 'error': f'Función {name} no reconocida'}
+        if name in self._escritura and not write_tools_habilitadas():
+            # Defensa en profundidad: aunque el modelo "alucine" la tool, no se ejecuta.
+            return {'success': False, 'error': f'La función {name} no está habilitada en este servidor.'}
         return getattr(self._e, name)(**(arguments or {}))
 
 
@@ -108,7 +130,8 @@ TOOLS_JORGE = (
 TOOLS_VENTAS = (
     tool_de_pydantic(vt.CrearVentaParams, 'crear_venta',
                      'Registrar una venta. Requiere cliente_id, productos (producto_sku, cantidad, '
-                     'precio_unitario), tipo_venta y metodo_pago, todos confirmados por el usuario.'),
+                     'precio_unitario), tipo_venta y metodo_pago, todos confirmados por el usuario.',
+                     escritura=True),
     tool_de_pydantic(vt.BuscarProductosParams, 'buscar_productos',
                      'Buscar productos por nombre, descripción o SKU.'),
     tool_de_pydantic(vt.BuscarClientesParams, 'buscar_clientes',
@@ -118,7 +141,8 @@ TOOLS_VENTAS = (
 TOOLS_COMPRAS = (
     tool_de_pydantic(ct.CrearCompraParams, 'crear_compra',
                      'Registrar una compra. Requiere proveedor_id, almacen_id, productos (producto_sku, '
-                     'cantidad, precio_unitario), tipo_compra y metodo_pago, confirmados por el usuario.'),
+                     'cantidad, precio_unitario), tipo_compra y metodo_pago, confirmados por el usuario.',
+                     escritura=True),
     tool_de_pydantic(ct.BuscarProductosComprasParams, 'buscar_productos',
                      'Buscar productos para compra por nombre, descripción o SKU.'),
     tool_de_pydantic(ct.BuscarProveedoresParams, 'buscar_proveedores',
