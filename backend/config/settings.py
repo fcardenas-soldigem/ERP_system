@@ -133,7 +133,11 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
-    'apps.core.middleware.tenant.TenantMiddleware',
+    # Sin TenantMiddleware (eliminado): hacía `SET app.current_empresa` leyendo request.user,
+    # pero DRF autentica el JWT dentro de la vista, así que aquí el usuario era anónimo y nunca
+    # se fijaba nada; además no hay ninguna política RLS que lo consuma y un SET de sesión con
+    # CONN_MAX_AGE>0 puede filtrarse entre peticiones. Quien necesite el GUC (RAG fase 2) debe
+    # usar `SET LOCAL` dentro de su propia transaction.atomic(). Ver tests/test_sin_tenant_middleware.py.
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -438,11 +442,6 @@ LOGGING = {
         'apps': {
             'handlers': ['console'],
             'level': 'DEBUG' if DEBUG else 'INFO',
-            'propagate': False,
-        },
-        'apps.core.middleware.tenant': {
-            'handlers': ['console'],
-            'level': 'DEBUG' if DEBUG else 'WARNING',
             'propagate': False,
         },
     },

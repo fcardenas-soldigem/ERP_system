@@ -82,7 +82,8 @@ WHERE column_name = 'deleted_at' AND table_schema = 'public';
 MIDDLEWARE = [
     # ...
     'django.contrib.auth.middleware.AuthenticationMiddleware',
-    'apps.core.middleware.tenant.TenantMiddleware',  # ✅ Activo
+    # 'apps.core.middleware.tenant.TenantMiddleware' — ELIMINADO (nunca fijaba el GUC con JWT;
+    # si se activa RLS, fijar app.current_empresa con SET LOCAL dentro de la transacción)
     # ...
 ]
 
