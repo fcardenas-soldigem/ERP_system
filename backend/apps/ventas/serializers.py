@@ -454,16 +454,20 @@ class VentaSerializer(serializers.ModelSerializer):
             igv_incluido = igv_incluido.lower() in ['true', '1', 'yes', 'on', 'si', 'sí']
         validated_data['igv_incluido'] = bool(igv_incluido)
 
-        detalles_data = validated_data.pop('detalles', [])
+        # Si el payload NO trae 'detalles' (p. ej. PATCH de notas/cliente), las líneas existentes
+        # se conservan. Antes: pop(..., []) + delete() borraba TODAS las líneas en cualquier
+        # PATCH sin detalles (REVIEW_ESCRITURAS P2). Una lista vacía explícita sí las borra.
+        detalles_data = validated_data.pop('detalles', None)
         comprobante = validated_data.pop('comprobante', None)
         
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()
         
-        instance.detalles.all().delete()
-        for detalle_data in detalles_data:
-            DetalleVenta.objects.create(venta=instance, **detalle_data)
+        if detalles_data is not None:
+            instance.detalles.all().delete()
+            for detalle_data in detalles_data:
+                DetalleVenta.objects.create(venta=instance, **detalle_data)
         
         if comprobante:
             if hasattr(instance, 'comprobante_pago'):
