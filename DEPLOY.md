@@ -122,6 +122,48 @@ Variables no secretas (añadir a `/tmp/erp-env-vars.yaml`):
 | `LLM_PROJECT` | `erp-system-468516` | por defecto toma `GS_PROJECT_ID` |
 | `LLM_TIMEOUT` | `30` | segundos; al excederse → 502 |
 | `LLM_HISTORIAL_N` | `20` | mensajes de contexto por turno (≈10 interacciones) |
+| `LLM_WRITE_TOOLS` | `false` | `crear_venta`/`crear_compra` fuera del schema del modelo y rechazadas por el ejecutor. Activar solo cuando exista confirmación en la UI |
+
+#### Lista exacta de entorno para desplegar esta rama (`feat/llm-agnostico`)
+
+Archivo `/tmp/erp-env-vars.yaml` completo (valores no secretos; sustituir solo `<…>`):
+
+```yaml
+DJANGO_DEBUG: "False"
+DJANGO_ALLOWED_HOSTS: "erp-backend-25656632090.southamerica-west1.run.app,api.soldigem.com.pe"
+CORS_ALLOWED_ORIGINS: "https://erp.soldigem.com.pe"
+DB_NAME: "postgres"
+DB_USER: "<usuario de Supabase>"
+DB_HOST: "<host de Supabase>.supabase.com"
+DB_PORT: "5432"
+GS_BUCKET_NAME: "<bucket de media>"
+GS_PROJECT_ID: "erp-system-468516"
+GS_SA_EMAIL: "25656632090-compute@developer.gserviceaccount.com"
+LOG_FORMAT: "json"
+LLM_PROVIDER: "vertex"
+LLM_MODEL: "gemini-3.1-flash-lite"
+LLM_LOCATION: "global"
+LLM_PROJECT: "erp-system-468516"
+LLM_TIMEOUT: "30"
+LLM_HISTORIAL_N: "20"
+LLM_WRITE_TOOLS: "false"
+```
+
+Secretos (Secret Manager → variable), sin ninguna clave de IA:
+
+```bash
+export SECRETS="DJANGO_SECRET_KEY=django-secret-key:latest,JWT_SIGNING_KEY=jwt-signing-key:latest,APIS_NET_PE_TOKEN=apis-net-pe-token:latest,DB_PASSWORD=db-password:latest"
+# Si hay Redis:  SECRETS="$SECRETS,REDIS_URL=redis-url:latest"
+```
+
+Variables que **dejan de existir** y hay que quitar del servicio y de Secret Manager
+(opcionalmente destruir las versiones): `OPENAI_API_KEY`, `OPENAI_ASSISTANT_ID`,
+`OPENAI_MODEL`, `CLAUDE_API_KEY`, `VENTAS_ASSISTANT_ID`, `COMPRAS_ASSISTANT_ID`. No se usan
+`LLM_BASE_URL` ni `LLM_API_KEY` salvo que `LLM_PROVIDER=openai`.
+
+Permisos de la cuenta de servicio del servicio (`25656632090-compute@…`):
+`roles/secretmanager.secretAccessor` (ya), `roles/aiplatform.user` (NUEVO), acceso al
+bucket de media (ya). API a habilitar: `aiplatform.googleapis.com`.
 
 IAM (una vez, con la SA del servicio; `aiplatform.user` incluye `aiplatform.endpoints.predict`):
 
