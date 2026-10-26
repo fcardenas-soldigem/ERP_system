@@ -16,6 +16,7 @@ import TopProducts        from './TopProducts';
 import AlertsBar          from './AlertsBar';
 import { DashboardSkeleton } from '../common/SkeletonLoaders';
 import ServiciosWidget    from '../Servicios/ServiciosWidget';
+import { useEsMovil }     from '../../hooks/useEsMovil';
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
 const fmt  = (n, d = 2) => typeof n === 'number'
@@ -88,6 +89,7 @@ const buildAlerts = (resumen) => {
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 const Dashboard = () => {
   const bg = useColorModeValue('gray.50', 'gray.900');
+  const esMovil = useEsMovil();
 
   const { data: resumen, isLoading } = useQuery({
     queryKey: ['dashboard-resumen'],
@@ -204,6 +206,36 @@ const Dashboard = () => {
   ];
 
   const alerts = buildAlerts(resumen);
+
+  // Móvil (< md): alertas primero, las métricas a la vista en 2 columnas,
+  // luego accesos y gráfico. El título lo muestra la cabecera móvil.
+  if (esMovil) {
+    return (
+      <Box bg={bg} minH="100vh">
+        {alerts.length > 0 && (
+          <Box mb={4}>
+            <AlertsBar alerts={alerts} apiladas />
+          </Box>
+        )}
+        <Box mb={5}>
+          <StatCardsCarousel cards={statCards} cuadriculaMovil />
+        </Box>
+        <Box mb={5}>
+          <QuickActions />
+        </Box>
+        <Box mb={5}>
+          <HeroChart resumen={resumen} />
+        </Box>
+        <Box mb={5}>
+          <RecentSales />
+        </Box>
+        <Box mb={5}>
+          <TopProducts />
+        </Box>
+        <ServiciosWidget />
+      </Box>
+    );
+  }
 
   return (
     <Box bg={bg} minH="100vh" px={{ base: 4, md: 6 }} py={6}>

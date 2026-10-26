@@ -139,7 +139,7 @@ const HeroChart = ({ resumen }) => {
       borderRadius="xl"
       border="1px solid"
       borderColor={borderColor}
-      p={6}
+      p={{ base: 4, md: 6 }}
     >
       {/* ── Header — stacked on mobile to avoid compression ── */}
       <Flex
@@ -204,7 +204,7 @@ const HeroChart = ({ resumen }) => {
       </Flex>
 
       {/* ── Area chart ── */}
-      <Box h="140px" mt={4}>
+      <Box h={{ base: '120px', md: '140px' }} mt={4}>
         {loading ? (
           <Skeleton h="100%" borderRadius="md" />
         ) : data.length === 0 ? (
