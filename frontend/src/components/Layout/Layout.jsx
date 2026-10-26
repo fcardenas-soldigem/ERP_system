@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { Outlet, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import AnimatedSidebar from './AnimatedSidebar';
 import EmpresaCheck from './EmpresaCheck';
 import AppLoading from '../common/AppLoading';
 import BottomNav, { BOTTOM_NAV_H } from './mobile/BottomNav';
+import MasSheet from './mobile/MasSheet';
 import { useEsMovil } from '../../hooks/useEsMovil';
 import { Box, Flex } from '@chakra-ui/react';
 
@@ -19,6 +20,7 @@ const Layout = () => {
   const location = useLocation();
   const esMovil = useEsMovil();
   const [masAbierto, setMasAbierto] = useState(false);
+  const cerrarMas = useCallback(() => setMasAbierto(false), []);
 
   if (isLoading) return <AppLoading />;
 
@@ -38,7 +40,10 @@ const Layout = () => {
           </Box>
         </Box>
         {esMovil && (
-          <BottomNav masAbierto={masAbierto} onMas={() => setMasAbierto((v) => !v)} />
+          <>
+            <BottomNav masAbierto={masAbierto} onMas={() => setMasAbierto((v) => !v)} />
+            <MasSheet abierto={masAbierto} onClose={cerrarMas} />
+          </>
         )}
       </Flex>
     </EmpresaCheck>
