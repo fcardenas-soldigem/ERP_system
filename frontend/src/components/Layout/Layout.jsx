@@ -6,12 +6,14 @@ import EmpresaCheck from './EmpresaCheck';
 import AppLoading from '../common/AppLoading';
 import BottomNav, { BOTTOM_NAV_H } from './mobile/BottomNav';
 import MasSheet from './mobile/MasSheet';
+import MobileHeader, { MOBILE_HEADER_H } from './mobile/MobileHeader';
 import { useEsMovil } from '../../hooks/useEsMovil';
 import { Box, Flex } from '@chakra-ui/react';
 
-// Móvil: el contenido deja libre la barra inferior (+ safe-area) y el FAB.
+// Móvil: el contenido deja libre la cabecera, la barra inferior (+ safe-areas) y el FAB.
 const MOVIL_CONTENIDO = {
   p: 4,
+  pt: `calc(${MOBILE_HEADER_H} + env(safe-area-inset-top) + 16px)`,
   pb: `calc(${BOTTOM_NAV_H} + env(safe-area-inset-bottom) + 88px)`,
 };
 
@@ -41,6 +43,7 @@ const Layout = () => {
         </Box>
         {esMovil && (
           <>
+            <MobileHeader />
             <BottomNav masAbierto={masAbierto} onMas={() => setMasAbierto((v) => !v)} />
             <MasSheet abierto={masAbierto} onClose={cerrarMas} />
           </>
