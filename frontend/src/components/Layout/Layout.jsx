@@ -6,6 +6,7 @@ import EmpresaCheck from './EmpresaCheck';
 import AppLoading from '../common/AppLoading';
 import BottomNav, { BOTTOM_NAV_H } from './mobile/BottomNav';
 import MasSheet from './mobile/MasSheet';
+import Fab from './mobile/Fab';
 import MobileHeader, { MOBILE_HEADER_H } from './mobile/MobileHeader';
 import { useEsMovil } from '../../hooks/useEsMovil';
 import { Box, Flex } from '@chakra-ui/react';
@@ -44,6 +45,7 @@ const Layout = () => {
         {esMovil && (
           <>
             <MobileHeader />
+            <Fab />
             <BottomNav masAbierto={masAbierto} onMas={() => setMasAbierto((v) => !v)} />
             <MasSheet abierto={masAbierto} onClose={cerrarMas} />
           </>
