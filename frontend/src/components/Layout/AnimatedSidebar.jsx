@@ -3,114 +3,25 @@ import {
   Box, VStack, Icon, Text, Flex, Badge,
   useColorModeValue, Collapse, IconButton,
   Tooltip, Avatar, HStack, Divider,
-  useBreakpointValue, Drawer, DrawerBody,
-  DrawerOverlay, DrawerContent, DrawerCloseButton,
-  useDisclosure, useColorMode,
+  useColorMode,
 } from '@chakra-ui/react';
 import { NavLink } from 'react-router-dom';
 import {
   ChevronDownIcon, ChevronUpIcon,
-  ChevronLeftIcon, ChevronRightIcon, HamburgerIcon,
+  ChevronLeftIcon, ChevronRightIcon,
 } from '@chakra-ui/icons';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Moon, Sun, LogOut } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useModoInventario } from '../../hooks/useModoInventario';
 import { PRODUCT_NAME, PRODUCT_INITIALS } from '../../config/brand';
-import {
-  FaChartBar, FaShoppingCart, FaBox, FaUsers, FaIndustry,
-  FaFileInvoice, FaMoneyBillWave, FaRobot, FaBrain, FaCog,
-  FaChartLine, FaFileUpload, FaTruck, FaTools,
-} from 'react-icons/fa';
+import { FaCog } from 'react-icons/fa';
+import { seccionesVisibles } from './navConfig';
+import { useEsMovil } from '../../hooks/useEsMovil';
 
 const MotionBox  = motion(Box);
 const MotionFlex = motion(Flex);
 const MotionText = motion(Text);
-
-// ─── Menu structure ───────────────────────────────────────────────────────────
-// Section 'avanzado' and 'inteligencia' start collapsed.
-// Sin badges "Nuevo"/"Beta": si está en el menú, es parte del producto.
-// Orden CORE por frecuencia de uso real: Cotizaciones es el módulo más usado.
-
-const MENU_SECTIONS = [
-  {
-    id: 'core',
-    label: 'CORE',
-    collapsible: false,
-    items: [
-      { name: 'Dashboard',    icon: FaChartBar,    path: '/app/dashboard' },
-      { name: 'Cotizaciones', icon: FaFileInvoice, path: '/app/cotizaciones' },
-      { name: 'Ventas',       icon: FaShoppingCart, path: '/app/ventas' },
-      {
-        name: 'Compras', icon: FaBox,
-        subItems: [
-          { name: 'Facturas de Compra', path: '/app/compras' },
-          { name: 'Nueva Compra',       path: '/app/compras/nueva' },
-          { name: 'Órdenes de Compra',  path: '/app/compras/ordenes' },
-          { name: 'OC de Servicio',     path: '/app/compras/ordenes-servicio' },
-        ],
-      },
-      {
-        name: 'Finanzas', icon: FaChartLine,
-        subItems: [
-          { name: 'Dashboard Financiero', path: '/app/finanzas' },
-          { name: 'Gastos Operativos',    path: '/app/finanzas/gastos' },
-        ],
-      },
-      {
-        name: 'Inventario', icon: FaBox,
-        subItems: [
-          { name: 'Resumen',            path: '/app/inventario/resumen-separado' },
-          { name: 'General',            path: '/app/inventario' },
-          { name: 'Materias Primas',    path: '/app/inventario/materias-primas' },
-          { name: 'Prod. Terminados',   path: '/app/inventario/productos-terminados' },
-          { name: 'Kardex',             path: '/app/inventario/kardex' },
-          { name: 'Carga Masiva',       path: '/app/inventario/carga-masiva' },
-        ],
-      },
-      { name: 'Clientes',    icon: FaUsers, path: '/app/clientes' },
-      { name: 'Proveedores', icon: FaUsers, path: '/app/proveedores' },
-      { name: 'Guías de Remisión', icon: FaTruck, path: '/app/guias' },
-      { name: 'Órdenes de Servicio', icon: FaTools, path: '/app/servicios' },
-      { name: 'Importar Excel', icon: FaFileUpload, path: '/app/importador' },
-    ],
-  },
-  {
-    id: 'avanzado',
-    label: 'AVANZADO',
-    collapsible: true,
-    items: [
-      {
-        name: 'Cuentas', icon: FaMoneyBillWave,
-        subItems: [
-          { name: 'Por Cobrar', path: '/app/cuentas/por-cobrar' },
-          { name: 'Por Pagar',  path: '/app/cuentas/por-pagar' },
-        ],
-      },
-      {
-        name: 'Producción', icon: FaIndustry,
-        subItems: [
-          { name: 'Dashboard',   path: '/app/produccion/dashboard' },
-          { name: 'Recetas BOM', path: '/app/produccion/recetas' },
-          { name: 'Órdenes',     path: '/app/produccion/ordenes' },
-        ],
-      },
-    ],
-  },
-  {
-    id: 'inteligencia',
-    label: 'INTELIGENCIA',
-    collapsible: true,
-    items: [
-      { name: 'Asistente Virtual', icon: FaRobot, path: '/app/ai-assistant' },
-      // Módulo ML apagado por defecto en prod (backend: ML_ENABLED). Se muestra solo con VITE_ML_ENABLED=true.
-      ...(import.meta.env.VITE_ML_ENABLED === 'true' ? [{ name: 'Machine Learning',  icon: FaBrain, path: '/app/ml-dashboard' }] : []),
-    ],
-  },
-];
-
-// ─── All items flattened (for mobile drawer section check) ────────────────────
-const ALL_ITEMS = MENU_SECTIONS.flatMap(s => s.items);
 
 // ─── SectionLabel ─────────────────────────────────────────────────────────────
 const SectionLabel = ({ label, badge, isCollapsed, isExpanded, onToggle, collapsible }) => {
@@ -304,13 +215,7 @@ const SidebarContent = ({ isCollapsed, onToggleCollapse }) => {
   );
   // D6 — en empresas sin_stock se oculta el menú Inventario (y submenús).
   const { conStock } = useModoInventario();
-  const secciones = React.useMemo(() => {
-    if (conStock) return MENU_SECTIONS;
-    return MENU_SECTIONS.map((s) => ({
-      ...s,
-      items: s.items.filter((it) => it.name !== 'Inventario'),
-    }));
-  }, [conStock]);
+  const secciones = React.useMemo(() => seccionesVisibles(conStock), [conStock]);
 
   const bgColor     = useColorModeValue('white', 'gray.800');
   const borderColor = useColorModeValue('neutral.200', 'gray.700');
@@ -512,33 +417,10 @@ const SidebarContent = ({ isCollapsed, onToggleCollapse }) => {
 // ─── AnimatedSidebar (export) ─────────────────────────────────────────────────
 const AnimatedSidebar = () => {
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const { isOpen, onOpen, onClose } = useDisclosure();
-  const isMobile = useBreakpointValue({ base: true, md: false });
+  const esMovil = useEsMovil();
 
-  if (isMobile) {
-    return (
-      <>
-        <IconButton
-          icon={<HamburgerIcon />}
-          onClick={onOpen}
-          position="fixed"
-          top={4} left={4}
-          zIndex={1000}
-          colorScheme="primary"
-          size="sm"
-          aria-label="Open menu"
-          boxShadow="md"
-        />
-        <Drawer isOpen={isOpen} placement="left" onClose={onClose} size="xs">
-          <DrawerOverlay />
-          <DrawerContent maxW="240px">
-            <DrawerCloseButton />
-            <SidebarContent isCollapsed={false} onToggleCollapse={() => {}} />
-          </DrawerContent>
-        </Drawer>
-      </>
-    );
-  }
+  // En móvil la navegación es la barra inferior + cabecera (MobileShell).
+  if (esMovil) return null;
 
   return (
     <SidebarContent
