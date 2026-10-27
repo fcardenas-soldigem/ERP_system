@@ -322,9 +322,9 @@ antes del deploy).
 
 ## 10. Sesión en iPhone — MISMO ORIGEN vía rewrite de Vercel (0.3, revisado)
 
-> Reemplaza el esquema anterior con `api.soldigem.com.pe`: verificado en prod que
-> ese dominio responde `DEPLOYMENT_NOT_FOUND` de Vercel y **no llega al backend**.
-> No usarlo.
+> Reemplaza el esquema anterior con un subdominio propio para la API:
+> verificado en prod que ese subdominio responde `DEPLOYMENT_NOT_FOUND` de
+> Vercel y **no llega al backend**. No crear dominios aparte para la API.
 
 ### Esquema
 
