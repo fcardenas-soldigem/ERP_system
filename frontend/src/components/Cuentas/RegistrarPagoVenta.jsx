@@ -99,6 +99,8 @@ const RegistrarPagoVenta = () => {
     onSuccess: (result) => {
       queryClient.invalidateQueries(['cuenta-por-cobrar-detalle', ventaId]);
       queryClient.invalidateQueries(['cuentas-por-cobrar']);
+      // la lista "Por cobrar" usa esta key (antes nunca se invalidaba)
+      queryClient.invalidateQueries(['ventas-pendientes']);
       queryClient.invalidateQueries(['ventas']);
       
       const mensaje = result.venta_completamente_pagada 

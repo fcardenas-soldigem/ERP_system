@@ -48,7 +48,10 @@ const CuentasPorPagar = () => {
   const { data, isLoading, error } = useQuery({
     queryKey: ['cuentas-por-pagar', page],
     queryFn: () => cuentasService.getCuentasPorPagar({ page, pageSize }),
-    refetchInterval: 5000 // Refrescar cada 5 segundos
+    // 0.4 — sin polling (ver CuentasPorCobrar)
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true
   });
 
   const compras = data?.results || [];

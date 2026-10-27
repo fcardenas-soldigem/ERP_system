@@ -37,7 +37,10 @@ const ProductoList = ({ categorias, estadisticas }) => {
       return Array.isArray(response.data) ? response.data : [];
     },
     refetchOnMount: true,
-    refetchInterval: 5000,
+    // 0.4 — sin polling: refresco al entrar y al volver a primer plano
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
     onError: (error) => {
       toast({
         title: 'Error',

@@ -50,7 +50,12 @@ const CuentasPorCobrar = () => {
   const { data: ventasResponse, isLoading, error } = useQuery({
     queryKey: ['ventas-pendientes', page],
     queryFn: () => ventasService.getVentasPendientes(),
-    refetchInterval: 5000 // Refrescar cada 5 segundos
+    // 0.4 — sin polling: se refresca al entrar, al volver a primer plano y
+    // tras registrar un cobro (invalidación por key). 5 s de intervalo eran
+    // ~720 peticiones/hora con la pantalla abierta (datos móviles y batería).
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true
   });
 
   // Extraer ventas del response

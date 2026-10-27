@@ -58,7 +58,7 @@ const ResumenInventariosSeparados = () => {
     const { data: resumen, isLoading, refetch, isFetching } = useQuery({
         queryKey: ['resumen-inventarios-separados'],
         queryFn: inventarioService.getResumenInventariosSeparados,
-        refetchInterval: 30000, // Actualizar cada 30 segundos
+        refetchOnWindowFocus: true, // 0.4 — sin polling; refresco al volver
         refetchOnWindowFocus: true, // Actualizar cuando el usuario vuelve a la pestaña
         staleTime: 10000, // Considerar datos frescos por 10 segundos
         onError: (error) => {
@@ -75,7 +75,7 @@ const ResumenInventariosSeparados = () => {
     const { data: alertasMP = [] } = useQuery({
         queryKey: ['alertas-materias-primas'],
         queryFn: inventarioService.getMateriasPrimasAlertas,
-        refetchInterval: 30000,
+        refetchOnWindowFocus: true, // 0.4 — sin polling
         refetchOnWindowFocus: true,
         staleTime: 10000,
     });
@@ -83,7 +83,7 @@ const ResumenInventariosSeparados = () => {
     const { data: alertasPT = [] } = useQuery({
         queryKey: ['alertas-productos-terminados'],
         queryFn: inventarioService.getProductosTerminadosAlertas,
-        refetchInterval: 30000,
+        refetchOnWindowFocus: true, // 0.4 — sin polling
         refetchOnWindowFocus: true,
         staleTime: 10000,
     });

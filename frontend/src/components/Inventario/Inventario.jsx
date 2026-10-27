@@ -75,7 +75,10 @@ const Inventario = () => {
                 throw error;
             }
         },
-        refetchInterval: 5000, // Refrescar cada 5 segundos
+        // 0.4 — sin polling: refresco al entrar y al volver a primer plano
+        staleTime: 0,
+        refetchOnMount: 'always',
+        refetchOnWindowFocus: true,
         refetchOnMount: true,
         refetchOnWindowFocus: true,
         onError: (error) => {
