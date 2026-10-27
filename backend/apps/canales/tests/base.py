@@ -128,9 +128,15 @@ class CanalTestCase(APITestCase):
         return rs[-1] if rs else (None, '', [])
 
     def mock_llm(self, tool, argumentos):
-        """El intérprete devolverá esta única tool call."""
+        """El modelo pide esta tool y, si recibe un resultado, contesta texto
+        (como el real): el bucle de tools termina en la ronda 2."""
         parche = mock.patch('apps.canales.nucleo.interprete.get_llm_client')
         m = parche.start()
-        m.return_value.chat.return_value = respuesta_llm(tool, argumentos)
+        self.programar_llm(m, tool, argumentos)
         self.addCleanup(parche.stop)
         return m
+
+    @staticmethod
+    def programar_llm(m, tool, argumentos):
+        m.return_value.chat.side_effect = (
+            [respuesta_llm(tool, argumentos)] + [respuesta_llm(None, texto='listo')] * 10)

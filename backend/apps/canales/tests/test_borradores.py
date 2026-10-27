@@ -88,7 +88,7 @@ class EdicionYExpiracionTests(CanalTestCase):
         self.assertIn('qué corrijo', self.ultima_respuesta()[1])
 
         # la corrección vuelve a llamar la tool con los datos corregidos
-        m.return_value.chat.return_value = respuesta_llm('preparar_cotizacion', {
+        self.programar_llm(m, 'preparar_cotizacion', {
             'cliente': 'Transportes Lima',
             'items': [{'producto_id': self.producto.id, 'cantidad': 5}],
         })

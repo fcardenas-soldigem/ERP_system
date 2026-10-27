@@ -11,7 +11,6 @@ Reglas duras:
 """
 import logging
 
-import pydantic
 from django.conf import settings
 from django.core.cache import cache
 from django.db import transaction
@@ -25,7 +24,7 @@ from apps.canales.base import Boton, Canal, MensajeEntrante
 from apps.canales.models import BorradorAgente, VinculacionTelegram
 
 from . import servicios
-from .interprete import FUERA_DE_ALCANCE, interpretar
+from .interprete import FUERA_DE_ALCANCE, resolver
 
 logger = logging.getLogger(__name__)
 
@@ -33,12 +32,6 @@ LIMITE_USUARIO_HORA = 60
 LIMITE_EMPRESA_DIA = int(getattr(settings, 'CANALES_LIMITE_MENSAJES_EMPRESA_DIA', 1000))
 LIMITE_TOKENS_EMPRESA_DIA = int(getattr(settings, 'CANALES_LIMITE_TOKENS_EMPRESA_DIA', 300_000))
 
-SERVICIOS_LECTURA = {
-    'buscar_cliente': servicios.buscar_cliente,
-    'buscar_producto': servicios.buscar_producto,
-    'consultar_venta': servicios.consultar_venta,
-    'ventas_detenidas': servicios.ventas_detenidas,
-}
 SERVICIOS_PREPARACION = {
     'preparar_cotizacion': servicios.preparar_cotizacion,
     'preparar_cobro': servicios.preparar_cobro,
@@ -307,26 +300,27 @@ def procesar(canal: Canal, mensaje: MensajeEntrante):
                          'El siguiente mensaje lo corrige: vuelve a llamar la herramienta '
                          'correspondiente con los datos corregidos completos.'),
             )]
-        nombre, entrada, resp = interpretar(texto, contexto)
-        _registrar_tokens(usuario, mensaje.canal, resp)
-    except pydantic.ValidationError:
-        logger.exception('argumentos inválidos del LLM')
-        canal.responder(mensaje.id_externo, 'Me faltan datos para eso. ¿Me das más detalle (cliente, producto, cantidad)?')
-        return
+        # punto 3 — bucle de tools compartido con eval_agente (máx. 5 rondas):
+        # las lecturas ya vienen ejecutadas; las preparaciones, no
+        r = resolver(usuario, texto, contexto)
+        _registrar_tokens(usuario, mensaje.canal, r)
     except Exception:
         logger.exception('intérprete falló')
         canal.responder(mensaje.id_externo, 'El asistente tuvo un problema. Inténtalo de nuevo en un momento.')
         return
 
-    if nombre is None:
+    if r.tipo == 'fuera':
         canal.responder(mensaje.id_externo, FUERA_DE_ALCANCE)
         return
+    if r.tipo == 'faltan_datos':
+        canal.responder(mensaje.id_externo, 'Me faltan datos para eso. ¿Me das más detalle (cliente, producto, cantidad)?')
+        return
+    nombre, entrada = r.nombre, r.entrada
 
     # lecturas: para todos los roles
-    if nombre in SERVICIOS_LECTURA:
-        res = SERVICIOS_LECTURA[nombre](usuario, entrada)
-        _log(usuario, nombre, entrada.model_dump(mode='json'), res)
-        canal.responder(mensaje.id_externo, _formatear_lectura(nombre, res))
+    if r.tipo == 'lectura':
+        _log(usuario, nombre, entrada.model_dump(mode='json'), r.resultado)
+        canal.responder(mensaje.id_externo, _formatear_lectura(nombre, r.resultado))
         return
 
     # preparaciones: exigen rol de escritura (0.1 también aplica al bot)
