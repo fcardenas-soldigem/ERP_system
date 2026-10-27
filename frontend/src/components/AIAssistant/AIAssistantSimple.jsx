@@ -3,6 +3,13 @@ import { Box, VStack, Input, Button, Text, Flex, useToast, HStack, Badge, IconBu
 import { AddIcon, RepeatIcon } from '@chakra-ui/icons';
 import { aiService } from '../../services/ai.service';
 
+// QW8 — mismas preguntas que ofrece el saludo de Jorge, ahora tocables
+const EJEMPLOS = [
+    '¿Cómo van las ventas este mes?',
+    '¿Qué productos tienen stock bajo?',
+    '¿Quiénes son mis mejores clientes?',
+];
+
 const AIAssistantSimple = () => {
     const [messages, setMessages] = useState([]);
     const [input, setInput] = useState('');
@@ -131,13 +138,13 @@ const AIAssistantSimple = () => {
         }
     };
 
-    const sendMessage = async () => {
-        if (!input.trim() || !threadId || isLoading) {
-            console.log('❌ Validación falló:', { input: input.trim(), threadId, isLoading });
+    const sendMessage = async (texto) => {
+        const userMessage = (typeof texto === 'string' ? texto : input).trim();
+        if (!userMessage || !threadId || isLoading) {
+            console.log('❌ Validación falló:', { userMessage, threadId, isLoading });
             return;
         }
 
-        const userMessage = input;
         console.log('📤 Enviando CON TOOLS:', userMessage);
         
         // Limpiar input y mostrar mensaje del usuario
@@ -293,6 +300,25 @@ const AIAssistantSimple = () => {
                         </Flex>
                     )}
                 </Box>
+
+                {/* QW8 — ejemplos tocables mientras no hay conversación */}
+                {messages.length <= 1 && !isLoading && !isLoadingMessages && (
+                    <HStack w="full" spacing={2} flexWrap="wrap" rowGap={2}>
+                        {EJEMPLOS.map((ej) => (
+                            <Button
+                                key={ej}
+                                size="sm"
+                                variant="outline"
+                                colorScheme="blue"
+                                borderRadius="full"
+                                minH="40px"
+                                onClick={() => sendMessage(ej)}
+                            >
+                                {ej}
+                            </Button>
+                        ))}
+                    </HStack>
+                )}
 
                 {/* Input area */}
                 <HStack w="full" spacing={2}>
