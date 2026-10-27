@@ -6,16 +6,19 @@ Los que ESCRIBEN no escriben: devuelven la propuesta con la que el orquestador
 crea un BorradorAgente. El documento real solo nace en confirmar_borrador().
 """
 import logging
+import re
 from decimal import Decimal
 from types import SimpleNamespace
 
 from django.db.models import Q
 from django.utils import timezone
+from django.utils.html import escape
 import datetime as _dt
 
 from apps.ventas.models import Cliente, Venta
 from apps.inventario.models.producto import Producto
 
+from . import busqueda
 from . import esquemas as E
 
 logger = logging.getLogger(__name__)
@@ -128,55 +131,192 @@ def ventas_detenidas(usuario, entrada: E.VentasDetenidas):
 
 # ── preparaciones (generan borrador; NUNCA escriben) ─────────────────────────
 
-def preparar_cotizacion(usuario, entrada: E.PrepararCotizacion):
-    cliente = None
+def _opcion(cid, extra, clave):
+    return {'id': cid, 'nombre': extra['nombre'], clave: extra.get(clave, '')}
+
+
+def _resolver_cliente_payload(usuario, entrada):
+    """→ dict con cliente / cliente_estado / cliente_opciones / cliente_texto."""
     if entrada.cliente_id:
-        cliente = Cliente.objects.filter(empresa=usuario.empresa, pk=entrada.cliente_id).first()
-    elif entrada.cliente_query:
-        res = buscar_cliente(usuario, E.BuscarCliente(query=entrada.cliente_query))['clientes']
-        if len(res) == 1:
-            cliente = Cliente.objects.get(pk=res[0]['id'], empresa=usuario.empresa)
-        elif res:
-            return {'ambiguo': True, 'clientes': res}
-    if not cliente:
-        return {'error': 'No ubico al cliente. Dime su nombre o RUC.'}
+        c = Cliente.objects.filter(empresa=usuario.empresa, pk=entrada.cliente_id).first()
+        if c:
+            return {'cliente': c.id, 'cliente_nombre': c.nombre, 'cliente_estado': 'ok',
+                    'cliente_texto': c.nombre, 'cliente_opciones': []}
+    texto = (entrada.cliente or '').strip()
+    estado, encontrados = busqueda.resolver_cliente(usuario.empresa, texto)
+    if estado == 'ok':
+        cid, _, extra = encontrados[0]
+        return {'cliente': cid, 'cliente_nombre': extra['nombre'], 'cliente_estado': 'ok',
+                'cliente_texto': texto, 'cliente_opciones': []}
+    return {'cliente': None, 'cliente_nombre': '', 'cliente_estado': estado, 'cliente_texto': texto,
+            'cliente_opciones': [_opcion(cid, extra, 'documento') for cid, _, extra in encontrados]}
 
-    items, faltantes = [], []
-    for it in entrada.items:
-        item = {'cantidad': str(it.cantidad)}
-        if it.producto_id:
-            p = Producto.objects.filter(empresa=usuario.empresa, pk=it.producto_id).first()
-            if not p:
-                faltantes.append(str(it.producto_id))
-                continue
-            item.update(producto=p.id, descripcion=it.descripcion or p.nombre,
-                        precio_unitario=str(it.precio_unitario if it.precio_unitario is not None else p.precio_venta))
-        else:
-            item.update(descripcion=it.descripcion, precio_unitario=str(it.precio_unitario or 0))
-        items.append(item)
-    if faltantes or not items:
-        return {'error': f'No encontré los productos: {", ".join(faltantes)}' if faltantes else 'Sin ítems válidos.'}
 
-    total_aprox = sum(Decimal(i['precio_unitario']) * Decimal(i['cantidad']) for i in items)
-    return {
-        'borrador': {
-            'tipo': 'cotizacion',
-            'payload': {
-                'cliente': cliente.id,
-                'asunto': entrada.asunto or f'Cotización para {cliente.nombre}',
-                'moneda': entrada.moneda,
-                # 15 días de vigencia: el valor por defecto del negocio
-                'fecha_vencimiento': (timezone.localdate() + _dt.timedelta(days=15)).isoformat(),
-                'detalles': items,
-            },
-            'resumen': (
-                f'📝 <b>Cotización</b> para <b>{cliente.nombre}</b>\n'
-                + '\n'.join(f'  • {i["descripcion"]} ×{Decimal(i["cantidad"]):g} '
-                            f'a {_simbolo(entrada.moneda)} {_num(i["precio_unitario"])}' for i in items)
-                + f'\nSubtotal aprox.: {_simbolo(entrada.moneda)} {_num(total_aprox)} + IGV'
-            ),
-        },
+def _precio_de(producto, item, moneda):
+    if item.precio_unitario is not None:
+        return str(item.precio_unitario), ''
+    aviso = ''
+    if getattr(producto, 'moneda', moneda) and producto.moneda != moneda:
+        aviso = f'precio de catálogo en {producto.moneda}'
+    return str(producto.precio_venta), aviso
+
+
+def _resolver_item(usuario, it, moneda):
+    base = {'texto': it.producto or '', 'cantidad': str(it.cantidad),
+            'precio_unitario': str(it.precio_unitario) if it.precio_unitario is not None else None,
+            'opciones': [], 'aviso': ''}
+    if it.producto_id:
+        p = Producto.objects.filter(empresa=usuario.empresa, pk=it.producto_id).first()
+        if p:
+            precio, aviso = _precio_de(p, it, moneda)
+            return {**base, 'estado': 'ok', 'producto': p.id, 'descripcion': p.nombre,
+                    'precio_unitario': precio, 'aviso': aviso}
+    estado, encontrados = busqueda.resolver_producto(usuario.empresa, it.producto or '')
+    if estado == 'ok':
+        p = Producto.objects.get(pk=encontrados[0][0], empresa=usuario.empresa)
+        precio, aviso = _precio_de(p, it, moneda)
+        return {**base, 'estado': 'ok', 'producto': p.id, 'descripcion': p.nombre,
+                'precio_unitario': precio, 'aviso': aviso}
+    return {**base, 'estado': estado, 'producto': None, 'descripcion': it.producto or '',
+            'opciones': [_opcion(pid, extra, 'sku') for pid, _, extra in encontrados]}
+
+
+def preparar_cotizacion(usuario, entrada: E.PrepararCotizacion):
+    """UNA llamada del modelo basta: cliente e ítems llegan en texto y el
+    SERVIDOR los resuelve con búsqueda difusa. Lo que no resuelve queda
+    marcado en el borrador como pendiente; la respuesta ofrece botones."""
+    payload = {
+        **_resolver_cliente_payload(usuario, entrada),
+        'cliente_nuevo': None,
+        'asunto': entrada.asunto or '',
+        'moneda': entrada.moneda,
+        # 15 días de vigencia: el valor por defecto del negocio
+        'fecha_vencimiento': (timezone.localdate() + _dt.timedelta(days=15)).isoformat(),
+        'detalles': [_resolver_item(usuario, it, entrada.moneda) for it in entrada.items],
     }
+    return {'borrador': {'tipo': 'cotizacion', 'payload': payload,
+                         'resumen': resumen_cotizacion(payload)}}
+
+
+# ── pendientes de una cotización (resolución por botones) ────────────────────
+
+def pendientes_cotizacion(payload):
+    """[('cliente', None) | ('item', idx)] en el orden en que se preguntan."""
+    out = []
+    if not payload.get('cliente'):
+        nuevo = payload.get('cliente_nuevo') or {}
+        if not nuevo.get('documento'):
+            out.append(('cliente', None))
+    for idx, d in enumerate(payload.get('detalles', [])):
+        if d.get('estado') in ('ambiguo', 'no_encontrado'):
+            out.append(('item', idx))
+    return out
+
+
+def resumen_cotizacion(payload):
+    s = _simbolo(payload.get('moneda'))
+    if payload.get('cliente'):
+        cliente = f'<b>{escape(payload.get("cliente_nombre", ""))}</b>'
+    elif (payload.get('cliente_nuevo') or {}).get('documento'):
+        n = payload['cliente_nuevo']
+        cliente = f'<b>{escape(n["nombre"])}</b> (cliente nuevo, {n["tipo_documento"].upper()} {escape(n["documento"])})'
+    else:
+        cliente = f'❓ «{escape(payload.get("cliente_texto", ""))}»'
+    lineas, total = [], Decimal('0')
+    for d in payload.get('detalles', []):
+        cant = Decimal(d['cantidad'])
+        if d.get('estado') in ('ambiguo', 'no_encontrado'):
+            lineas.append(f'  • ❓ «{escape(d["texto"])}» ×{cant:g}')
+            continue
+        if d.get('precio_unitario') is None:
+            lineas.append(f'  • {escape(d["descripcion"])} ×{cant:g} — ⚠ precio por definir')
+            continue
+        precio = Decimal(d['precio_unitario'])
+        total += precio * cant
+        aviso = f' ⚠ {escape(d["aviso"])}' if d.get('aviso') else ''
+        lineas.append(f'  • {escape(d["descripcion"])} ×{cant:g} a {s} {_num(precio)}{aviso}')
+    return (f'📝 <b>Cotización</b> para {cliente}\n' + '\n'.join(lineas)
+            + f'\nSubtotal aprox.: {s} {_num(total)} + IGV')
+
+
+def pregunta_pendiente(payload, borrador_id):
+    """→ (texto, [(texto_boton, accion)]) para el PRIMER pendiente, o None.
+    Máximo 3 opciones + la salida («cliente nuevo» / «texto libre»)."""
+    pend = pendientes_cotizacion(payload)
+    if not pend:
+        return None
+    tipo, idx = pend[0]
+    if tipo == 'cliente':
+        if payload.get('cliente_nuevo'):
+            return (f'Envíame el RUC (11 dígitos) o DNI (8) de «{escape(payload["cliente_nuevo"]["nombre"])}».', [])
+        texto = escape(payload.get('cliente_texto', ''))
+        botones = [(f'👤 {o["nombre"]}', f'r:{borrador_id}:c:{o["id"]}')
+                   for o in payload.get('cliente_opciones', [])[:busqueda.MAX_OPCIONES]]
+        botones.append((f'➕ Crear cliente nuevo «{payload.get("cliente_texto", "")[:30]}»', f'r:{borrador_id}:cn'))
+        pregunta = (f'¿Cuál es el cliente «{texto}»?' if payload.get('cliente_estado') == 'ambiguo'
+                    else f'No encontré al cliente «{texto}».')
+        return pregunta, botones
+    d = payload['detalles'][idx]
+    botones = [(f'📦 {o["nombre"]}', f'r:{borrador_id}:i{idx}:{o["id"]}')
+               for o in d.get('opciones', [])[:busqueda.MAX_OPCIONES]]
+    botones.append((f'✍️ Usar «{d["texto"][:30]}» como texto libre', f'r:{borrador_id}:i{idx}:libre'))
+    pregunta = (f'¿Cuál producto es «{escape(d["texto"])}»?' if d['estado'] == 'ambiguo'
+                else f'No encontré el producto «{escape(d["texto"])}».')
+    return pregunta, botones
+
+
+def aplicar_resolucion(usuario, payload, objetivo, valor):
+    """Aplica la opción elegida por botón. Solo acepta ids que el SERVIDOR
+    ofreció (callback_data es forjable). → (payload, error|None)."""
+    if objetivo == 'c':
+        validas = {str(o['id']) for o in payload.get('cliente_opciones', [])}
+        if valor not in validas:
+            return payload, 'Esa opción no es válida.'
+        c = Cliente.objects.filter(empresa=usuario.empresa, pk=int(valor)).first()
+        if not c:
+            return payload, 'Ese cliente ya no existe.'
+        payload.update(cliente=c.id, cliente_nombre=c.nombre, cliente_estado='ok', cliente_nuevo=None)
+        return payload, None
+    if objetivo == 'cn':
+        nombre = ' '.join(w.capitalize() for w in payload.get('cliente_texto', '').split()) or 'Cliente nuevo'
+        payload['cliente_nuevo'] = {'nombre': nombre[:200], 'documento': None, 'tipo_documento': None}
+        payload['cliente_estado'] = 'nuevo'
+        return payload, None
+    if objetivo.startswith('i') and objetivo[1:].isdigit():
+        idx = int(objetivo[1:])
+        detalles = payload.get('detalles', [])
+        if idx >= len(detalles):
+            return payload, 'Esa opción no es válida.'
+        d = detalles[idx]
+        if valor == 'libre':
+            d.update(estado='libre', producto=None, descripcion=d['texto'])
+            return payload, None
+        if valor not in {str(o['id']) for o in d.get('opciones', [])}:
+            return payload, 'Esa opción no es válida.'
+        p = Producto.objects.filter(empresa=usuario.empresa, pk=int(valor)).first()
+        if not p:
+            return payload, 'Ese producto ya no existe.'
+        precio = d['precio_unitario'] if d.get('precio_unitario') is not None else str(p.precio_venta)
+        aviso = f'precio de catálogo en {p.moneda}' if (d.get('precio_unitario') is None
+                                                        and p.moneda != payload.get('moneda')) else ''
+        d.update(estado='ok', producto=p.id, descripcion=p.nombre, precio_unitario=precio, aviso=aviso)
+        return payload, None
+    return payload, 'Esa opción no es válida.'
+
+
+def aplicar_documento(usuario, payload, texto):
+    """RUC/DNI para «cliente nuevo». Si ya existe en la empresa, se usa ese
+    cliente (no se duplica). → (payload, mensaje)."""
+    doc = re.sub(r'\D', '', texto or '')
+    if len(doc) not in (8, 11):
+        return payload, 'Necesito un RUC de 11 dígitos o un DNI de 8. Inténtalo de nuevo.'
+    existente = Cliente.objects.filter(empresa=usuario.empresa, documento=doc).first()
+    if existente:
+        payload.update(cliente=existente.id, cliente_nombre=existente.nombre,
+                       cliente_estado='ok', cliente_nuevo=None)
+        return payload, f'Ese documento ya es de «{escape(existente.nombre)}»: lo uso.'
+    payload['cliente_nuevo'].update(documento=doc, tipo_documento='ruc' if len(doc) == 11 else 'dni')
+    return payload, None
 
 
 def preparar_cobro(usuario, entrada: E.PrepararCobro):
@@ -206,8 +346,8 @@ def preparar_cobro(usuario, entrada: E.PrepararCobro):
             },
             'resumen': (
                 f'💰 <b>Cobro</b> de <b>{_simbolo(venta.moneda)} {_num(monto)}</b> '
-                f'({entrada.metodo_pago}) a {venta.cliente.nombre}\n'
-                f'Venta {venta.numero} · saldo actual {_simbolo(venta.moneda)} {_num(saldo)}'
+                f'({entrada.metodo_pago}) a {escape(venta.cliente.nombre)}\n'
+                f'Venta {escape(venta.numero)} · saldo actual {_simbolo(venta.moneda)} {_num(saldo)}'
             ),
         },
     }
@@ -237,7 +377,7 @@ def cambiar_estado_operativo(usuario, entrada: E.CambiarEstadoOperativo):
                 'nuevo_estado': entrada.nuevo_estado,
             },
             'resumen': (
-                f'🚚 Venta <b>{venta.numero}</b> ({venta.cliente.nombre}): '
+                f'🚚 Venta <b>{escape(venta.numero)}</b> ({escape(venta.cliente.nombre)}): '
                 f'{venta.get_estado_operativo_display()} → '
                 f'<b>{dict(Venta.ESTADO_OPERATIVO_CHOICES)[entrada.nuevo_estado]}</b>'
             ),
@@ -255,17 +395,46 @@ def confirmar_borrador(borrador):
 
     if borrador.tipo == 'cotizacion':
         from apps.cotizaciones.serializers import CotizacionSerializer
-        # REVIEW_BOT #4 — CotizacionSerializer no es scoped: re-validar que el
-        # cliente y los productos del payload son de la empresa del usuario
-        # ANTES de serializar (defensa ante un payload manipulado a futuro).
-        if not Cliente.objects.filter(pk=borrador.payload.get('cliente'), empresa=usuario.empresa).exists():
-            raise ValueError('El cliente no pertenece a tu empresa.')
-        ids_producto = [d['producto'] for d in borrador.payload.get('detalles', []) if d.get('producto')]
+        payload = borrador.payload
+        # el botón Confirmar no se ofrece con pendientes, pero callback_data es
+        # forjable: el servidor lo vuelve a exigir aquí
+        if pendientes_cotizacion(payload):
+            raise ValueError('Faltan datos por resolver (cliente o productos).')
+
+        if payload.get('cliente'):
+            cliente = Cliente.objects.filter(pk=payload['cliente'], empresa=usuario.empresa).first()
+            # REVIEW_BOT #4 — CotizacionSerializer no es scoped
+            if not cliente:
+                raise ValueError('El cliente no pertenece a tu empresa.')
+        else:
+            n = payload['cliente_nuevo']
+            # único por (empresa, documento): si alguien lo creó mientras tanto, se reutiliza
+            cliente, _ = Cliente.objects.get_or_create(
+                empresa=usuario.empresa, documento=n['documento'],
+                defaults={'nombre': n['nombre'], 'tipo_documento': n['tipo_documento'], 'usuario': usuario},
+            )
+
+        detalles = payload.get('detalles', [])
+        ids_producto = [d['producto'] for d in detalles if d.get('producto')]
         if ids_producto and Producto.objects.filter(
                 pk__in=ids_producto, empresa=usuario.empresa).count() != len(set(ids_producto)):
             raise ValueError('Hay productos que no pertenecen a tu empresa.')
-        # empresa y usuario_creador los fija el SERVIDOR (nunca el payload del chat)
-        data = {**borrador.payload, 'empresa': usuario.empresa_id, 'usuario_creador': usuario.id}
+
+        # datos LIMPIOS para el serializer: nada de las claves de trabajo del
+        # borrador (texto, opciones, estado, aviso)
+        data = {
+            'cliente': cliente.id,
+            'asunto': payload.get('asunto') or f'Cotización para {cliente.nombre}',
+            'moneda': payload.get('moneda', 'PEN'),
+            'fecha_vencimiento': payload['fecha_vencimiento'],
+            'detalles': [
+                {'producto': d.get('producto'), 'descripcion': d['descripcion'],
+                 'cantidad': d['cantidad'], 'precio_unitario': d.get('precio_unitario') or '0'}
+                for d in detalles
+            ],
+            # empresa y usuario_creador los fija el SERVIDOR (nunca el payload del chat)
+            'empresa': usuario.empresa_id, 'usuario_creador': usuario.id,
+        }
         ser = CotizacionSerializer(data=data, context=contexto)
         ser.is_valid(raise_exception=True)
         cot = ser.save(empresa=usuario.empresa, usuario_creador=usuario)

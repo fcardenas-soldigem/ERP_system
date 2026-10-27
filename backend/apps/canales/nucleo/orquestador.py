@@ -115,6 +115,34 @@ def _botones_borrador(borrador):
     ]
 
 
+def _responder_borrador(canal, id_externo, borrador, resumen=None, prefijo=''):
+    """B7 — SIEMPRE un solo mensaje. Cotización con pendientes: resumen +
+    la primera pregunta con sus opciones (máx. 3) + Cancelar. Sin pendientes:
+    resumen + Confirmar/Editar/Cancelar."""
+    if borrador.tipo == 'cotizacion':
+        resumen = servicios.resumen_cotizacion(borrador.payload)
+        pregunta = servicios.pregunta_pendiente(borrador.payload, borrador.id)
+        if pregunta:
+            texto, opciones = pregunta
+            botones = [Boton(texto=t[:60], accion=a) for t, a in opciones]
+            botones.append(Boton(texto='❌ Cancelar', accion=f'b:{borrador.id}:no'))
+            canal.responder(id_externo, f'{prefijo}{resumen}\n\n{texto}', botones=botones)
+            return
+    canal.responder(
+        id_externo,
+        f'{prefijo}{resumen}\n\n¿Confirmo? (expira en 30 min)',
+        botones=_botones_borrador(borrador),
+    )
+
+
+def _borrador_esperando_documento(usuario, id_externo):
+    return BorradorAgente.objects.filter(
+        usuario=usuario, empresa=usuario.empresa, estado='pendiente', tipo='cotizacion',
+        id_externo=id_externo, payload__cliente_estado='nuevo',
+        payload__cliente_nuevo__documento=None,  # null en el JSON (no «clave ausente»)
+    ).order_by('-created_at').first()
+
+
 def _crear_borrador(usuario, mensaje, tipo, payload):
     return BorradorAgente.objects.create(
         empresa=usuario.empresa, usuario=usuario, tipo=tipo, payload=payload,
@@ -242,6 +270,22 @@ def procesar(canal: Canal, mensaje: MensajeEntrante):
     # REVIEW_BOT #11 — nadie dicta una cotización de 100 KB: tope antes del LLM
     texto = texto[:1000]
 
+    # punto 1 — «Crear cliente nuevo» pidió RUC/DNI: este mensaje es la respuesta
+    esperando = _borrador_esperando_documento(usuario, mensaje.id_externo)
+    if esperando and not esperando.expirado and not texto.startswith('/'):
+        if usuario.rol == 'solo_lectura':
+            canal.responder(mensaje.id_externo, MSG_SOLO_LECTURA)
+            return
+        payload, aviso = servicios.aplicar_documento(usuario, esperando.payload, texto)
+        if aviso and payload.get('cliente_estado') == 'nuevo':
+            canal.responder(mensaje.id_externo, aviso)  # documento inválido: lo pide de nuevo
+            return
+        esperando.payload = payload
+        esperando.save(update_fields=['payload'])
+        _responder_borrador(canal, mensaje.id_externo, esperando,
+                            prefijo=f'{aviso}\n\n' if aviso else '')
+        return
+
     # ¿es una corrección a un borrador pendiente en modo edición?
     borrador_en_edicion = BorradorAgente.objects.filter(
         usuario=usuario, estado='pendiente', id_externo=mensaje.id_externo,
@@ -300,11 +344,7 @@ def procesar(canal: Canal, mensaje: MensajeEntrante):
         borrador_en_edicion.marcar('cancelado')
     b = res['borrador']
     borrador = _crear_borrador(usuario, mensaje, b['tipo'], b['payload'])
-    canal.responder(
-        mensaje.id_externo,
-        b['resumen'] + '\n\n¿Confirmo? (expira en 30 min)',
-        botones=_botones_borrador(borrador),
-    )
+    _responder_borrador(canal, mensaje.id_externo, borrador, resumen=b['resumen'])
 
 
 # ── /start, callbacks, foto ──────────────────────────────────────────────────
@@ -362,6 +402,9 @@ def _manejar_callback(canal, mensaje, usuario):
         _log(usuario, 'cotizacion_enviada', {'id': cot.id}, cot.numero)
         canal.responder(mensaje.id_externo, f'📨 {cot.numero} marcada como enviada.')
         return
+
+    if partes[0] == 'r' and len(partes) in (3, 4) and partes[1].isdigit():
+        return _manejar_resolucion(canal, mensaje, usuario, partes)
 
     if partes[0] != 'b' or len(partes) != 3:
         canal.responder(mensaje.id_externo, FUERA_DE_ALCANCE)
@@ -440,6 +483,35 @@ def _manejar_callback(canal, mensaje, usuario):
         return
 
     canal.responder(mensaje.id_externo, FUERA_DE_ALCANCE)
+
+
+def _manejar_resolucion(canal, mensaje, usuario, partes):
+    """r:<borrador>:c:<cliente> | r:<borrador>:cn | r:<borrador>:i<idx>:<producto|libre>.
+    Solo acepta opciones que el servidor ofreció (aplicar_resolucion)."""
+    if usuario.rol == 'solo_lectura':
+        canal.responder(mensaje.id_externo, MSG_SOLO_LECTURA)
+        return
+    with transaction.atomic():
+        borrador = BorradorAgente.objects.select_for_update().filter(
+            pk=partes[1], usuario=usuario, empresa=usuario.empresa, tipo='cotizacion').first()
+        if not borrador:
+            canal.responder(mensaje.id_externo, 'Ese borrador ya no existe.')
+            return
+        if borrador.estado != 'pendiente':
+            canal.responder(mensaje.id_externo, f'Ese borrador ya está {esc(borrador.get_estado_display().lower())}.')
+            return
+        if borrador.expirado:
+            borrador.marcar('expirado')
+            canal.responder(mensaje.id_externo, '⌛ Ese borrador expiró (30 min). Vuelve a pedírmelo.')
+            return
+        valor = partes[3] if len(partes) == 4 else ''
+        payload, error = servicios.aplicar_resolucion(usuario, borrador.payload, partes[2], valor)
+        if error:
+            canal.responder(mensaje.id_externo, error)
+            return
+        borrador.payload = payload
+        borrador.save(update_fields=['payload'])
+    _responder_borrador(canal, mensaje.id_externo, borrador)
 
 
 def _manejar_foto(canal, mensaje, usuario):

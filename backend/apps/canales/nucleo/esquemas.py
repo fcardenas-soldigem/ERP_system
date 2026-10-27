@@ -5,7 +5,7 @@ La empresa nunca es un campo: la pone el servidor desde el usuario vinculado.
 from decimal import Decimal
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, model_validator
 
 
 class BuscarCliente(BaseModel):
@@ -17,25 +17,39 @@ class BuscarProducto(BaseModel):
 
 
 class ItemCotizacion(BaseModel):
-    producto_id: Optional[int] = None
-    descripcion: Optional[str] = Field(default=None, max_length=500)
-    cantidad: Decimal = Field(gt=0, le=Decimal('100000'))
-    precio_unitario: Optional[Decimal] = Field(default=None, ge=0)
+    """Un ítem TAL COMO lo dijo el vendedor: el servidor busca el producto."""
+    producto: Optional[str] = Field(
+        default=None, max_length=200,
+        description='producto en texto, como lo dijo el usuario: "jabra 750", "mouse inalambrico"')
+    producto_id: Optional[int] = Field(default=None, description='solo si ya conoces el id exacto')
+    cantidad: Decimal = Field(
+        gt=0, le=Decimal('100000'),
+        description='número; convierte palabras: "una docena" = 12, "un par" = 2')
+    precio_unitario: Optional[Decimal] = Field(
+        default=None, ge=0, description='solo si el usuario dio precio por unidad')
 
-    @field_validator('descripcion')
-    @classmethod
-    def _algo_que_cotizar(cls, v, info):
-        if not v and not info.data.get('producto_id'):
-            raise ValueError('cada ítem necesita producto_id o descripción')
-        return v
+    @model_validator(mode='after')
+    def _algo_que_cotizar(self):
+        if not (self.producto or '').strip() and not self.producto_id:
+            raise ValueError('cada ítem necesita el producto (texto) o producto_id')
+        return self
 
 
 class PrepararCotizacion(BaseModel):
-    cliente_id: Optional[int] = None
-    cliente_query: Optional[str] = Field(default=None, max_length=120)
+    cliente: Optional[str] = Field(
+        default=None, max_length=200,
+        description='cliente en texto, como lo dijo el usuario: nombre, alias o RUC')
+    cliente_id: Optional[int] = Field(default=None, description='solo si ya conoces el id exacto')
     items: list[ItemCotizacion] = Field(min_length=1, max_length=50)
     asunto: Optional[str] = Field(default=None, max_length=200)
-    moneda: Literal['PEN', 'USD'] = 'PEN'
+    moneda: Literal['PEN', 'USD'] = Field(
+        default='PEN', description='"soles"/"lucas" → PEN; "dólares" → USD')
+
+    @model_validator(mode='after')
+    def _con_cliente(self):
+        if not (self.cliente or '').strip() and not self.cliente_id:
+            raise ValueError('falta el cliente')
+        return self
 
 
 class PrepararCobro(BaseModel):

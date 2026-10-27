@@ -22,9 +22,9 @@ class EvalDatasetTests(SimpleTestCase):
              'consultar_venta', 'consultar_stock', 'ventas_detenidas'}, tools)
 
     def test_comparador_acepta_match_laxo(self):
-        caso = CASOS[0]  # cotización: cliente_query + items.0.cantidad
+        caso = CASOS[0]  # cotización: cliente (texto) + items.0.cantidad
         entrada = E.PrepararCotizacion(
-            cliente_query='Transportes Lima SAC',
+            cliente='Transportes Lima SAC',
             items=[{'producto_id': 7, 'cantidad': 3}])
         ok, detalle = comparar(caso, 'preparar_cotizacion', entrada)
         self.assertTrue(ok, detalle)

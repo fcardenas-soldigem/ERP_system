@@ -13,7 +13,7 @@ CASOS = [
         'id': 1,
         'texto': 'cotizale 3 jabra 750 a transportes lima porfa',
         'tool': 'preparar_cotizacion',
-        'params': {'cliente_query': 'transportes lima', 'items.0.cantidad': 3},
+        'params': {'cliente': 'transportes lima', 'items.0.cantidad': 3},
     },
     {
         'id': 2,
@@ -55,7 +55,7 @@ CASOS = [
         'id': 8,
         'texto': 'hazle cotizacion al cliente nuevo galvez: 10 cascos y 10 chalecos a 25 lucas en total no, 25 soles c/u',
         'tool': 'preparar_cotizacion',
-        'params': {'cliente_query': 'galvez'},
+        'params': {'cliente': 'galvez'},
     },
     {
         'id': 9,
@@ -85,7 +85,7 @@ CASOS = [
         'id': 13,
         'texto': 'cotiza pa inversiones ramirez 2 laptop hp 640 y 1 mouse inalambrico',
         'tool': 'preparar_cotizacion',
-        'params': {'cliente_query': 'ramirez'},
+        'params': {'cliente': 'ramirez'},
     },
     {
         'id': 14,

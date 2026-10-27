@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 CATALOGO = {
     'buscar_cliente': (E.BuscarCliente, 'Busca un cliente por alias, parte del nombre o RUC/DNI.'),
     'buscar_producto': (E.BuscarProducto, 'Busca un producto por nombre aproximado o SKU (tolera errores de tipeo).'),
-    'preparar_cotizacion': (E.PrepararCotizacion, 'Prepara una cotización (borrador que la persona confirma). Usa cliente_query con el nombre que dio el usuario y un ítem por producto con cantidad.'),
+    'preparar_cotizacion': (E.PrepararCotizacion, 'Cotizar / hacer una proforma. Pasa el cliente y cada producto en TEXTO, tal como los dijo el usuario («3 jabra 750 a transportes lima» → cliente "transportes lima", producto "jabra 750", cantidad 3): el servidor los busca. NO busques clientes ni productos antes. Cantidades en palabras a número («una docena» = 12). Si dicen precio por unidad, ponlo en precio_unitario con su moneda.'),
     'preparar_cobro': (E.PrepararCobro, 'Prepara el registro de un cobro/pago recibido de un cliente. Si no dan monto, se cobra el saldo completo.'),
     'cambiar_estado_operativo': (E.CambiarEstadoOperativo, 'Prepara el cambio de estado operativo de una venta (comprado, recibido, entregado, facturado…). "Ya se entregó" → entregado.'),
     'consultar_venta': (E.ConsultarVenta, 'Consulta una venta: estado de pago, cuánto se cobró y saldo pendiente. Sirve para "¿ya pagó X?".'),

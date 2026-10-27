@@ -14,19 +14,11 @@ from apps.ventas.models import PagoVenta
 from .base import CanalTestCase, respuesta_llm
 
 
-def _args_cotizacion():
-    return {
-        'cliente_query': 'Transportes Lima',
-        'items': [{'producto_id': None, 'descripcion': None, 'cantidad': 3, 'precio_unitario': None}],
-        'moneda': 'PEN',
-    }
-
-
 class CotizacionCompletaTests(CanalTestCase):
     def test_flujo_completo_con_confirmacion(self):
         # el intérprete resuelve el producto con producto_id
         self.mock_llm('preparar_cotizacion', {
-            'cliente_query': 'Transportes Lima',
+            'cliente': 'Transportes Lima',
             'items': [{'producto_id': self.producto.id, 'cantidad': 3}],
             'moneda': 'PEN',
         })
@@ -72,7 +64,7 @@ class CotizacionCompletaTests(CanalTestCase):
 
     def test_cancelar_no_crea_nada(self):
         self.mock_llm('preparar_cotizacion', {
-            'cliente_query': 'Transportes Lima',
+            'cliente': 'Transportes Lima',
             'items': [{'producto_id': self.producto.id, 'cantidad': 1}],
         })
         self.post_update(self.update_texto(self.CHAT_A, 'cotiza 1 jabra'))
@@ -86,7 +78,7 @@ class CotizacionCompletaTests(CanalTestCase):
 class EdicionYExpiracionTests(CanalTestCase):
     def test_editar_acepta_correccion_en_lenguaje_natural(self):
         m = self.mock_llm('preparar_cotizacion', {
-            'cliente_query': 'Transportes Lima',
+            'cliente': 'Transportes Lima',
             'items': [{'producto_id': self.producto.id, 'cantidad': 3}],
         })
         self.post_update(self.update_texto(self.CHAT_A, 'cotiza 3 jabra a transportes'))
@@ -97,7 +89,7 @@ class EdicionYExpiracionTests(CanalTestCase):
 
         # la corrección vuelve a llamar la tool con los datos corregidos
         m.return_value.chat.return_value = respuesta_llm('preparar_cotizacion', {
-            'cliente_query': 'Transportes Lima',
+            'cliente': 'Transportes Lima',
             'items': [{'producto_id': self.producto.id, 'cantidad': 5}],
         })
         self.post_update(self.update_texto(self.CHAT_A, 'que sean 5'))
