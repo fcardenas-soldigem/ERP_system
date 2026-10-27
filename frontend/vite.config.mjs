@@ -4,6 +4,14 @@ import path from 'path';
 
 export default defineConfig({
   plugins: [react()],
+  // vitest: los .test.jsx corren con la misma config de Vite (jsdom)
+  test: {
+    environment: 'jsdom',
+    setupFiles: './src/setupTests.js',
+    globals: true,
+    include: ['src/**/*.test.{js,jsx}'],
+    exclude: ['src/App.test.js', 'src/components/Login.test.js'],
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

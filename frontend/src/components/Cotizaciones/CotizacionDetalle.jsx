@@ -420,15 +420,20 @@ const CotizacionDetalle = () => {
           </CardHeader>
           <CardBody pt={2}>
             <VStack align="start" spacing={2}>
-              <Text fontWeight="bold" fontSize="lg">{cotizacion.cliente_nombre}</Text>
-              {cotizacion.cliente_ruc && (
-                <Text color="gray.600">RUC: {cotizacion.cliente_ruc}</Text>
+              <Text fontWeight="bold" fontSize="lg">{cotizacion.cliente_info?.nombre}</Text>
+              {cotizacion.cliente_info?.documento && (
+                <Text color="gray.600">
+                  {(cotizacion.cliente_info.tipo_documento || 'RUC').toUpperCase()}: {cotizacion.cliente_info.documento}
+                </Text>
               )}
-              {cotizacion.cliente_email && (
-                <Text color="gray.600">{cotizacion.cliente_email}</Text>
+              {cotizacion.contacto_nombre && (
+                <Text color="gray.600">Contacto: {cotizacion.contacto_nombre}</Text>
               )}
-              {cotizacion.cliente_telefono && (
-                <Text color="gray.600">{cotizacion.cliente_telefono}</Text>
+              {(cotizacion.contacto_email || cotizacion.cliente_info?.email) && (
+                <Text color="gray.600">{cotizacion.contacto_email || cotizacion.cliente_info.email}</Text>
+              )}
+              {cotizacion.cliente_info?.telefono && (
+                <Text color="gray.600">{cotizacion.cliente_info.telefono}</Text>
               )}
             </VStack>
           </CardBody>
@@ -515,8 +520,8 @@ const CotizacionDetalle = () => {
                 </Tr>
               </Thead>
               <Tbody>
-                {cotizacion.items?.length > 0 ? (
-                  cotizacion.items.map((item, index) => (
+                {cotizacion.detalles?.length > 0 ? (
+                  cotizacion.detalles.map((item, index) => (
                     <Tr key={item.id || index}>
                       <Td>{index + 1}</Td>
                       <Td>
