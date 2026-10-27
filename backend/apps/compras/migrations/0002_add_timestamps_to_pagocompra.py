@@ -1,11 +1,4 @@
-from django.db import migrations
-
-# No-op histórico. 0001_initial ya crea created_at/updated_at en PagoCompra
-# (el initial se regeneró incluyéndolos), así que los AddField que vivían aquí
-# rompían `migrate` en una BD limpia ("column created_at ... already exists").
-# El archivo se conserva vacío para que las BDs que ya lo tienen aplicado
-# mantengan su historial intacto.
-
+from django.db import migrations, models
 
 class Migration(migrations.Migration):
 
@@ -13,4 +6,15 @@ class Migration(migrations.Migration):
         ('compras', '0001_initial'),
     ]
 
-    operations = []
+    operations = [
+        migrations.AddField(
+            model_name='pagocompra',
+            name='created_at',
+            field=models.DateTimeField(auto_now_add=True, null=True),
+        ),
+        migrations.AddField(
+            model_name='pagocompra',
+            name='updated_at',
+            field=models.DateTimeField(auto_now=True, null=True),
+        ),
+    ] 

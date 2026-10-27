@@ -7,15 +7,9 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        # La columna ya existe en BD (0001_initial regenerado la incluye); solo estado.
-        migrations.SeparateDatabaseAndState(
-            database_operations=[],
-            state_operations=[
-                migrations.AddField(
-                    model_name='compra',
-                    name='comprobante',
-                    field=models.FileField(blank=True, null=True, upload_to='comprobantes/compras/'),
-                ),
-            ],
+        migrations.AddField(
+            model_name='compra',
+            name='comprobante',
+            field=models.FileField(blank=True, null=True, upload_to='comprobantes/compras/'),
         ),
     ] 

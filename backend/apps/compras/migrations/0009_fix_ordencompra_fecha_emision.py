@@ -20,15 +20,7 @@ class Migration(migrations.Migration):
         migrations.SeparateDatabaseAndState(
             database_operations=[
                 migrations.RunSQL(
-                    # IF NOT EXISTS: en la BD legada la columna existe (0007 se
-                    # aplicó en falso); en una BD limpia 0007 sí la elimina y hay
-                    # que recrearla para que coincida con el modelo.
-                    sql=(
-                        "ALTER TABLE compras_ordencompra "
-                        "ADD COLUMN IF NOT EXISTS fecha_emision date NOT NULL DEFAULT CURRENT_DATE; "
-                        "ALTER TABLE compras_ordencompra "
-                        "ALTER COLUMN fecha_emision SET DEFAULT CURRENT_DATE;"
-                    ),
+                    sql="ALTER TABLE compras_ordencompra ALTER COLUMN fecha_emision SET DEFAULT CURRENT_DATE;",
                     reverse_sql="ALTER TABLE compras_ordencompra ALTER COLUMN fecha_emision DROP DEFAULT;",
                 ),
             ],
