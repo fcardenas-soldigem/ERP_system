@@ -42,15 +42,6 @@ class VentaPagination(PageNumberPagination):
     page_size_query_param = 'page_size'
     max_page_size = 100
 
-class VentaListCreateView(generics.ListCreateAPIView):
-    queryset = Venta.objects.all()
-    serializer_class = VentaSerializer
-    pagination_class = VentaPagination
-
-class VentaRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
-    queryset = Venta.objects.all()
-    serializer_class = VentaSerializer
-
 class ResumenVentasMensual(APIView):
     permission_classes = [IsAuthenticated, RolEscritura]
 

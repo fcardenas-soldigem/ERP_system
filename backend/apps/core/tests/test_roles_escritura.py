@@ -20,10 +20,13 @@ METODOS_ESCRITURA = ('post', 'put', 'patch', 'delete')
 PREFIJOS_NEGOCIO = (
     'api/ventas', 'api/cotizaciones', 'api/compras', 'api/guias',
     'api/servicios', 'api/inventario', 'api/finanzas', 'api/produccion',
+    # REVIEW_BOT #1/#2/#8: también escriben negocio y quedaban fuera
+    'api/importador', 'api/core', 'api/empresas', 'api/agente',
 )
 
-# Rutas bajo los prefijos que no son viewsets de negocio cerrables aquí.
-EXCLUIR = ()
+# Rutas bajo los prefijos que no son escrituras de negocio: la autenticación
+# es pública por diseño (login/refresh/verify emiten o validan tokens).
+EXCLUIR = ('api/core/token', 'api/core/auth/')
 
 
 def _rutas_api(resolver=None, prefijo=''):

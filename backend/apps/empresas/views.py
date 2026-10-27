@@ -2,12 +2,14 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+
+from apps.core.permissions import RolEscritura
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from .models import Empresa
 from .serializers import EmpresaSerializer
 
 class EmpresaViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, RolEscritura]
     serializer_class = EmpresaSerializer
     queryset = Empresa.objects.none()
     parser_classes = (JSONParser, MultiPartParser, FormParser)

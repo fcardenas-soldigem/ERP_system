@@ -6,7 +6,7 @@ from .serializers import EmpresaSerializer, UsuarioSerializer, PerfilSerializer
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.authentication import TokenAuthentication
-from .permissions import ModulePermission
+from .permissions import ModulePermission, RolEscritura
 from rest_framework import generics, status
 from rest_framework.decorators import api_view, permission_classes
 from django.http import JsonResponse
@@ -20,7 +20,7 @@ from .services.documento_service import DocumentoService
 
 class EmpresaViewSet(viewsets.ModelViewSet):
     serializer_class = EmpresaSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, RolEscritura]
 
     # Mismo cierre que apps/empresas/views.py: esta ruta duplicada (/api/core/empresas/) seguía
     # permitiendo a cualquier usuario autenticado BORRAR su empresa en cascada (204) o crear otra.
@@ -42,7 +42,7 @@ class EmpresaViewSet(viewsets.ModelViewSet):
 
 class UsuarioViewSet(viewsets.ModelViewSet):
     serializer_class = UsuarioSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, RolEscritura]
 
     def perform_create(self, serializer):
         # `empresa` es de solo lectura en el serializer; sin esto el INSERT fallaba (NOT NULL → 500).
@@ -58,7 +58,7 @@ class UsuarioViewSet(viewsets.ModelViewSet):
 
 class PerfilViewSet(viewsets.ModelViewSet):
     serializer_class = PerfilSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, RolEscritura]
 
     def get_queryset(self):
         user = self.request.user

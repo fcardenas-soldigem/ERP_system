@@ -5,6 +5,8 @@ from django.db import transaction
 from rest_framework import status
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
+
+from apps.core.permissions import RolEscritura
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from apps.core.errors import respuesta_error, error_interno, mensaje_seguro
@@ -34,7 +36,7 @@ def _get_empresa(request):
 
 class UploadView(APIView):
     parser_classes = [MultiPartParser, FormParser]
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, RolEscritura]
 
     _MAX_FILE_SIZE_MB = 10
 
@@ -106,7 +108,7 @@ class UploadView(APIView):
 # ─── GET /api/importador/preview/<id>/ ────────────────────────────────────────
 
 class PreviewView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, RolEscritura]
 
     def get(self, request, pk):
         empresa = _get_empresa(request)
@@ -135,7 +137,7 @@ class PreviewView(APIView):
 # ─── POST /api/importador/confirmar/<id>/ ─────────────────────────────────────
 
 class ConfirmarView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, RolEscritura]
 
     def post(self, request, pk):
         empresa = _get_empresa(request)
@@ -194,7 +196,7 @@ class ConfirmarView(APIView):
 # ─── GET /api/importador/estado/<id>/ ─────────────────────────────────────────
 
 class EstadoView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, RolEscritura]
 
     def get(self, request, pk):
         empresa = _get_empresa(request)
@@ -209,7 +211,7 @@ class EstadoView(APIView):
 # ─── GET /api/importador/historial/ ───────────────────────────────────────────
 
 class HistorialView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, RolEscritura]
 
     def get(self, request):
         empresa = _get_empresa(request)
