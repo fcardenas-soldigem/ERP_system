@@ -73,6 +73,19 @@ const RegistrarPagoVenta = () => {
   const saldoPendiente = cuenta?.saldo_pendiente || 0;
   const montoMaximo = saldoPendiente;
 
+  // QW4 — la moneda se hereda de la venta y el monto llega precargado con el
+  // saldo (cobrar todo es el caso típico; antes proponía Soles sobre una
+  // deuda en dólares y el monto iba vacío).
+  useEffect(() => {
+    if (!cuenta) return;
+    setFormData(prev => ({
+      ...prev,
+      moneda_pago: cuenta.moneda || prev.moneda_pago,
+      monto: prev.monto === '' && saldoPendiente > 0 ? String(saldoPendiente) : prev.monto,
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cuenta]);
+
   // Función para formatear moneda
   const formatCurrency = (amount, currency = 'PEN') => {
     const symbol = currency === 'USD' ? '$' : 'S/';
@@ -270,9 +283,19 @@ const RegistrarPagoVenta = () => {
                     placeholder="0.00"
                   />
                 </InputGroup>
-                <Text fontSize="xs" color="gray.500">
-                  Monto máximo: {formatCurrency(montoMaximo, cuenta?.moneda)}
-                </Text>
+                <HStack justify="space-between" mt={1}>
+                  <Text fontSize="xs" color="gray.500">
+                    Monto máximo: {formatCurrency(montoMaximo, cuenta?.moneda)}
+                  </Text>
+                  <Button
+                    size="xs"
+                    variant="link"
+                    colorScheme="green"
+                    onClick={() => setFormData(prev => ({ ...prev, monto: String(saldoPendiente) }))}
+                  >
+                    Cobrar todo
+                  </Button>
+                </HStack>
                 {error && (
                   <Text color="red.500" fontSize="sm" mt={1}>
                     {error}
