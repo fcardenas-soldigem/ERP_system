@@ -41,6 +41,9 @@ class RolEscritura(permissions.BasePermission):
     def has_permission(self, request, view):
         if request.method in permissions.SAFE_METHODS:
             return True
+        # el superusuario nunca queda bloqueado por un rol mal asignado
+        if getattr(request.user, 'is_superuser', False):
+            return True
         return getattr(request.user, 'rol', None) in self.ROLES_ESCRITURA
 
 
