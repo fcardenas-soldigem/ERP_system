@@ -19,22 +19,6 @@ class Migration(migrations.Migration):
             name='comprarecurrente',
             unique_together=set(),
         ),
-        migrations.RemoveField(
-            model_name='ordencompra',
-            name='almacen',
-        ),
-        migrations.RemoveField(
-            model_name='ordencompra',
-            name='fecha_actualizacion',
-        ),
-        migrations.RemoveField(
-            model_name='ordencompra',
-            name='fecha_emision',
-        ),
-        migrations.RemoveField(
-            model_name='ordencompra',
-            name='proveedor',
-        ),
         migrations.AddField(
             model_name='comprarecurrente',
             name='proveedor_nombre',
@@ -69,8 +53,14 @@ class Migration(migrations.Migration):
             name='comprarecurrente',
             unique_together={('empresa', 'proveedor_nombre', 'concepto')},
         ),
-        migrations.DeleteModel(
-            name='OrdenCompraDetalle',
+        # La tabla compras_ordencompradetalle la posee el purchase-orders-service
+        # (0013 la re-declara managed=False). En la BD real nunca se eliminó;
+        # se borra solo del estado para que la BD limpia la conserve.
+        migrations.SeparateDatabaseAndState(
+            database_operations=[],
+            state_operations=[
+                migrations.DeleteModel(name='OrdenCompraDetalle'),
+            ],
         ),
         migrations.RemoveField(
             model_name='comprarecurrente',
@@ -107,5 +97,29 @@ class Migration(migrations.Migration):
         migrations.RemoveField(
             model_name='comprarecurrente',
             name='updated_at',
+        ),
+        # En la BD legada estas columnas de ordencompra nunca se eliminaron
+        # (la migración se aplicó en falso) y las migraciones 0009-0012 las
+        # asumen presentes. Solo se quitan del estado; la BD las conserva.
+        migrations.SeparateDatabaseAndState(
+            database_operations=[],
+            state_operations=[
+                migrations.RemoveField(
+                    model_name='ordencompra',
+                    name='almacen',
+                ),
+                migrations.RemoveField(
+                    model_name='ordencompra',
+                    name='fecha_actualizacion',
+                ),
+                migrations.RemoveField(
+                    model_name='ordencompra',
+                    name='fecha_emision',
+                ),
+                migrations.RemoveField(
+                    model_name='ordencompra',
+                    name='proveedor',
+                ),
+            ],
         ),
     ]
