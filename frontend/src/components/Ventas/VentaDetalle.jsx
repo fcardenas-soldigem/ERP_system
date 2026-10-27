@@ -8,6 +8,7 @@ import {
 } from '@chakra-ui/react';
 import { ventasService } from '../../services/ventas.service';
 import { getSimboloMoneda } from '../../utils/currency';
+import { usePuedeEscribir } from '../../hooks/usePuedeEscribir';
 import { StatusBadge } from '../ui';
 import { formatFecha } from '../../utils/fechas';
 import { formatPEN } from '../common/MontoConsolidado';
@@ -27,6 +28,7 @@ import {
 const COLOR_PRIMARIO = '#2B5EA7';
 
 const VentaDetalle = () => {
+  const puedeEscribir = usePuedeEscribir();
   const { id } = useParams();
   const navigate = useNavigate();
   const toast = useToast();
@@ -75,6 +77,10 @@ const VentaDetalle = () => {
   if (!venta) return <Text>No se encontró la venta.</Text>;
 
   const simboloMoneda = getSimboloMoneda(venta.moneda);
+  // QW3 — montos legibles y saldo a la vista (antes: "$ 10000.00" y sin saldo)
+  const fmtMonto = (n) => `${simboloMoneda} ${Number(n ?? 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const saldo = Number(venta.saldo_pendiente ?? 0);
+  const cobrado = Number(venta.pagos_total ?? 0);
   const actual = venta.estado_operativo;
   const idxActual = ESTADOS_OPERATIVOS.indexOf(actual);
   const siguiente = SIGUIENTE_ESTADO[actual];
@@ -160,8 +166,29 @@ const VentaDetalle = () => {
               </VStack>
               <VStack align="start" spacing={1}>
                 <Text><b>Estado de pago:</b> <StatusBadge estado={venta.estado} /></Text>
-                <Text><b>Subtotal:</b> {simboloMoneda} {venta.subtotal}</Text>
-                <Text><b>Total:</b> <b>{simboloMoneda} {venta.total}</b></Text>
+                <Text><b>Subtotal:</b> {fmtMonto(venta.subtotal)}</Text>
+                <Text><b>Total:</b> <b>{fmtMonto(venta.total)}</b></Text>
+                {cobrado > 0 && (
+                  <Text><b>Cobrado:</b> <Text as="span" color="green.600" fontWeight="semibold">{fmtMonto(cobrado)}</Text></Text>
+                )}
+                {venta.estado !== 'anulado' && (
+                  <Text>
+                    <b>Saldo pendiente:</b>{' '}
+                    <Text as="span" fontWeight="bold" color={saldo > 0 ? 'red.500' : 'green.600'}>
+                      {fmtMonto(saldo)}
+                    </Text>
+                  </Text>
+                )}
+                {puedeEscribir && saldo > 0 && venta.estado !== 'anulado' && (
+                  <Button
+                    size="sm"
+                    colorScheme="green"
+                    mt={1}
+                    onClick={() => navigate(`/app/cuentas/por-cobrar/${venta.id}/registrar-pago`)}
+                  >
+                    Registrar cobro
+                  </Button>
+                )}
               </VStack>
               {/* Costo y utilidad de la venta (fuente: factura > oc > cotización > catálogo) */}
               <VStack align="start" spacing={1}>

@@ -128,6 +128,7 @@ class VentaSerializer(serializers.ModelSerializer):
             'modo_venta', 'modo_venta_display',  # Nuevo campo
             'igv_incluido', 'subtotal', 'igv', 'total', 'moneda', 'notas',
             'referencia', 'comprobante', 'detalles', 'saldo_pendiente',
+            'pagos_total',  # QW3 — el detalle muestra cuánto se cobró
             'dias_restantes', 'estado_vencimiento', 'comprobante_pago',
             'productos_stock_bajo', 'cliente_nombre', 'estado_display',
             'tipo_venta_display', 'metodo_pago_display', 'empresa',
