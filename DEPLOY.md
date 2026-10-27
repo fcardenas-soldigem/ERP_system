@@ -419,3 +419,67 @@ El comando rechaza cualquier host que no sea `*.run.app` (salvo `--forzar`).
 
 **Efecto en sesiones activas:** la cookie vieja vivía en el host `*.run.app`;
 todos los usuarios hacen **un** login extra tras este deploy.
+
+## 11. Pre-deploy de `feat/agente-canales` (incluye `fix/review-movil`)
+
+**Supuesto:** prod = `main` (cuadra con la última migración de `ai_assistant` en
+prod, `0005`, que es la de `main`). Confirmarlo antes con el plan:
+`gcloud run jobs update erp-migrate ... --args manage.py,migrate,--plan` → execute.
+
+### Migraciones que corren en prod
+
+| Migración | Qué hace | Reversible |
+|---|---|---|
+| `authentication.0003_simplificar_roles` | **Datos**: `readonly`→`solo_lectura`; `comercial`/`produccion`/`almacen`/`contador`/`personalizado`→`operador`; `admin` igual. Default nuevo: `operador` | Sí, **con pérdida** (vuelve como `readonly`/`comercial`) |
+| `canales.0001_initial` | 3 tablas nuevas: `VinculacionTelegram`, `UpdateProcesado`, `BorradorAgente` | Sí (`migrate canales zero`) |
+
+`compras` 0002/0003/0007/0009 están **modificadas** (reparación para BD limpia)
+pero ya figuran como aplicadas en prod: Django **no** las vuelve a correr.
+
+**Antes de migrar:** `SELECT rol, count(*) FROM authentication_customuser GROUP BY rol;`
+— todo usuario que deba administrar tiene que salir como `admin`.
+
+⚠️ Si prod tiene desplegada `feat/registro-piloto` (no está en `main`; trae
+`registro.0001`), desplegar esta rama **quita** el registro piloto: fusionarla
+antes. No hay conflicto de migraciones (otra app); en `authentication/models.py`
+quedarse con los choices de esta rama.
+
+### Cloud Run — variables y secretos
+
+| Tipo | Nombre | Valor |
+|---|---|---|
+| Secreto **nuevo** | `TG_BOT_TOKEN` | token de @BotFather → secret `tg-bot-token` |
+| Secreto **nuevo** | `TG_WEBHOOK_SECRET` | `openssl rand -hex 32` → secret `tg-webhook-secret` |
+| Variable **nueva** | `TG_BOT_USERNAME` | usuario del bot, sin `@` |
+| Variable **cambia** | `DJANGO_ALLOWED_HOSTS` | `erp-backend-25656632090.southamerica-west1.run.app,erp.soldigem.com.pe` |
+| Variable opcional | `API_BASE_URL` | default `https://erp.soldigem.com.pe` (links al PDF) |
+| Variable opcional | `CANALES_LIMITE_MENSAJES_EMPRESA_DIA` / `CANALES_LIMITE_TOKENS_EMPRESA_DIA` | default `1000` / `300000` |
+| **Borrar** si existe | `REFRESH_COOKIE_DOMAIN` | ya no se usa |
+
+```bash
+printf '%s' '<token de BotFather>' | gcloud secrets create tg-bot-token --data-file=-
+openssl rand -hex 32 | tr -d '\n' | gcloud secrets create tg-webhook-secret --data-file=-
+# la service account de Cloud Run necesita roles/secretmanager.secretAccessor en ambos
+export SECRETS="$SECRETS,TG_BOT_TOKEN=tg-bot-token:latest,TG_WEBHOOK_SECRET=tg-webhook-secret:latest"
+```
+
+### Vercel — ver §10
+`VITE_API_URL` = **vacío**; `VITE_API_UPLOAD_URL` =
+`https://erp-backend-25656632090.southamerica-west1.run.app`. Redeploy del frontend.
+
+### Registrar el webhook (Cloud Run Job, una vez; después de desplegar el backend)
+
+```bash
+gcloud run jobs create erp-telegram-webhook \
+  --image "$IMAGE@$DIGEST" --region $REGION \
+  --command python \
+  --args manage.py,telegram_set_webhook,--url,https://erp-backend-25656632090.southamerica-west1.run.app \
+  --env-vars-file /tmp/erp-env-vars.yaml --set-secrets "$SECRETS" \
+  --max-retries 0 --task-timeout 2m
+
+gcloud run jobs execute erp-telegram-webhook --region $REGION --wait
+```
+
+Contra la URL **directa de Cloud Run** (el comando rechaza cualquier host que no
+sea `*.run.app`). Comprobar: `curl -s "https://api.telegram.org/bot<TOKEN>/getWebhookInfo"`
+→ `url` termina en `/api/canales/telegram/` y `last_error_message` vacío.
