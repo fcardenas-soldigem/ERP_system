@@ -9,7 +9,7 @@ import {
   FaChartLine, FaFileUpload, FaTruck, FaTools,
 } from 'react-icons/fa';
 import {
-  LayoutDashboard, FileText, ShoppingCart, Package, LineChart, Boxes,
+  House, FileText, ShoppingCart, Package, LineChart, Boxes,
   Users, Building2, Truck, Wrench, FileUp, Wallet, Factory, Bot, Brain,
 } from 'lucide-react';
 
@@ -19,7 +19,7 @@ export const MENU_SECTIONS = [
     label: 'CORE',
     collapsible: false,
     items: [
-      { name: 'Dashboard',    icon: FaChartBar,    lineIcon: LayoutDashboard, path: '/app/dashboard' },
+      { name: 'Inicio',       icon: FaChartBar,    lineIcon: House,           path: '/app/dashboard' },
       { name: 'Cotizaciones', icon: FaFileInvoice, lineIcon: FileText,        path: '/app/cotizaciones' },
       { name: 'Ventas',       icon: FaShoppingCart, lineIcon: ShoppingCart,   path: '/app/ventas' },
       {
@@ -62,7 +62,9 @@ export const MENU_SECTIONS = [
     collapsible: true,
     items: [
       {
-        name: 'Cuentas', icon: FaMoneyBillWave, lineIcon: Wallet,
+        // No duplica Finanzas (ahí solo hay indicadores y gastos): aquí se
+        // listan los documentos pendientes y se registran cobros y pagos.
+        name: 'Cuentas por cobrar y pagar', icon: FaMoneyBillWave, lineIcon: Wallet,
         subItems: [
           { name: 'Por Cobrar', path: '/app/cuentas/por-cobrar' },
           { name: 'Por Pagar',  path: '/app/cuentas/por-pagar' },
@@ -83,7 +85,7 @@ export const MENU_SECTIONS = [
     label: 'INTELIGENCIA',
     collapsible: true,
     items: [
-      { name: 'Asistente Virtual', icon: FaRobot, lineIcon: Bot, path: '/app/ai-assistant' },
+      { name: 'Jorge', icon: FaRobot, lineIcon: Bot, path: '/app/ai-assistant' },
       // Módulo ML apagado por defecto en prod (backend: ML_ENABLED). Se muestra solo con VITE_ML_ENABLED=true.
       ...(import.meta.env.VITE_ML_ENABLED === 'true' ? [{ name: 'Machine Learning', icon: FaBrain, lineIcon: Brain, path: '/app/ml-dashboard' }] : []),
     ],
@@ -117,42 +119,34 @@ export const CREAR_DOCUMENTO = {
   '/app/compras/ordenes-servicio': { titulo: 'Nueva OC de servicio', documentos: [{ label: 'Nueva OC de servicio', icon: Wrench, path: '/app/compras/orden-servicio/nueva' }] },
 };
 
-// Títulos de pantalla para la cabecera móvil. Gana el prefijo más largo.
-const TITULOS = [
-  ['/app/dashboard', 'Inicio'],
-  ['/app/cotizaciones/nueva', 'Nueva cotización'],
-  ['/app/cotizaciones/servicios/nueva', 'Nueva cotización'],
-  ['/app/cotizaciones', 'Cotizaciones'],
-  ['/app/ventas/nueva', 'Nueva venta'],
-  ['/app/ventas', 'Ventas'],
-  ['/app/compras/nueva', 'Nueva compra'],
-  ['/app/compras/orden-compra', 'Orden de compra'],
-  ['/app/compras/ordenes-servicio', 'OC de servicio'],
-  ['/app/compras/orden-servicio', 'OC de servicio'],
-  ['/app/compras/ordenes', 'Órdenes de compra'],
-  ['/app/compras', 'Compras'],
-  ['/app/proveedores', 'Proveedores'],
-  ['/app/clientes', 'Clientes'],
-  ['/app/finanzas/gastos', 'Gastos'],
-  ['/app/finanzas', 'Finanzas'],
-  ['/app/inventario/kardex', 'Kardex'],
-  ['/app/inventario', 'Inventario'],
-  ['/app/importador', 'Importar Excel'],
-  ['/app/cuentas/por-cobrar', 'Por cobrar'],
-  ['/app/cuentas/por-pagar', 'Por pagar'],
-  ['/app/produccion', 'Producción'],
-  ['/app/guias', 'Guías'],
-  ['/app/servicios', 'Servicios'],
-  ['/app/ai-assistant', 'Jorge'],
-  ['/app/ml-dashboard', 'Machine Learning'],
-  ['/app/configuracion', 'Configuración'],
+// Configuración vive fuera de las secciones (al pie del sidebar / de "Más").
+export const CONFIGURACION = { name: 'Configuración', path: '/app/configuracion' };
+
+// Pestañas fijas de la barra inferior móvil (el nombre sale del menú).
+export const TABS_MOVIL = ['/app/dashboard', '/app/cotizaciones', '/app/ventas', '/app/ai-assistant'];
+
+// ─── Nombres por ruta — la cabecera móvil no tiene textos propios ────────────
+// Ruta de módulo/submódulo → nombre del módulo (un solo nombre por módulo).
+const RUTAS_MODULO = [
+  ...MENU_SECTIONS.flatMap((sec) => sec.items.flatMap((it) => (
+    it.subItems ? it.subItems.map((sub) => [sub.path, it.name]) : [[it.path, it.name]]
+  ))),
+  [CONFIGURACION.path, CONFIGURACION.name],
 ];
+// Formularios de creación → nombre del documento (el mismo que ofrece el FAB).
+const RUTAS_CREAR = Object.values(CREAR_DOCUMENTO).flatMap((c) => c.documentos.map((d) => [d.path, d.label]));
+
+export const itemPorRuta = (path) => (
+  MENU_SECTIONS.flatMap((sec) => sec.items).find((it) => it.path === path)
+);
 
 export const tituloDePantalla = (pathname) => {
+  const crear = RUTAS_CREAR.find(([path]) => path === pathname);
+  if (crear) return crear[1];
   let mejor = null;
-  for (const [prefijo, titulo] of TITULOS) {
+  for (const [prefijo, nombre] of RUTAS_MODULO) {
     const coincide = pathname === prefijo || pathname.startsWith(`${prefijo}/`);
-    if (coincide && (!mejor || prefijo.length > mejor[0].length)) mejor = [prefijo, titulo];
+    if (coincide && (!mejor || prefijo.length > mejor[0].length)) mejor = [prefijo, nombre];
   }
   return mejor ? mejor[1] : '';
 };

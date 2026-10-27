@@ -7,7 +7,7 @@ import { motion, AnimatePresence, useDragControls } from 'framer-motion';
 import { X, ChevronLeft, ChevronRight, Settings, LogOut } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useModoInventario } from '../../../hooks/useModoInventario';
-import { seccionesVisibles } from '../navConfig';
+import { seccionesVisibles, CONFIGURACION } from '../navConfig';
 
 const MotionBox = motion(Box);
 
@@ -18,8 +18,6 @@ const SALE  = { duration: 0.22, ease: EASE_DRAWER };
 // Cierre por gesto: distancia o un "flick" rápido, lo que llegue primero.
 const CIERRE_PX = 120;
 const CIERRE_VEL = 500;
-
-const SECCION_LABEL = { core: 'Core', avanzado: 'Avanzado', inteligencia: 'Inteligencia' };
 
 const enRuta = (pathname, path) => pathname === path || pathname.startsWith(`${path}/`);
 const itemActivo = (pathname, item) => (
@@ -230,7 +228,7 @@ const MasSheet = ({ abierto, onClose }) => {
                       mb={3}
                       px={1}
                     >
-                      {SECCION_LABEL[sec.id] ?? sec.label}
+                      {sec.label}
                     </Text>
                     <Grid templateColumns="repeat(3, 1fr)" rowGap={4} columnGap={2}>
                       {sec.items.map((item) => (
@@ -248,9 +246,9 @@ const MasSheet = ({ abierto, onClose }) => {
                 <Box mt={6} pt={2} borderTop="1px solid" borderColor={borde}>
                   <Fila
                     icon={Settings}
-                    label="Configuración"
-                    activo={enRuta(pathname, '/app/configuracion')}
-                    onClick={() => ir('/app/configuracion')}
+                    label={CONFIGURACION.name}
+                    activo={enRuta(pathname, CONFIGURACION.path)}
+                    onClick={() => ir(CONFIGURACION.path)}
                   />
                   <Fila
                     icon={LogOut}

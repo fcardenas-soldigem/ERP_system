@@ -17,6 +17,7 @@ import AlertsBar          from './AlertsBar';
 import { DashboardSkeleton } from '../common/SkeletonLoaders';
 import ServiciosWidget    from '../Servicios/ServiciosWidget';
 import { useEsMovil }     from '../../hooks/useEsMovil';
+import { itemPorRuta }    from '../Layout/navConfig';
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
 const fmt  = (n, d = 2) => typeof n === 'number'
@@ -239,7 +240,7 @@ const Dashboard = () => {
     <Box bg={bg} minH="100vh" px={{ base: 4, md: 6 }} py={6}>
 
       {/* ── Header ── */}
-      <PageHeader title="Dashboard" subtitle="Últimos 30 días" mb={5} />
+      <PageHeader title={itemPorRuta('/app/dashboard').name} subtitle="Últimos 30 días" mb={5} />
 
       {/* ── Sección 0: Quick Actions ── */}
       <Box mb={6}>

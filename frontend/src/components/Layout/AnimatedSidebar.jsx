@@ -16,7 +16,7 @@ import { useAuth } from '../context/AuthContext';
 import { useModoInventario } from '../../hooks/useModoInventario';
 import { PRODUCT_NAME, PRODUCT_INITIALS } from '../../config/brand';
 import { FaCog } from 'react-icons/fa';
-import { seccionesVisibles } from './navConfig';
+import { seccionesVisibles, CONFIGURACION } from './navConfig';
 import { useEsMovil } from '../../hooks/useEsMovil';
 
 const MotionBox  = motion(Box);
@@ -338,8 +338,8 @@ const SidebarContent = ({ isCollapsed, onToggleCollapse }) => {
         {/* Configuración at bottom */}
         <Box mt="auto" pt={2}>
           <Divider mb={2} />
-          <NavItem icon={FaCog} to="/app/configuracion" isCollapsed={isCollapsed}>
-            Configuración
+          <NavItem icon={FaCog} to={CONFIGURACION.path} isCollapsed={isCollapsed}>
+            {CONFIGURACION.name}
           </NavItem>
         </Box>
       </VStack>

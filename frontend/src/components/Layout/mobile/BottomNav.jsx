@@ -1,17 +1,17 @@
 import React from 'react';
 import { Box, Flex, Icon, Text, useColorModeValue } from '@chakra-ui/react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { House, FileText, ShoppingCart, Bot, LayoutGrid } from 'lucide-react';
+import { LayoutGrid } from 'lucide-react';
+import { TABS_MOVIL, itemPorRuta } from '../navConfig';
 
 // Alto útil de la barra; el safe-area inferior (iPhone) se suma por fuera.
 export const BOTTOM_NAV_H = '56px';
 
-const TABS = [
-  { label: 'Inicio',       icon: House,        path: '/app/dashboard' },
-  { label: 'Cotizaciones', icon: FileText,     path: '/app/cotizaciones' },
-  { label: 'Ventas',       icon: ShoppingCart, path: '/app/ventas' },
-  { label: 'Jorge',        icon: Bot,          path: '/app/ai-assistant' },
-];
+// Nombre e ícono de cada pestaña salen del menú (navConfig).
+const TABS = TABS_MOVIL.map((path) => {
+  const item = itemPorRuta(path);
+  return { label: item.name, icon: item.lineIcon, path };
+});
 
 const enRuta = (pathname, path) => pathname === path || pathname.startsWith(`${path}/`);
 

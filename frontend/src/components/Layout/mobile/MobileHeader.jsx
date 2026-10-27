@@ -7,7 +7,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { Moon, Sun, LogOut, Settings } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { PRODUCT_NAME, PRODUCT_INITIALS } from '../../../config/brand';
-import { tituloDePantalla } from '../navConfig';
+import { tituloDePantalla, CONFIGURACION } from '../navConfig';
 
 export const MOBILE_HEADER_H = '52px';
 
@@ -87,8 +87,8 @@ const MobileHeader = () => {
                 <Text fontSize="xs" color="neutral.500" noOfLines={1}>{user?.email || ''}</Text>
               </Box>
               <MenuDivider />
-              <MenuItem minH="44px" icon={<Icon as={Settings} boxSize="16px" />} onClick={() => navigate('/app/configuracion')}>
-                Configuración
+              <MenuItem minH="44px" icon={<Icon as={Settings} boxSize="16px" />} onClick={() => navigate(CONFIGURACION.path)}>
+                {CONFIGURACION.name}
               </MenuItem>
               <MenuItem
                 minH="44px"
