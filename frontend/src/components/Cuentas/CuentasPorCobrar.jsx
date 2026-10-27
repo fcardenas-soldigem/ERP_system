@@ -36,8 +36,10 @@ import { ventasService } from '../../services/ventas.service';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useNavigate } from 'react-router-dom';
+import { usePuedeEscribir } from '../../hooks/usePuedeEscribir';
 
 const CuentasPorCobrar = () => {
+  const puedeEscribir = usePuedeEscribir();
   const [page, setPage] = useState(1);
   const pageSize = 10;
   const navigate = useNavigate();
@@ -213,6 +215,7 @@ const CuentasPorCobrar = () => {
                             onClick={() => navigate(`/app/ventas/${venta.id}`)}
                           />
                         </Tooltip>
+                        {puedeEscribir && (
                         <Button
                           size="sm"
                           colorScheme="green"
@@ -221,6 +224,7 @@ const CuentasPorCobrar = () => {
                         >
                           Registrar Pago
                         </Button>
+                        )}
                       </HStack>
                     </Td>
                   </Tr>

@@ -54,11 +54,11 @@ from .serializers import (
     AlertaStockSerializer,
     ResumenInventarioSeparadoSerializer
 )
-from apps.core.permissions import HasEmpresaPermission
+from apps.core.permissions import HasEmpresaPermission, RolEscritura
 
 class AlmacenViewSet(viewsets.ModelViewSet):
     serializer_class = AlmacenSerializer
-    permission_classes = [IsAuthenticated, HasEmpresaPermission]
+    permission_classes = [IsAuthenticated, HasEmpresaPermission, RolEscritura]
 
     def get_queryset(self):
         return Almacen.objects.filter(empresa=self.request.user.empresa).order_by('id')
@@ -68,7 +68,7 @@ class AlmacenViewSet(viewsets.ModelViewSet):
 
 class CategoriaViewSet(viewsets.ModelViewSet):
     serializer_class = CategoriaSerializer
-    permission_classes = [IsAuthenticated, HasEmpresaPermission]
+    permission_classes = [IsAuthenticated, HasEmpresaPermission, RolEscritura]
 
     def get_queryset(self):
         return Categoria.objects.filter(empresa=self.request.user.empresa)
@@ -97,7 +97,7 @@ class CategoriaViewSet(viewsets.ModelViewSet):
 
 class ProductoViewSet(viewsets.ModelViewSet):
     serializer_class = ProductoSerializer
-    permission_classes = [IsAuthenticated, HasEmpresaPermission]
+    permission_classes = [IsAuthenticated, HasEmpresaPermission, RolEscritura]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['categoria', 'almacen', 'tipo_producto']
     search_fields = ['nombre', 'sku', 'descripcion']
@@ -200,7 +200,7 @@ class ProductoViewSet(viewsets.ModelViewSet):
 
 class StockViewSet(viewsets.ModelViewSet):
     serializer_class = StockSerializer
-    permission_classes = [IsAuthenticated, HasEmpresaPermission]
+    permission_classes = [IsAuthenticated, HasEmpresaPermission, RolEscritura]
 
     def get_queryset(self):
         return Stock.objects.filter(empresa=self.request.user.empresa).order_by('id')
@@ -210,7 +210,7 @@ class StockViewSet(viewsets.ModelViewSet):
 
 class AjusteInventarioViewSet(viewsets.ModelViewSet):
     serializer_class = AjusteInventarioSerializer
-    permission_classes = [IsAuthenticated, HasEmpresaPermission]
+    permission_classes = [IsAuthenticated, HasEmpresaPermission, RolEscritura]
 
     def get_queryset(self):
         return AjusteInventario.objects.filter(empresa=self.request.user.empresa).order_by('id')
@@ -220,7 +220,7 @@ class AjusteInventarioViewSet(viewsets.ModelViewSet):
 
 class ResumenInventario(views.APIView):
     """Vista para obtener resumen general del inventario"""
-    permission_classes = [IsAuthenticated, HasEmpresaPermission]
+    permission_classes = [IsAuthenticated, HasEmpresaPermission, RolEscritura]
     
     def get(self, request):
         empresa = request.user.empresa
@@ -292,7 +292,7 @@ class ResumenInventario(views.APIView):
 
 class ProductoEstadisticasView(views.APIView):
     """Vista para estadísticas específicas de productos"""
-    permission_classes = [IsAuthenticated, HasEmpresaPermission]
+    permission_classes = [IsAuthenticated, HasEmpresaPermission, RolEscritura]
     
     def get(self, request):
         empresa = request.user.empresa
@@ -360,7 +360,7 @@ class ProductoEstadisticasView(views.APIView):
 
 class ValorInventarioViewSet(viewsets.ViewSet):
     """ViewSet para consultas de valor de inventario"""
-    permission_classes = [IsAuthenticated, HasEmpresaPermission]
+    permission_classes = [IsAuthenticated, HasEmpresaPermission, RolEscritura]
     
     def list(self, request):
         """Obtiene el valor del inventario por diferentes criterios"""
@@ -464,7 +464,7 @@ class ValorInventarioViewSet(viewsets.ViewSet):
 # Clases para importar/exportar productos
 class ImportarProductosAPIView(views.APIView):
     """APIView para importar productos desde archivo Excel"""
-    permission_classes = [IsAuthenticated, HasEmpresaPermission]
+    permission_classes = [IsAuthenticated, HasEmpresaPermission, RolEscritura]
     parser_classes = [MultiPartParser, FormParser]
     
     def post(self, request):
@@ -783,7 +783,7 @@ class KardexViewSet(viewsets.ModelViewSet):
     """ViewSet para gestionar el Kardex (movimientos de inventario)"""
     
     serializer_class = MovimientoInventarioSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, RolEscritura]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['producto', 'almacen', 'tipo_movimiento', 'tipo_documento']
     search_fields = ['producto__nombre', 'producto__sku', 'numero_documento', 'observaciones']
@@ -1300,7 +1300,7 @@ class InventarioMateriasPrimasViewSet(viewsets.ModelViewSet):
     Proporciona CRUD completo y acciones adicionales para operaciones específicas.
     Optimizado con cache y queries eficientes.
     """
-    permission_classes = [IsAuthenticated, HasEmpresaPermission]
+    permission_classes = [IsAuthenticated, HasEmpresaPermission, RolEscritura]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['producto', 'almacen', 'lote']
     search_fields = ['producto__nombre', 'producto__sku', 'ubicacion_almacen', 'lote']
@@ -1595,7 +1595,7 @@ class InventarioProductosTerminadosViewSet(viewsets.ModelViewSet):
     ViewSet para gestionar el inventario de productos terminados.
     Proporciona CRUD completo y acciones adicionales para operaciones específicas.
     """
-    permission_classes = [IsAuthenticated, HasEmpresaPermission]
+    permission_classes = [IsAuthenticated, HasEmpresaPermission, RolEscritura]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['producto', 'almacen', 'lote_produccion']
     search_fields = ['producto__nombre', 'producto__sku', 'ubicacion_almacen', 'lote_produccion']
@@ -1904,7 +1904,7 @@ class ResumenInventariosSeparadosView(views.APIView):
     """
     Vista para obtener resumen de ambos inventarios (materias primas y productos terminados).
     """
-    permission_classes = [IsAuthenticated, HasEmpresaPermission]
+    permission_classes = [IsAuthenticated, HasEmpresaPermission, RolEscritura]
     
     def get(self, request):
         empresa = request.user.empresa
@@ -1970,7 +1970,7 @@ class ValidarStockProduccionView(views.APIView):
     """
     Vista para validar si hay stock suficiente de materias primas para una producción.
     """
-    permission_classes = [IsAuthenticated, HasEmpresaPermission]
+    permission_classes = [IsAuthenticated, HasEmpresaPermission, RolEscritura]
     
     def post(self, request):
         """
@@ -2055,7 +2055,7 @@ from apps.core.errors import respuesta_error, error_interno, mensaje_seguro
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, RolEscritura])
 def descargar_plantilla_inventario(request):
     """
     Descarga la plantilla Excel mejorada para carga masiva de inventario.
@@ -2083,7 +2083,7 @@ def descargar_plantilla_inventario(request):
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, RolEscritura])
 @parser_classes([MultiPartParser, FormParser])
 def cargar_inventario_masivo(request):
     """
@@ -2170,7 +2170,7 @@ def cargar_inventario_masivo(request):
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, RolEscritura])
 @parser_classes([MultiPartParser, FormParser])
 def validar_archivo_inventario(request):
     """

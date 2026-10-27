@@ -19,6 +19,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from apps.core.permissions import RolEscritura
 
 from .models import CategoriaGasto, GastoOperativo, GastoRecurrente
 from .serializers import (
@@ -47,7 +48,7 @@ class FinanzasDashboardView(APIView):
 
     Retorna el JSON completo de KPIs financieros para el período.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, RolEscritura]
 
     def get(self, request):
         empresa = getattr(request.user, 'empresa', None)
@@ -140,7 +141,7 @@ class CategoriaGastoViewSet(viewsets.ModelViewSet):
     CRUD de categorías de gastos. Filtradas siempre por empresa del usuario.
     """
     serializer_class = CategoriaGastoSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, RolEscritura]
 
     def get_queryset(self):
         empresa = getattr(self.request.user, 'empresa', None)
@@ -175,7 +176,7 @@ class GastoOperativoViewSet(viewsets.ModelViewSet):
       GET  /api/finanzas/gastos/resumen/?fecha=YYYY-MM
     """
     serializer_class = GastoOperativoSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, RolEscritura]
 
     def get_queryset(self):
         empresa = getattr(self.request.user, 'empresa', None)
@@ -348,7 +349,7 @@ class GastoRecurrenteViewSet(viewsets.ModelViewSet):
       Genera un GastoOperativo para el mes actual si aún no existe.
     """
     serializer_class = GastoRecurrenteSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, RolEscritura]
 
     def get_queryset(self):
         empresa = getattr(self.request.user, 'empresa', None)

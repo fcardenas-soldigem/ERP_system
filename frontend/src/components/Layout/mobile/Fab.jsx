@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus } from 'lucide-react';
 import { BOTTOM_NAV_H } from './BottomNav';
+import { usePuedeEscribir } from '../../../hooks/usePuedeEscribir';
 import HojaAcciones from './HojaAcciones';
 import { CREAR_DOCUMENTO } from '../navConfig';
 
@@ -16,6 +17,7 @@ const MotionBox = motion(Box);
 const Fab = () => {
   const { pathname } = useLocation();
   const navigate = useNavigate();
+  const puedeEscribir = usePuedeEscribir();
   const [hojaAbierta, setHojaAbierta] = useState(false);
   const cerrarHoja = useCallback(() => setHojaAbierta(false), []);
   const crear = CREAR_DOCUMENTO[pathname.replace(/\/$/, '')];
@@ -28,7 +30,7 @@ const Fab = () => {
   return (
     <>
       <AnimatePresence>
-        {crear && (
+        {crear && puedeEscribir && (
           <MotionBox
             key="fab"
             as="button"

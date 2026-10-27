@@ -40,6 +40,7 @@ import {
   ESTADOS_OPERATIVOS, ESTADO_OPERATIVO_LABEL, SIGUIENTE_ESTADO, VERBO_SIGUIENTE,
   SLA_COLOR_SCHEME, SLA_LABEL,
 } from './estadoOperativo';
+import { usePuedeEscribir } from '../../hooks/usePuedeEscribir';
 
 // Estados de venta → StatusBadge (mapa central). El badge de TIPO de venta
 // (contado/crédito) es otra dimensión y conserva su propio mapa.
@@ -57,6 +58,7 @@ const METODOS_PAGO_BADGE_COLORS = {
 };
 
 const VentaList = () => {
+  const puedeEscribir = usePuedeEscribir();
   const toast = useToast();
   const queryClient = useQueryClient();
   const { isOpen, onOpen, onClose } = useDisclosure();
@@ -358,6 +360,7 @@ const VentaList = () => {
           ))}
         </Select>
         <HStack spacing={4}>
+        {puedeEscribir && (
         <Button
           leftIcon={<AddIcon />}
           colorScheme="blue"
@@ -365,6 +368,7 @@ const VentaList = () => {
         >
           Nueva Venta
         </Button>
+        )}
         <Button
           leftIcon={<DownloadIcon />}
           colorScheme="green"
@@ -372,12 +376,14 @@ const VentaList = () => {
         >
           Exportar Excel
         </Button>
+        {puedeEscribir && (
         <Button
           colorScheme="orange"
           onClick={onOpen}
         >
           Importar Excel
         </Button>
+        )}
         </HStack>
       </HStack>
 
@@ -411,7 +417,7 @@ const VentaList = () => {
               <Td>
                 <HStack spacing={1}>
                   {/* F3 — Acción rápida: siguiente paso del timeline (1 clic). */}
-                  {SIGUIENTE_ESTADO[venta.estado_operativo] && (
+                  {puedeEscribir && SIGUIENTE_ESTADO[venta.estado_operativo] && (
                     <Button
                       size="xs"
                       colorScheme="blue"
@@ -423,7 +429,7 @@ const VentaList = () => {
                     </Button>
                   )}
                   {/* Quick action: inline payment button for pending credit sales */}
-                  {venta.estado === 'pendiente' && venta.tipo_venta !== 'contado' && (
+                  {puedeEscribir && venta.estado === 'pendiente' && venta.tipo_venta !== 'contado' && (
                     <Button
                       size="xs"
                       colorScheme="green"
@@ -445,9 +451,12 @@ const VentaList = () => {
                       <MenuItem icon={<ViewIcon />} onClick={() => navigate(`/app/ventas/${venta.id}`)}>
                         Ver detalles
                       </MenuItem>
+                      {puedeEscribir && (
                       <MenuItem icon={<EditIcon />} onClick={() => navigate(`/app/ventas/${venta.id}/editar`)}>
                         Editar estado
                       </MenuItem>
+                      )}
+                      {puedeEscribir && (
                       <MenuItem
                         icon={<FaTruck />}
                         onClick={() => generarGuiaMutation.mutate(venta.id)}
@@ -455,7 +464,8 @@ const VentaList = () => {
                       >
                         Generar Guía de Remisión
                       </MenuItem>
-                      {venta.estado !== 'anulado' && venta.estado !== 'pagado' && (
+                      )}
+                      {puedeEscribir && venta.estado !== 'anulado' && venta.estado !== 'pagado' && (
                         <MenuItem icon={<DeleteIcon />} color="red.500" onClick={() => handleEliminarVenta(venta.id)}>
                           Anular
                         </MenuItem>

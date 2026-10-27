@@ -47,10 +47,12 @@ import CrearProductosCotizacionModal from './CrearProductosCotizacionModal';
 import ConversionResultModal from './ConversionResultModal';
 import RechazoModal from './RechazoModal';
 import { useSearchParams } from 'react-router-dom';
+import { usePuedeEscribir } from '../../hooks/usePuedeEscribir';
 
 const PAGE_SIZE = 20;
 
 const CotizacionList = () => {
+  const puedeEscribir = usePuedeEscribir();
   const [cotizaciones, setCotizaciones] = useState([]);
   const [loading, setLoading] = useState(true);
   const [paginacion, setPaginacion] = useState({
@@ -251,6 +253,7 @@ const CotizacionList = () => {
     <Box p={6}>
       <Flex justify="space-between" align="center" mb={6}>
         <Heading size="lg">Cotizaciones</Heading>
+        {puedeEscribir && (
         <HStack spacing={2}>
           <Button
             leftIcon={<FaTools />}
@@ -267,6 +270,7 @@ const CotizacionList = () => {
             Nueva Cotización
           </Button>
         </HStack>
+        )}
       </Flex>
 
       {/* Filtros */}

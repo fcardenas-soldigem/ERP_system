@@ -21,18 +21,35 @@ class HasEmpresaPermission(permissions.BasePermission):
         return obj.empresa_id == request.user.empresa_id
 
 
+class RolEscritura(permissions.BasePermission):
+    """
+    Permiso central por rol. Métodos seguros (GET/HEAD/OPTIONS) pasan;
+    cualquier escritura —incluidas las @action custom con POST/PUT/PATCH/
+    DELETE: convertir, anular, cobrar, cambiar estado— exige rol admin u
+    operador. solo_lectura recibe 403 en toda escritura.
+
+    Se compone con IsAuthenticated + HasEmpresaPermission en todos los
+    viewsets de negocio (ventas, cotizaciones, compras, pagos, guías,
+    órdenes de servicio, inventario, clientes, proveedores, finanzas,
+    producción).
+    """
+
+    message = 'Tu rol es de solo lectura: no puede crear ni modificar datos.'
+
+    ROLES_ESCRITURA = ('admin', 'operador')
+
+    def has_permission(self, request, view):
+        if request.method in permissions.SAFE_METHODS:
+            return True
+        return getattr(request.user, 'rol', None) in self.ROLES_ESCRITURA
+
+
 class ModulePermission(permissions.BasePermission):
     """
     Verifica permisos por módulo basándose en el rol del usuario.
     
-    Roles soportados:
-    - superuser: acceso total
-    - admin: acceso total dentro de su empresa
-    - comercial: ventas, clientes, cotizaciones (lectura inventario)
-    - produccion: producción, inventario (lectura)
-    - almacen: inventario completo (lectura ventas/compras)
-    - contador: dashboard, reportes, cuentas (solo lectura)
-    - readonly: solo lectura en todos los módulos
+    Roles soportados: admin (todo), operador (documentos de negocio),
+    solo_lectura (GET en todos los módulos).
     """
 
     ROLE_PERMISSIONS = {
@@ -49,42 +66,30 @@ class ModulePermission(permissions.BasePermission):
             'empresas': ['GET', 'PUT', 'PATCH'],
             'core': ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
         },
-        'comercial': {
+        'operador': {
             'ventas': ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
-            'cotizaciones': ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
-            'inventario': ['GET'],
-            'compras': ['GET'],
-            'dashboard': ['GET'],
-            'ai_assistant': ['GET', 'POST'],
-        },
-        'produccion': {
-            'produccion': ['GET', 'POST', 'PUT', 'PATCH'],
-            'inventario': ['GET', 'POST', 'PUT', 'PATCH'],
-            'compras': ['GET'],
-            'dashboard': ['GET'],
-        },
-        'almacen': {
+            'compras': ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
             'inventario': ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
-            'compras': ['GET'],
-            'ventas': ['GET'],
-            'produccion': ['GET'],
+            'produccion': ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
+            'cotizaciones': ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
             'dashboard': ['GET'],
+            'configuracion': ['GET'],
+            'ai_assistant': ['GET', 'POST'],
+            'ml_models': ['GET'],
+            'empresas': ['GET'],
+            'core': ['GET'],
         },
-        'contador': {
+        'solo_lectura': {
             'dashboard': ['GET'],
             'ventas': ['GET'],
             'compras': ['GET'],
             'inventario': ['GET'],
             'cotizaciones': ['GET'],
             'produccion': ['GET'],
-        },
-        'readonly': {
-            'dashboard': ['GET'],
-            'ventas': ['GET'],
-            'compras': ['GET'],
-            'inventario': ['GET'],
-            'cotizaciones': ['GET'],
-            'produccion': ['GET'],
+            'configuracion': ['GET'],
+            'ai_assistant': ['GET'],
+            'empresas': ['GET'],
+            'core': ['GET'],
         },
     }
 
@@ -132,9 +137,6 @@ class ModulePermission(permissions.BasePermission):
 
         role = self._get_user_role(request.user)
 
-        if role == 'personalizado':
-            return self._check_granular_permission(request.user, module, request.method)
-
         allowed_methods = self.ROLE_PERMISSIONS.get(role, {}).get(module, [])
 
         if request.method not in allowed_methods:
@@ -145,25 +147,6 @@ class ModulePermission(permissions.BasePermission):
             return False
 
         return True
-
-    def _check_granular_permission(self, user, module, method):
-        """Verifica permisos granulares de PermisoUsuario para rol 'personalizado'."""
-        try:
-            from apps.core.models import PermisoUsuario
-            permiso = PermisoUsuario.objects.get(usuario=user, modulo=module)
-
-            if method in ('GET', 'HEAD', 'OPTIONS'):
-                return permiso.puede_ver
-            elif method == 'POST':
-                return permiso.puede_crear
-            elif method in ('PUT', 'PATCH'):
-                return permiso.puede_editar
-            elif method == 'DELETE':
-                return permiso.puede_eliminar
-
-            return False
-        except Exception:
-            return False
 
     def _resolve_module(self, view):
         basename = getattr(view, 'basename', '') or ''
@@ -186,27 +169,20 @@ class ModulePermission(permissions.BasePermission):
         return None
 
     def _get_user_role(self, user):
-        if user.is_staff and getattr(user, 'rol', '') != 'personalizado':
+        if user.is_staff:
             return 'admin'
 
         rol = getattr(user, 'rol', None)
-        if rol and rol in self.ROLE_PERMISSIONS:
+        if rol in self.ROLE_PERMISSIONS:
             return rol
-        if rol == 'personalizado':
-            return 'personalizado'
+        # Nombres legados (pre-0003_simplificar_roles) por si llega un valor viejo.
+        legados = {
+            'readonly': 'solo_lectura',
+            'comercial': 'operador', 'produccion': 'operador',
+            'almacen': 'operador', 'contador': 'operador',
+            'personalizado': 'operador',
+        }
+        if rol in legados:
+            return legados[rol]
 
-        try:
-            from apps.core.models import Usuario
-            usuario = Usuario.objects.filter(usuario=user).first()
-            if usuario and usuario.rol:
-                role = usuario.rol.lower()
-                if role in self.ROLE_PERMISSIONS:
-                    return role
-                if role in ('vendedor',):
-                    return 'comercial'
-                if role in ('almacén', 'almacen'):
-                    return 'almacen'
-        except Exception:
-            pass
-
-        return 'readonly'
+        return 'solo_lectura'

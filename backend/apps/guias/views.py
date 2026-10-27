@@ -7,7 +7,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.exceptions import PermissionDenied
 from django.db.models import Q
-from apps.core.permissions import HasEmpresaPermission
+from apps.core.permissions import HasEmpresaPermission, RolEscritura
 from .models import GuiaRemision
 from .serializers import GuiaRemisionSerializer, GuiaRemisionListSerializer
 from .pdf_generator import GuiaRemisionPDF
@@ -31,7 +31,7 @@ class GuiaPagination(PageNumberPagination):
 
 class GuiaRemisionViewSet(viewsets.ModelViewSet):
     queryset = GuiaRemision.objects.all()
-    permission_classes = [IsAuthenticated, HasEmpresaPermission]
+    permission_classes = [IsAuthenticated, HasEmpresaPermission, RolEscritura]
     pagination_class = GuiaPagination
 
     def get_serializer_class(self):

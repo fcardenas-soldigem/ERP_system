@@ -11,7 +11,7 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from apps.core.permissions import HasEmpresaPermission
+from apps.core.permissions import HasEmpresaPermission, RolEscritura
 from .models import OrdenServicio, SeguimientoProveedor, HistorialEstadoOS
 from .serializers import (
     OrdenServicioSerializer,
@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 class OrdenServicioViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, HasEmpresaPermission]
+    permission_classes = [IsAuthenticated, HasEmpresaPermission, RolEscritura]
 
     def _get_empresa(self):
         if not hasattr(self.request.user, 'empresa') or not self.request.user.empresa:
