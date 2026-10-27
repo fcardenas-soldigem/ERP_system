@@ -411,11 +411,13 @@ const CotizacionServiciosForm = () => {
       if (id) {
         await cotizacionesService.update(id, buildPayload());
         toast({ title: 'Cotización actualizada', status: 'success', duration: 3000 });
+        navigate(`/app/cotizaciones/${id}`);
       } else {
-        await cotizacionesService.create(buildPayload());
+        // QW6 — directo al detalle: ahí viven Exportar PDF y "Marcar como enviada"
+        const creada = await cotizacionesService.create(buildPayload());
         toast({ title: 'Cotización creada', status: 'success', duration: 3000 });
+        navigate(creada?.id ? `/app/cotizaciones/${creada.id}` : '/app/cotizaciones');
       }
-      navigate('/app/cotizaciones');
     } catch (e) {
       toast({ title: 'Error al guardar', description: parseErrorMsg(e), status: 'error', duration: 8000 });
     } finally { setLoading(false); }
