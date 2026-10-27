@@ -300,7 +300,7 @@ def procesar(canal: Canal, mensaje: MensajeEntrante):
                          'El siguiente mensaje lo corrige: vuelve a llamar la herramienta '
                          'correspondiente con los datos corregidos completos.'),
             )]
-        # punto 3 — bucle de tools compartido con eval_agente (máx. 5 rondas):
+        # punto 3 — bucle de tools compartido con eval_agente (máx. 3 rondas):
         # las lecturas ya vienen ejecutadas; las preparaciones, no
         r = resolver(usuario, texto, contexto)
         _registrar_tokens(usuario, mensaje.canal, r)

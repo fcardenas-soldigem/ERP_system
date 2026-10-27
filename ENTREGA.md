@@ -145,7 +145,8 @@ que la gente trabaje (el default nuevo es operador, no admin).
    `python manage.py telegram_set_webhook --url https://erp-backend-25656632090.southamerica-west1.run.app` (Cloud Run directo; el comando rechaza otros hosts)
    (registra URL + secret + comandos; `--borrar` lo revierte).
 5. Eval de punta a punta: `python manage.py eval_agente` (≥18/20 correctos para abrir
-   el piloto). Corre el bucle real sobre la empresa de seed_demo en una
+   el piloto) **y ninguna consulta con más de 2 rondas**. Corre el bucle real
+   (máx. 3 rondas) sobre la empresa de seed_demo en una
    transacción que se revierte; reporta por caso correcto/parcial/incorrecto,
    rondas, latencia y tokens. Último resultado real conocido (eval anterior,
    gemini-3.1-flash-lite): 11/15 — los 4 fallos eran de diseño y están
@@ -168,15 +169,13 @@ que la gente trabaje (el default nuevo es operador, no admin).
 - **Texto del mensaje** del usuario (y el payload del borrador cuando pide
   editar) + el catálogo de herramientas (nombres/esquemas, sin datos).
 - **Audio completo** del mensaje de voz (para transcribirlo).
-- **Resultado compacto de las búsquedas intermedias** (bucle de tools, máx.
-  5 rondas): si el modelo llama `buscar_cliente` o `buscar_producto` como paso
-  previo, recibe SOLO `id` + `nombre` (+ `sku` en productos) de hasta 3
-  coincidencias, para decidir el siguiente paso
-  (`interprete._para_modelo`, con test). Precios, costos, proveedores, stock,
-  teléfonos y saldos NO salen por esta vía.
-- NUNCA salen: contraseñas, tokens, la base de clientes/ventas completa. Las
-  consultas terminales (`consultar_venta`, `ventas_detenidas`) cortan el
-  bucle y su resultado se formatea en el servidor, sin pasar por el modelo.
+- **Ningún resultado de la BD vuelve al modelo.** Toda lectura corta el bucle
+  en su ronda y el servidor formatea la respuesta (test
+  `test_el_resultado_de_una_lectura_nunca_va_al_modelo`). Solo vuelven al
+  modelo los errores de validación de SUS argumentos, para que los corrija
+  (máx. 3 rondas). Precios, costos, proveedores, stock, teléfonos y saldos
+  nunca salen.
+- NUNCA salen: contraseñas, tokens, la base de clientes/ventas.
 - Las fotos NO van a Vertex: van a GCS del proyecto como comprobante.
 - Proveedor y región: `LLM_PROVIDER=vertex` (ADC del servicio), misma
   configuración que el asistente Jorge.

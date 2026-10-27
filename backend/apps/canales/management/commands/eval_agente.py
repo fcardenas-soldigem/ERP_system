@@ -6,19 +6,20 @@ credenciales de Vertex/ADC). Puntos 3 y 4.
     python manage.py eval_agente --caso 8             # uno
     python manage.py eval_agente --email otra@empresa # otro usuario de prueba
 
-Corre el MISMO bucle de tools que el bot (máx. 5 rondas) sobre la empresa del
+Corre el MISMO bucle de tools que el bot (máx. 3 rondas) sobre la empresa del
 usuario de seed_demo, con clientes/productos/ventas del eval creados dentro de
 una transacción que SIEMPRE se revierte: no queda nada en la BD.
 
-Por caso: correcto / parcial / incorrecto, rondas, latencia y tokens.
-Umbral: 13/15 correctos (proporcional al número de casos).
+Por caso: correcto / parcial / incorrecto, rondas, latencia y tokens. Una
+consulta con más de 2 rondas cuenta como parcial.
+Umbral: 18/20 correctos (≈ 87 %) Y ninguna consulta con más de 2 rondas.
 """
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from apps.canales.eval.mensajes import CASOS, umbral
-from apps.canales.eval.runner import evaluar, preparar_datos
+from apps.canales.eval.runner import MAX_RONDAS_CONSULTA, es_consulta, evaluar, preparar_datos
 
 ICONO = {'correcto': '✓', 'parcial': '◐', 'incorrecto': '✗'}
 
@@ -57,12 +58,24 @@ class Command(BaseCommand):
         parciales = sum(r.estado == 'parcial' for r in resultados)
         ms = sum(r.ms for r in resultados)
         tokens = sum(r.tokens for r in resultados)
+        lentas = [r.id for r in resultados if es_consulta(r.final if r.final != '—' else None)
+                  and r.rondas > MAX_RONDAS_CONSULTA]
+        rondas = sorted(r.rondas for r in resultados)
         self.stdout.write(
             f'\n{correctos}/{n} correctos · {parciales} parciales · {n - correctos - parciales} incorrectos'
-            f' · latencia total {ms / 1000:.1f} s (media {ms / max(n, 1):.0f} ms) · {tokens} tokens')
+            f' · latencia total {ms / 1000:.1f} s (media {ms / max(n, 1):.0f} ms) · {tokens} tokens'
+            f'\nrondas: máx. {rondas[-1] if rondas else 0}, media {sum(rondas) / max(n, 1):.1f}'
+            f' · consultas con >{MAX_RONDAS_CONSULTA} rondas: {len(lentas)}'
+            + (f' (casos {", ".join(f"#{i}" for i in lentas)})' if lentas else ''))
         if opts['caso'] is None:
             minimo = umbral(n)
-            if correctos < minimo:
-                self.stderr.write(self.style.ERROR(f'Por debajo del umbral ({minimo}/{n}).'))
+            if correctos < minimo or lentas:
+                motivo = []
+                if correctos < minimo:
+                    motivo.append(f'{correctos}/{n} correctos < {minimo}')
+                if lentas:
+                    motivo.append(f'{len(lentas)} consulta(s) con >{MAX_RONDAS_CONSULTA} rondas')
+                self.stderr.write(self.style.ERROR('Umbral NO superado: ' + '; '.join(motivo) + '.'))
                 raise SystemExit(1)
-            self.stdout.write(self.style.SUCCESS(f'Umbral superado ({minimo}/{n}).'))
+            self.stdout.write(self.style.SUCCESS(
+                f'Umbral superado ({minimo}/{n} y ninguna consulta con >{MAX_RONDAS_CONSULTA} rondas).'))

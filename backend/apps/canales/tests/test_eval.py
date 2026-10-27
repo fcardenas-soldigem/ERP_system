@@ -107,27 +107,42 @@ class EvalPuntaAPuntaTests(TestCase):
         malos = [(r.id, r.estado, r.fallos) for r in resultados if r.estado != 'correcto']
         self.assertEqual(malos, [])
 
-    def test_lectura_intermedia_cuenta_rondas_y_tokens(self):
-        caso = next(c for c in CASOS if c['id'] == 5)
-        r = evaluar(self.usuario, [caso], cliente_llm=_guion())[0]
-        self.assertEqual((r.estado, r.rondas, r.tokens), ('correcto', 2, 140))
+    def test_consultas_cuestan_una_ronda(self):
+        """#5, #7 y #11 (stock, RUC, precio): 1 ronda, 70 tokens del guion."""
+        for id_ in (5, 7, 11):
+            caso = next(c for c in CASOS if c['id'] == id_)
+            r = evaluar(self.usuario, [caso], cliente_llm=_guion())[0]
+            self.assertEqual((r.estado, r.rondas, r.tokens), ('correcto', 1, 70), id_)
 
-    def test_buscar_y_despues_cotizar_es_correcto(self):
-        """Lo que hizo gemini en #1/#8/#13: ya no es un fallo del eval."""
-        caso = next(c for c in CASOS if c['id'] == 1)
+    def _con_rondas_previas(self, id_, invalidos):
+        """El modelo manda `invalidos` llamadas inválidas (distintas) antes de la buena."""
+        caso = next(c for c in CASOS if c['id'] == id_)
 
-        class BuscaPrimero:
+        class Tardio:
             def __init__(self):
                 self.n = 0
 
             def chat(self, system, messages, tools, temperature=0.2):
                 self.n += 1
-                if self.n == 1:
-                    return respuesta_llm('buscar_producto', {'query': 'jabra 750'})
-                return respuesta_llm(*ORACULO[1])
+                if self.n <= invalidos:
+                    return respuesta_llm('buscar_producto', {'query': '', 'n': self.n})  # inválido
+                return respuesta_llm(*ORACULO[id_])
 
-        r = evaluar(self.usuario, [caso], cliente_llm=BuscaPrimero())[0]
+        return evaluar(self.usuario, [caso], cliente_llm=Tardio())[0]
+
+    def test_consulta_con_2_rondas_sigue_correcta(self):
+        r = self._con_rondas_previas(11, invalidos=1)
         self.assertEqual((r.estado, r.rondas), ('correcto', 2))
+
+    def test_consulta_con_mas_de_2_rondas_es_parcial(self):
+        r = self._con_rondas_previas(11, invalidos=2)
+        self.assertEqual((r.estado, r.rondas), ('parcial', 3))
+        self.assertIn('consulta con 3 rondas', r.fallos[-1])
+
+    def test_preparacion_con_3_rondas_no_se_penaliza(self):
+        """La regla de rondas es para consultas; cotizar puede corregirse."""
+        r = self._con_rondas_previas(1, invalidos=2)
+        self.assertEqual((r.estado, r.rondas), ('correcto', 3))
 
     def test_tool_equivocada_es_incorrecto(self):
         caso = next(c for c in CASOS if c['id'] == 11)
@@ -166,6 +181,24 @@ class ComandoTests(TestCase):
         cls.empresa = Empresa.objects.create(nombre='Empresa Demo Eval', ruc='20888888882')
         User.objects.create_user(username='demo@eval.pe', email='demo@eval.pe', password='x',
                                  nombre='D', apellido='E', empresa=cls.empresa, rol='admin')
+
+    def test_umbral_exige_consultas_de_maximo_2_rondas(self):
+        """18/20 correctos NO basta si alguna consulta pasó de 2 rondas."""
+        from apps.canales.eval import runner
+        real = runner.evaluar
+
+        def con_una_lenta(usuario, casos, cliente_llm=None):
+            res = real(usuario, casos, cliente_llm)
+            r = next(r for r in res if r.id == 5)
+            r.rondas = 3            # simula una consulta lenta que, aun así, acertó
+            return res
+
+        err = StringIO()
+        with mock.patch('apps.canales.nucleo.interprete.get_llm_client', return_value=_guion()), \
+             mock.patch('apps.canales.management.commands.eval_agente.evaluar', side_effect=con_una_lenta):
+            with self.assertRaises(SystemExit):
+                call_command('eval_agente', email='demo@eval.pe', stdout=StringIO(), stderr=err)
+        self.assertIn('consulta(s) con >2 rondas', err.getvalue())
 
     def test_transaccion_se_revierte_y_reporta(self):
         out = StringIO()

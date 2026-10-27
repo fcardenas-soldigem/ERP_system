@@ -5,7 +5,7 @@ Runner del eval de punta a punta (punto 3).
   la empresa de seed_demo. El comando lo llama dentro de una transacción que
   SIEMPRE se revierte: nada queda en la BD.
 - evaluar(): por caso ejecuta el MISMO bucle de tools que el bot
-  (interprete.resolver, máx. 5 rondas), ejecuta la preparación final (que no
+  (interprete.resolver, máx. 3 rondas), ejecuta la preparación final (que no
   escribe: devuelve el borrador) y evalúa el resultado.
   correcto = tool final + todos los chequeos; parcial = tool final correcta
   pero algún chequeo falla; incorrecto = otra tool, ninguna o error.
@@ -21,6 +21,10 @@ from django.utils import timezone
 from apps.canales.nucleo import servicios
 from apps.canales.nucleo.busqueda import normalizar
 from apps.canales.nucleo.interprete import resolver
+
+# Una consulta que pasa de esto es un fallo de eficiencia (eval #5/#7/#11
+# llegaron a 5 rondas): cuenta como parcial y bloquea el umbral.
+MAX_RONDAS_CONSULTA = 2
 
 PREPARACIONES = {
     'preparar_cotizacion': servicios.preparar_cotizacion,
@@ -204,8 +208,14 @@ def evaluar_caso(usuario, caso, cliente_llm=None):
         rc.estado = 'correcto'
         return rc
     rc.fallos = chequear(usuario, final, resultado, caso.get('checks', {}))
+    if es_consulta(final) and rc.rondas > MAX_RONDAS_CONSULTA:
+        rc.fallos.append(f'consulta con {rc.rondas} rondas (máx. {MAX_RONDAS_CONSULTA})')
     rc.estado = 'parcial' if rc.fallos else 'correcto'
     return rc
+
+
+def es_consulta(final):
+    return final is not None and final not in PREPARACIONES
 
 
 def evaluar(usuario, casos, cliente_llm=None):

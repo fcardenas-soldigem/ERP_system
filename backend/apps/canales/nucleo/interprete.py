@@ -57,16 +57,19 @@ def _tools():
     ]
 
 
-MAX_RONDAS = 5
+# Ya no hay lecturas «paso previo»: toda lectura corta, así que las rondas
+# extra solo sirven para que el modelo corrija argumentos inválidos.
+MAX_RONDAS = 3
 
 # Preparan un borrador: cortan el bucle y NO se ejecutan aquí (el orquestador
 # exige rol de escritura antes; el eval las ejecuta sin persistir nada).
 PREPARACIONES = ('preparar_cotizacion', 'preparar_cobro', 'cambiar_estado_operativo')
-# Lecturas que SON la respuesta: se ejecutan y cortan el bucle.
-LECTURAS_TERMINALES = ('consultar_venta', 'ventas_detenidas')
-# Lecturas que pueden ser un paso previo: se ejecutan y su resultado vuelve
-# al modelo (compacto) para que decida el siguiente paso.
-LECTURAS_INTERMEDIAS = ('buscar_cliente', 'buscar_producto')
+# Toda lectura ES la respuesta: se ejecuta y corta el bucle en esa misma ronda.
+# Antes buscar_* devolvía su resultado al modelo «por si quería cotizar después»
+# y el modelo repetía la búsqueda hasta el tope (eval #5, #7, #11: 5 rondas,
+# 5x tokens, 6,5 s). Forzar una ronda en texto daría lo mismo pagando una
+# llamada más: el bot NO usa el texto del modelo, formatea el resultado él mismo.
+LECTURAS = ('consultar_venta', 'ventas_detenidas', 'buscar_cliente', 'buscar_producto')
 
 
 @dataclass
@@ -83,22 +86,19 @@ class Resolucion:
     llamadas: list = field(default_factory=list)   # [(ronda, tool)] para el eval
 
 
-def _para_modelo(nombre, resultado):
-    """Lo MÍNIMO que el modelo necesita para seguir: ids y nombres. Costos,
-    proveedores, teléfonos y stock no salen hacia Vertex por esta vía."""
-    if nombre == 'buscar_cliente':
-        datos = [{'id': c['id'], 'nombre': c['nombre']} for c in resultado.get('clientes', [])]
-    elif nombre == 'buscar_producto':
-        datos = [{'id': p['id'], 'nombre': p['nombre'], 'sku': p['sku']} for p in resultado.get('productos', [])]
-    else:
-        datos = resultado
-    return json.dumps({'resultado': datos}, ensure_ascii=False, default=str)[:4000]
+def _firma(nombre, argumentos):
+    return nombre, json.dumps(argumentos or {}, sort_keys=True, ensure_ascii=False, default=str)
 
 
 def resolver(usuario, texto: str, historial: list[LLMMessage] | None = None,
              cliente=None, max_rondas: int = MAX_RONDAS) -> Resolucion:
-    """Bucle de tools (máx. 5 rondas) compartido por el bot y eval_agente: el
+    """Bucle de tools (máx. 3 rondas) compartido por el bot y eval_agente: el
     eval mide exactamente lo que hace producción.
+
+    Cualquier preparación o lectura corta el bucle en su ronda. Solo se sigue
+    cuando el modelo pidió algo inválido (argumentos o tool desconocida) y
+    puede corregirse; si repite EXACTAMENTE la misma llamada, se corta (no se
+    ejecuta dos veces ni se gasta otra ronda).
 
     Lanza LLMNoConfigurado/errores del proveedor hacia quien llama.
     """
@@ -114,7 +114,7 @@ def resolver(usuario, texto: str, historial: list[LLMMessage] | None = None,
     tools = _tools()
     mensajes = list(historial or []) + [LLMMessage(role='user', content=texto)]
     res = Resolucion(tipo='fuera')
-    ultima_lectura = None
+    vistas = set()          # firmas (tool, argumentos) ya pedidas
     hubo_args_invalidos = False
     t0 = time.monotonic()
 
@@ -128,8 +128,14 @@ def resolver(usuario, texto: str, historial: list[LLMMessage] | None = None,
                 break
             mensajes.append(LLMMessage(role='assistant', content=resp.text or None,
                                        tool_calls=resp.tool_calls, raw=resp.raw))
+            repetida = False
             for tc in resp.tool_calls:
                 res.llamadas.append((ronda, tc.name))
+                firma = _firma(tc.name, tc.arguments)
+                if firma in vistas:
+                    repetida = True        # misma llamada otra vez: no se reintenta
+                    break
+                vistas.add(firma)
                 esquema = CATALOGO.get(tc.name, (None, None))[0]
                 if esquema is None:
                     logger.warning('LLM eligió herramienta desconocida: %s', tc.name)
@@ -149,18 +155,13 @@ def resolver(usuario, texto: str, historial: list[LLMMessage] | None = None,
                 if tc.name in PREPARACIONES:
                     res.tipo, res.nombre, res.entrada = 'preparacion', tc.name, entrada
                     return res
-                resultado = lecturas[tc.name](usuario, entrada)
-                if tc.name in LECTURAS_TERMINALES:
-                    res.tipo, res.nombre, res.entrada, res.resultado = 'lectura', tc.name, entrada, resultado
-                    return res
-                ultima_lectura = (tc.name, entrada, resultado)
-                mensajes.append(LLMMessage(role='tool', tool_call_id=tc.id, name=tc.name,
-                                           content=_para_modelo(tc.name, resultado)))
-        # el modelo dejó de pedir tools (o se agotaron las rondas)
-        if ultima_lectura:
-            res.tipo = 'lectura'
-            res.nombre, res.entrada, res.resultado = ultima_lectura
-        elif hubo_args_invalidos:
+                res.tipo, res.nombre, res.entrada = 'lectura', tc.name, entrada
+                res.resultado = lecturas[tc.name](usuario, entrada)
+                return res
+            if repetida:
+                break
+        # el modelo no llegó a una tool válida (o se agotaron las rondas)
+        if hubo_args_invalidos:
             res.tipo = 'faltan_datos'
         return res
     finally:
