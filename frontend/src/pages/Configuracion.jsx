@@ -30,6 +30,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { PageHeader } from '../components/ui';
 import ConectarClaude from '../components/ConectarClaude';
+import VincularTelegram from '../components/Cuenta/VincularTelegram';
 
 const Configuracion = () => {
     const toast = useToast();
@@ -278,6 +279,8 @@ const Configuracion = () => {
             
             <VStack spacing={6} align="stretch">
                 {/* Logo de la Empresa */}
+                <VincularTelegram />
+
                 <Card>
                     <CardBody>
                         <Heading size="md" mb={4}>Logo de la Empresa</Heading>
