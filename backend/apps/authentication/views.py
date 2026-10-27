@@ -23,16 +23,20 @@ _REFRESH_COOKIE_MAX_AGE = int(
 )
 
 
-# 0.3 — SameSite=Lax SIEMPRE: el front (erp.soldigem.com.pe) y la API
-# (api.soldigem.com.pe) son el mismo sitio, y Safari iOS bloquea por defecto
-# las cookies cross-site (None), lo que obligaba a re-loguearse al reabrir.
-# Domain=.soldigem.com.pe llega por REFRESH_COOKIE_DOMAIN (solo prod).
+# 0.3 — MISMO ORIGEN: el navegador llama a erp.soldigem.com.pe/api/… y Vercel
+# reenvía a Cloud Run (rewrite en frontend/vercel.json). La cookie la emite,
+# a ojos del navegador, erp.soldigem.com.pe → first-party: Safari iOS ya no la
+# descarta al reabrir la PWA (con None + Cloud Run cross-site la bloqueaba).
+# Sin Domain (host-only), SameSite=Lax, Secure, y solo viaja a /api/.
+REFRESH_COOKIE_PATH = '/api/'
+
+
 def _cookie_kwargs():
     return dict(
         httponly=True,
         secure=not settings.DEBUG,
         samesite='Lax',
-        domain=settings.REFRESH_COOKIE_DOMAIN,
+        path=REFRESH_COOKIE_PATH,
     )
 
 
@@ -46,9 +50,11 @@ def _set_refresh_cookie(response, refresh_token_str):
 
 
 def _delete_refresh_cookie(response):
-    # mismo domain/samesite que al crearla; si difieren, el navegador no la borra
+    # mismo path/samesite que al crearla; si difieren, el navegador no la borra
     kw = _cookie_kwargs()
-    response.delete_cookie('refresh_token', domain=kw['domain'], samesite=kw['samesite'])
+    response.delete_cookie('refresh_token', path=kw['path'], samesite=kw['samesite'])
+    # (la cookie de la sesión anterior vivía en el host *.run.app: el
+    # navegador nunca la envía a erp.soldigem.com.pe, no hay que borrarla)
 
 
 class CookieTokenObtainPairView(TokenObtainPairView):

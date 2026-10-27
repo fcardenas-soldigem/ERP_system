@@ -58,8 +58,7 @@ if not ALLOWED_HOSTS or '*' in ALLOWED_HOSTS:
 CSRF_TRUSTED_ORIGINS = [
     'https://erp-backend-25656632090.southamerica-west1.run.app',
     'https://*.run.app',
-    'https://erp.soldigem.com.pe',
-    'https://api.soldigem.com.pe',
+    'https://erp.soldigem.com.pe',   # mismo origen vía rewrite de Vercel (0.3)
     'http://localhost:3000',
 ]
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
@@ -74,15 +73,14 @@ SESSION_COOKIE_SECURE = not DEBUG  # True en producción
 CSRF_COOKIE_SECURE = not DEBUG     # True en producción
 SESSION_COOKIE_HTTPONLY = True     # Previene acceso desde JavaScript
 CSRF_COOKIE_HTTPONLY = True        # Previene acceso desde JavaScript
-# 0.3 — front y API viven bajo el MISMO sitio (erp./api.soldigem.com.pe):
+# 0.3 — front y API viven bajo el MISMO origen (erp.soldigem.com.pe/api/ vía rewrite):
 # Lax basta y Safari iOS deja de descartar la cookie (con None+cross-site la
 # bloqueaba por defecto y cada apertura de la PWA pedía login de nuevo).
 SESSION_COOKIE_SAMESITE = 'Lax'
 CSRF_COOKIE_SAMESITE = 'Lax'
 
-# Dominio de la cookie de refresh (httpOnly). En prod: .soldigem.com.pe para
-# que erp.* y api.* la compartan como same-site. En local queda host-only.
-REFRESH_COOKIE_DOMAIN = os.getenv('REFRESH_COOKIE_DOMAIN') or None
+# Cookie de refresh: host-only (SIN Domain) por diseño — ver
+# authentication/views.py::_cookie_kwargs. No hay variable para cambiarlo.
 
 # === CANALES DE MENSAJERÍA (Bloque 1: bot de Telegram) ===
 # TG_* vive SOLO en el entorno: en local backend/.env.local con valores de
@@ -90,8 +88,9 @@ REFRESH_COOKIE_DOMAIN = os.getenv('REFRESH_COOKIE_DOMAIN') or None
 TG_BOT_TOKEN = os.getenv('TG_BOT_TOKEN', '')
 TG_WEBHOOK_SECRET = os.getenv('TG_WEBHOOK_SECRET', '')
 TG_BOT_USERNAME = os.getenv('TG_BOT_USERNAME', 'SoldigemBot')
-# Base pública para links firmados que el bot comparte (PDF de cotización)
-API_BASE_URL = os.getenv('API_BASE_URL', '')
+# Base pública para links firmados que el bot comparte (PDF de cotización).
+# Va por el mismo origen del ERP (rewrite /api/ de Vercel).
+API_BASE_URL = os.getenv('API_BASE_URL', 'https://erp.soldigem.com.pe')
 # Límites del asistente (B9); el de usuario es fijo: 60 mensajes/hora
 CANALES_LIMITE_MENSAJES_EMPRESA_DIA = int(os.getenv('CANALES_LIMITE_MENSAJES_EMPRESA_DIA', '1000'))
 CANALES_LIMITE_TOKENS_EMPRESA_DIA = int(os.getenv('CANALES_LIMITE_TOKENS_EMPRESA_DIA', '300000'))
@@ -399,6 +398,10 @@ CORS_ALLOW_HEADERS = [
     'x-csrftoken',
     'x-requested-with',
 ]
+
+# 0.3 — las descargas binarias van directo a Cloud Run (cross-origin): sin
+# esto el navegador oculta Content-Disposition y el Excel pierde su nombre.
+CORS_EXPOSE_HEADERS = ['content-disposition']
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 

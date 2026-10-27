@@ -125,7 +125,7 @@ def _crear_borrador(usuario, mensaje, tipo, payload):
 def _link_pdf_firmado(cotizacion_id):
     """Link temporal (72 h) al PDF, sin sesión: se comparte por el chat."""
     firma = TimestampSigner(salt='canales.pdf').sign(str(cotizacion_id))
-    base = getattr(settings, 'API_BASE_URL', '') or 'https://api.soldigem.com.pe'
+    base = getattr(settings, 'API_BASE_URL', '') or 'https://erp.soldigem.com.pe'
     return f'{base}{reverse("canales:pdf_cotizacion")}?t={firma}'
 
 

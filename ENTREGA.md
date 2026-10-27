@@ -128,15 +128,15 @@ que la gente trabaje (el default nuevo es operador, no admin).
 
 ### Orden de deploy (cuando toque; HOY NO se despliega)
 1. Deploy normal de `fix/review-movil` (migrate job → canary) con las
-   variables de DEPLOY.md §10 (`REFRESH_COOKIE_DOMAIN`, `VITE_API_URL`).
+   variables de DEPLOY.md §10 (mismo origen: `VITE_API_URL` vacío, `VITE_API_UPLOAD_URL`, `erp.soldigem.com.pe` en `DJANGO_ALLOWED_HOSTS`).
    Asignar roles admin en prod ANTES (ver arriba).
 2. Deploy de `feat/agente-canales` (migrate: solo tablas nuevas).
 3. Variables nuevas del bot en Cloud Run (TG_BOT_TOKEN y TG_WEBHOOK_SECRET
    como **secretos** en Secret Manager, nunca en texto plano):
    `TG_BOT_TOKEN`, `TG_WEBHOOK_SECRET` (openssl rand -hex 32),
-   `TG_BOT_USERNAME`, `API_BASE_URL=https://api.soldigem.com.pe`.
+   `TG_BOT_USERNAME`, `API_BASE_URL=https://erp.soldigem.com.pe` (default).
 4. Activar el webhook (una vez, desde cualquier máquina con los env):
-   `python manage.py telegram_set_webhook --url https://api.soldigem.com.pe`
+   `python manage.py telegram_set_webhook --url https://erp-backend-25656632090.southamerica-west1.run.app` (Cloud Run directo; el comando rechaza otros hosts)
    (registra URL + secret + comandos; `--borrar` lo revierte).
 5. Eval del intérprete: `python manage.py eval_agente` (≥13/15 para abrir el piloto).
 6. Piloto: cada usuario entra a Configuración → «Vincular Telegram».

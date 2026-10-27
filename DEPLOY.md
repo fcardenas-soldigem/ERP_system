@@ -130,7 +130,7 @@ Archivo `/tmp/erp-env-vars.yaml` completo (valores no secretos; sustituir solo `
 
 ```yaml
 DJANGO_DEBUG: "False"
-DJANGO_ALLOWED_HOSTS: "erp-backend-25656632090.southamerica-west1.run.app,api.soldigem.com.pe"
+DJANGO_ALLOWED_HOSTS: "erp-backend-25656632090.southamerica-west1.run.app,erp.soldigem.com.pe"
 CORS_ALLOWED_ORIGINS: "https://erp.soldigem.com.pe"
 DB_NAME: "postgres"
 DB_USER: "<usuario de Supabase>"
@@ -320,40 +320,102 @@ prod existiera un usuario con `empresa=NULL`, dejará de poder entrar hasta asig
 empresa en el admin — revisar con `SELECT id FROM authentication_customuser WHERE empresa_id IS NULL;`
 antes del deploy).
 
-## 10. Sesión en iPhone — cookie de refresh same-site (rama `fix/review-movil`, 0.3)
+## 10. Sesión en iPhone — MISMO ORIGEN vía rewrite de Vercel (0.3, revisado)
 
-El frontend de prod debe llamar a `https://api.soldigem.com.pe` (mismo sitio que
-`erp.soldigem.com.pe`), nunca a la URL `*.run.app`: Safari iOS bloquea por defecto
-las cookies cross-site y el refresh token se perdía al reabrir la PWA (login en
-cada apertura).
+> Reemplaza el esquema anterior con `api.soldigem.com.pe`: verificado en prod que
+> ese dominio responde `DEPLOYMENT_NOT_FOUND` de Vercel y **no llega al backend**.
+> No usarlo.
 
-**Qué cambia en Vercel (frontend):**
+### Esquema
 
-| Variable | Valor |
-|---|---|
-| `VITE_API_URL` | `https://api.soldigem.com.pe` |
+```
+navegador ──► https://erp.soldigem.com.pe/api/…   (mismo origen que el SPA)
+                 │  rewrite de Vercel (frontend/vercel.json)
+                 ▼
+              https://erp-backend-25656632090.southamerica-west1.run.app/api/…
 
-(Requiere redeploy del frontend: Vite inyecta la variable en build.)
+navegador ──► Cloud Run DIRECTO solo para binarios (subidas y descargas PDF/Excel),
+              autenticados con Bearer, sin cookie.
 
-**Qué cambia en Cloud Run (backend):**
+Telegram  ──► Cloud Run DIRECTO (/api/canales/telegram/)
+```
+
+La cookie `refresh_token` la emite, a ojos del navegador, `erp.soldigem.com.pe`:
+es **first-party**, y Safari iOS deja de descartarla al reabrir la PWA.
+
+### Qué cambia en Vercel (proyecto del ERP)
+
+| Variable | Valor | Nota |
+|---|---|---|
+| `VITE_API_URL` | **vacío** (borrar la variable o dejarla en blanco) | NO `"/api"`: las rutas ya empiezan con `/api/` y quedaría `/api/api/` |
+| `VITE_API_UPLOAD_URL` | `https://erp-backend-25656632090.southamerica-west1.run.app` | nueva: subidas y descargas binarias directo |
+
+Las dos se inyectan en build: **requieren redeploy del frontend**.
+
+`frontend/vercel.json` (ya en la rama):
+- rewrite `/api/(.*)` → `https://erp-backend-…run.app/api/$1` **antes** del
+  catch-all del SPA. Se usa `(.*)`→`$1` y no `/api/:path*`: `:path*` no captura la
+  barra final y Django (`APPEND_SLASH`) respondería 301 a los POST sin barra.
+- cabecera `x-vercel-enable-rewrite-caching: 0` en `/api/(.*)`: las respuestas
+  de la API son por usuario y empresa; la CDN **nunca** debe cachearlas (los
+  proyectos de Vercel creados desde abril de 2026 cachean rewrites externos por
+  defecto según las cabeceras del origen).
+
+### Qué cambia en Cloud Run (backend)
 
 | Variable | Valor | Por qué |
 |---|---|---|
-| `REFRESH_COOKIE_DOMAIN` | `.soldigem.com.pe` | la cookie `refresh_token` viaja entre erp.* y api.* como same-site |
+| `DJANGO_ALLOWED_HOSTS` | `erp-backend-25656632090.southamerica-west1.run.app,erp.soldigem.com.pe` | Vercel reenvía `X-Forwarded-Host: erp.soldigem.com.pe` y `USE_X_FORWARDED_HOST=True` hace que Django valide **ese** host: sin él, todo `/api/` por el rewrite da 400 (`DisallowedHost`). Probado en `tests/test_mismo_origen.py` |
+| `REFRESH_COOKIE_DOMAIN` | **eliminar** si quedó de una versión anterior | ya no existe: la cookie es host-only por diseño |
+| `API_BASE_URL` | `https://erp.soldigem.com.pe` (es el default) | base de los links firmados al PDF que comparte el bot |
 
-La cookie pasa de `SameSite=None` a **`SameSite=Lax` + `Secure` +
-`Domain=.soldigem.com.pe`** (`apps/authentication/views.py::_cookie_kwargs`).
-`SESSION_COOKIE_SAMESITE`/`CSRF_COOKIE_SAMESITE` pasan a `Lax`.
+Sin cambios, verificados: `CORS_ALLOWED_ORIGINS=https://erp.soldigem.com.pe`
+(lo usan los binarios directos; se añadió `CORS_EXPOSE_HEADERS=content-disposition`
+para que el Excel conserve su nombre) y `CSRF_TRUSTED_ORIGINS` (ya lista
+`https://erp.soldigem.com.pe`, settings.py).
 
-**Verificar que ya está (sin cambios):** `DJANGO_ALLOWED_HOSTS` incluye
-`api.soldigem.com.pe`; `CORS_ALLOWED_ORIGINS=https://erp.soldigem.com.pe`
-(CORS sigue siendo necesario: same-site pero cross-origin);
-`CSRF_TRUSTED_ORIGINS` ya lista ambos dominios (settings.py).
+### Cookie `refresh_token`
 
-**Prueba manual post-deploy:** entrar desde un iPhone real, cerrar Safari/la PWA,
-reabrir → debe seguir dentro. En las DevTools: la cookie `refresh_token` con
-`Domain=.soldigem.com.pe; SameSite=Lax; Secure; HttpOnly`.
+`HttpOnly; Secure; SameSite=Lax; Path=/api/` y **sin `Domain`** (host-only de
+erp.soldigem.com.pe). `apps/authentication/views.py::_cookie_kwargs`.
+Login, refresh y logout usan los mismos atributos (si el path difiere, el
+navegador no la borra).
 
-**Ojo:** al cambiar el dominio de la cookie, las sesiones existentes (cookie vieja
-host-only de *.run.app) dejan de renovar: los usuarios activos ven un (1) login
-extra tras este deploy.
+### Límites de Vercel para el rewrite (docs oficiales, verificado 2026-10-27)
+
+| Límite | Valor | Fuente | Impacto |
+|---|---|---|---|
+| Timeout del proxy | **120 s** (todos los planes) | vercel.com/docs/limits → «Proxied request timeout» | Holgado para el JSON de la API. Error si se excede: `ROUTER_EXTERNAL_TARGET_ERROR` |
+| Body de request / respuesta en rewrites externos | **No documentado** | vercel.com/docs/rewrites no lo menciona; el 4,5 MB conocido es de Vercel Functions | Por eso los binarios **no** pasan por el rewrite |
+
+Medido en local: PDF de cotización ≈ 3 KB sin logo y ≈ 1,3 MB con logo. Las
+subidas admiten hasta 10 MB y las exportaciones Excel no tienen tope →
+`frontend/src/lib/api.js` manda **todo** request con `FormData` o
+`responseType: 'blob'|'arraybuffer'` a `VITE_API_UPLOAD_URL`. Excepción: el link
+firmado al PDF que comparte el bot se abre en el navegador vía
+`erp.soldigem.com.pe` (≈ 1,3 MB, GET simple).
+
+### Webhook de Telegram
+
+Se registra contra **Cloud Run directo**, nunca contra erp.soldigem.com.pe:
+
+```
+python manage.py telegram_set_webhook \
+    --url https://erp-backend-25656632090.southamerica-west1.run.app
+```
+
+El comando rechaza cualquier host que no sea `*.run.app` (salvo `--forzar`).
+
+### Prueba manual post-deploy
+1. iPhone real: login → cerrar la PWA → reabrir → sigue dentro.
+2. DevTools en erp.soldigem.com.pe: `refresh_token` con `Path=/api/; Secure;
+   HttpOnly; SameSite=Lax`, sin `Domain`. Las llamadas JSON salen a
+   `erp.soldigem.com.pe/api/…`.
+3. Subir un comprobante de ~9 MB y exportar el Excel de ventas: salen a
+   `…run.app` y el Excel conserva su nombre.
+4. `curl -sI https://erp.soldigem.com.pe/api/core/tipo-cambio/` → responde
+   Django (no el `index.html` del SPA).
+5. Ver que ninguna respuesta de `/api/` trae `x-vercel-cache: HIT`.
+
+**Efecto en sesiones activas:** la cookie vieja vivía en el host `*.run.app`;
+todos los usuarios hacen **un** login extra tras este deploy.

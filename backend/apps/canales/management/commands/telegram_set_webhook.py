@@ -1,7 +1,12 @@
 """
 Registra el webhook del bot y sus comandos (A2).
 
-    python manage.py telegram_set_webhook --url https://api.soldigem.com.pe
+    python manage.py telegram_set_webhook \
+        --url https://erp-backend-25656632090.southamerica-west1.run.app
+
+La URL es la de Cloud Run DIRECTA, nunca erp.soldigem.com.pe: Telegram no
+necesita la cookie same-site y así el webhook no depende del rewrite de Vercel
+(ni de su timeout ni de un deploy del frontend).
 
 Usa TG_BOT_TOKEN y TG_WEBHOOK_SECRET del entorno. La cabecera secreta que
 Telegram enviará en cada update es la MISMA que valida el webhook.
@@ -25,6 +30,8 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument('--url', required=True, help='Base pública del backend (https://…)')
         parser.add_argument('--borrar', action='store_true', help='Elimina el webhook en vez de registrarlo')
+        parser.add_argument('--forzar', action='store_true',
+                            help='Permite una URL que no sea *.run.app (no recomendado)')
 
     def handle(self, *args, **opts):
         token = settings.TG_BOT_TOKEN
@@ -38,6 +45,12 @@ class Command(BaseCommand):
             self.stdout.write(str(r.json()))
             return
 
+        from urllib.parse import urlparse
+        host = urlparse(opts['url']).hostname or ''
+        if not host.endswith('.run.app') and not opts['forzar']:
+            raise CommandError(
+                f'La URL debe ser la de Cloud Run directa (*.run.app), no {host}: '
+                'el webhook no debe pasar por el rewrite de Vercel. Usa --forzar si sabes lo que haces.')
         url = opts['url'].rstrip('/') + '/api/canales/telegram/'
         r = requests.post(f'{api}/setWebhook', json={
             'url': url,
