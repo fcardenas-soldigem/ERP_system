@@ -75,21 +75,22 @@ DIGEST=$(gcloud artifacts docker images describe $IMAGE:$TAG --format='value(ima
 echo "$IMAGE@$DIGEST"      # ← desplegar SIEMPRE por digest, no por tag
 ```
 
-Secretos (una sola vez; después solo `versions add`). Nombres en Secret Manager:
+Secretos (una sola vez; después solo `versions add`). En Secret Manager cada secreto
+se llama **igual que su variable, en mayúsculas** (convención de prod):
 
 | Secreto | Variable en el contenedor |
 |---|---|
-| `django-secret-key` | `DJANGO_SECRET_KEY` |
-| `jwt-signing-key` | `JWT_SIGNING_KEY` |
-| `apis-net-pe-token` | `APIS_NET_PE_TOKEN` |
-| `db-password` | `DB_PASSWORD` |
-| `redis-url` (opcional) | `REDIS_URL` |
+| `DJANGO_SECRET_KEY` | `DJANGO_SECRET_KEY` |
+| `JWT_SIGNING_KEY` | `JWT_SIGNING_KEY` |
+| `APIS_NET_PE_TOKEN` | `APIS_NET_PE_TOKEN` |
+| `DB_PASSWORD` | `DB_PASSWORD` |
+| `REDIS_URL` (opcional) | `REDIS_URL` |
 
 ```bash
 # Crear/rotar (lee de stdin; nunca del historial):
-read -s -p "valor: " V && echo -n "$V" | gcloud secrets versions add django-secret-key --data-file=- ; unset V
+read -s -p "valor: " V && echo -n "$V" | gcloud secrets versions add DJANGO_SECRET_KEY --data-file=- ; unset V
 # Permiso de lectura para la SA del servicio (una vez por secreto):
-gcloud secrets add-iam-policy-binding django-secret-key \
+gcloud secrets add-iam-policy-binding DJANGO_SECRET_KEY \
   --member="serviceAccount:25656632090-compute@developer.gserviceaccount.com" --role=roles/secretmanager.secretAccessor
 ```
 
@@ -99,8 +100,8 @@ Variables **no secretas** (van con `--set-env-vars` o un archivo YAML fuera del 
 defecto con `DJANGO_DEBUG=False`; se deja explícito).
 
 ```bash
-export SECRETS="DJANGO_SECRET_KEY=django-secret-key:latest,JWT_SIGNING_KEY=jwt-signing-key:latest,APIS_NET_PE_TOKEN=apis-net-pe-token:latest,DB_PASSWORD=db-password:latest"
-# Si hay Redis:  SECRETS="$SECRETS,REDIS_URL=redis-url:latest"
+export SECRETS="DJANGO_SECRET_KEY=DJANGO_SECRET_KEY:latest,JWT_SIGNING_KEY=JWT_SIGNING_KEY:latest,APIS_NET_PE_TOKEN=APIS_NET_PE_TOKEN:latest,DB_PASSWORD=DB_PASSWORD:latest"
+# Si hay Redis:  SECRETS="$SECRETS,REDIS_URL=REDIS_URL:latest"
 # El asistente IA (Jorge, ventas, compras) NO usa secretos: ver §3.1 (Vertex AI + ADC).
 ```
 
@@ -152,8 +153,8 @@ LLM_WRITE_TOOLS: "false"
 Secretos (Secret Manager → variable), sin ninguna clave de IA:
 
 ```bash
-export SECRETS="DJANGO_SECRET_KEY=django-secret-key:latest,JWT_SIGNING_KEY=jwt-signing-key:latest,APIS_NET_PE_TOKEN=apis-net-pe-token:latest,DB_PASSWORD=db-password:latest"
-# Si hay Redis:  SECRETS="$SECRETS,REDIS_URL=redis-url:latest"
+export SECRETS="DJANGO_SECRET_KEY=DJANGO_SECRET_KEY:latest,JWT_SIGNING_KEY=JWT_SIGNING_KEY:latest,APIS_NET_PE_TOKEN=APIS_NET_PE_TOKEN:latest,DB_PASSWORD=DB_PASSWORD:latest"
+# Si hay Redis:  SECRETS="$SECRETS,REDIS_URL=REDIS_URL:latest"
 ```
 
 Variables que **dejan de existir** y hay que quitar del servicio y de Secret Manager
@@ -428,28 +429,39 @@ prod, `0005`, que es la de `main`). Confirmarlo antes con el plan:
 
 ### Migraciones que corren en prod
 
+Plan verificado contra un clon **de solo lectura** del esquema y de
+`django_migrations` de prod (`pg_dump`, cargado en una BD local aparte):
+
 | Migración | Qué hace | Reversible |
 |---|---|---|
-| `authentication.0003_simplificar_roles` | **Datos**: `readonly`→`solo_lectura`; `comercial`/`produccion`/`almacen`/`contador`/`personalizado`→`operador`; `admin` igual. Default nuevo: `operador` | Sí, **con pérdida** (vuelve como `readonly`/`comercial`) |
+| `authentication.0003_simplificar_roles` | **Datos**: `readonly`→`solo_lectura`; `comercial`/`produccion`/`almacen`/`contador`/`personalizado`→`operador`; `admin` igual. Salvaguardas: superusuarios e `is_staff` → `admin`; toda empresa sin admin activo asciende a su usuario activo más antiguo. Default nuevo: `operador` | Sí, **con pérdida** (vuelve como `readonly`/`comercial`; los ascendidos quedan `admin`) |
 | `canales.0001_initial` | 3 tablas nuevas: `VinculacionTelegram`, `UpdateProcesado`, `BorradorAgente` | Sí (`migrate canales zero`) |
+| `empresas.0009_uuid_default_en_bd` | `DEFAULT gen_random_uuid()` en `empresas_empresa.uuid`. En prod ya existe: no cambia nada | No-op atrás |
+| `compras.0026_proveedor_telefono_como_el_modelo` | **Bug de prod**: `compras_proveedor.telefono` es `varchar(9) NOT NULL`; el modelo dice `max_length=15, null=True`. Hoy crear un proveedor sin teléfono da 500. Ensancha y quita NOT NULL, sin tocar filas | No-op atrás |
 
-`compras` 0002/0003/0007/0009 están **modificadas** (reparación para BD limpia)
-pero ya figuran como aplicadas en prod: Django **no** las vuelve a correr.
+`compras.0002_squashed_0009_reparacion_bd_limpia` **no corre en prod**: tiene
+`replaces` de 0002…0009, que prod ya tiene aplicadas, así que Django la da por
+aplicada. Solo se usa al crear una BD desde cero. Las migraciones 0002, 0003,
+0007 y 0009 están **idénticas a `main`** (ninguna migración aplicada en prod se
+edita). Esquema BD limpia vs. prod tras migrar: idéntico (columnas, tipos,
+nulabilidad, defaults, restricciones e índices).
 
-**Antes de migrar:** `SELECT rol, count(*) FROM authentication_customuser GROUP BY rol;`
-— todo usuario que deba administrar tiene que salir como `admin`.
+**Antes de migrar:** `SELECT rol, is_superuser, count(*) FROM authentication_customuser GROUP BY 1,2;`
+**Después:** `SELECT e.id, e.nombre FROM empresas_empresa e WHERE NOT EXISTS (SELECT 1 FROM authentication_customuser u WHERE u.empresa_id=e.id AND u.rol='admin' AND u.is_active) AND EXISTS (SELECT 1 FROM authentication_customuser u WHERE u.empresa_id=e.id);` → 0 filas.
 
-⚠️ Si prod tiene desplegada `feat/registro-piloto` (no está en `main`; trae
-`registro.0001`), desplegar esta rama **quita** el registro piloto: fusionarla
-antes. No hay conflicto de migraciones (otra app); en `authentication/models.py`
-quedarse con los choices de esta rama.
+Derivas de prod que esta rama **no** corrige (necesitan revisar datos antes):
+- `compras_compra` sin `unique (empresa_id, numero)` (0008 figura aplicada pero no corrió): se admiten números de compra duplicados.
+- `compras_comprarecurrente` conserva columnas `NOT NULL` que el modelo ya no tiene (tabla sin uso, 0 filas).
+
+`feat/registro-piloto` **no está en prod ni en `main`** (prod no tiene ninguna
+migración de la app `registro`). No se mezcla en esta rama.
 
 ### Cloud Run — variables y secretos
 
 | Tipo | Nombre | Valor |
 |---|---|---|
-| Secreto **nuevo** | `TG_BOT_TOKEN` | token de @BotFather → secret `tg-bot-token` |
-| Secreto **nuevo** | `TG_WEBHOOK_SECRET` | `openssl rand -hex 32` → secret `tg-webhook-secret` |
+| Secreto **nuevo** | `TG_BOT_TOKEN` | token de @BotFather → secreto `TG_BOT_TOKEN` |
+| Secreto **nuevo** | `TG_WEBHOOK_SECRET` | `openssl rand -hex 32` → secreto `TG_WEBHOOK_SECRET` |
 | Variable **nueva** | `TG_BOT_USERNAME` | usuario del bot, sin `@` |
 | Variable **cambia** | `DJANGO_ALLOWED_HOSTS` | `erp-backend-25656632090.southamerica-west1.run.app,erp.soldigem.com.pe` |
 | Variable opcional | `API_BASE_URL` | default `https://erp.soldigem.com.pe` (links al PDF) |
@@ -457,10 +469,14 @@ quedarse con los choices de esta rama.
 | **Borrar** si existe | `REFRESH_COOKIE_DOMAIN` | ya no se usa |
 
 ```bash
-printf '%s' '<token de BotFather>' | gcloud secrets create tg-bot-token --data-file=-
-openssl rand -hex 32 | tr -d '\n' | gcloud secrets create tg-webhook-secret --data-file=-
-# la service account de Cloud Run necesita roles/secretmanager.secretAccessor en ambos
-export SECRETS="$SECRETS,TG_BOT_TOKEN=tg-bot-token:latest,TG_WEBHOOK_SECRET=tg-webhook-secret:latest"
+printf '%s' '<token de BotFather>' | gcloud secrets create TG_BOT_TOKEN --data-file=-
+openssl rand -hex 32 | tr -d '\n' | gcloud secrets create TG_WEBHOOK_SECRET --data-file=-
+for S in TG_BOT_TOKEN TG_WEBHOOK_SECRET; do
+  gcloud secrets add-iam-policy-binding $S \
+    --member="serviceAccount:25656632090-compute@developer.gserviceaccount.com" \
+    --role=roles/secretmanager.secretAccessor
+done
+export SECRETS="$SECRETS,TG_BOT_TOKEN=TG_BOT_TOKEN:latest,TG_WEBHOOK_SECRET=TG_WEBHOOK_SECRET:latest"
 ```
 
 ### Vercel — ver §10

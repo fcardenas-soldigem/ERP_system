@@ -40,8 +40,9 @@ Jorge (+3 mensajes) y el usuario `qa-movil@local.test`.
 ### Migraciones de la rama
 | Migración | Reversible | NOT NULL nuevos |
 |---|---|---|
-| compras 0002/0003/0007/0009 (reparadas) | igual que antes; 0009 ahora usa `ADD COLUMN IF NOT EXISTS` | ninguno |
-| authentication 0003_simplificar_roles | **Sí con pérdida**: reverso mapea solo_lectura→readonly y operador→comercial (el matiz original de los 5 roles viejos no se recupera) | ninguno (rol ya existía con default) |
+| compras 0002_squashed_0009_reparacion_bd_limpia (nueva; `replaces` 0002…0009, que quedan idénticas a `main`) | no corre en prod (ya aplicadas) | ninguno |
+| empresas 0009_uuid_default_en_bd / compras 0026_proveedor_telefono_como_el_modelo | no-op atrás | ninguno (0026 quita un NOT NULL) |
+| authentication 0003_simplificar_roles (superusuarios/staff → admin; ninguna empresa sin admin) | **Sí con pérdida**: reverso mapea solo_lectura→readonly y operador→comercial (el matiz original de los 5 roles viejos no se recupera) | ninguno (rol ya existía con default) |
 
 **OJO antes del deploy:** 0003 reescribe `rol` de usuarios existentes
 (readonly→solo_lectura, el resto no-admin→operador). Revisar en prod:
