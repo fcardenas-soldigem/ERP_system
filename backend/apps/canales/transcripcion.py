@@ -19,13 +19,16 @@ def transcribir(audio_bytes: bytes, mime: str = 'audio/ogg') -> str:
     from google import genai
     from google.genai import types
 
+    # MISMA configuración que el resto de la capa LLM (settings LLM_*): antes
+    # leía VERTEX_PROJECT/VERTEX_LOCATION, que no existen → en prod el audio
+    # iba sin proyecto, a otra región y con otro modelo.
     client = genai.Client(
         vertexai=True,
-        project=getattr(settings, 'VERTEX_PROJECT', None) or None,
-        location=getattr(settings, 'VERTEX_LOCATION', 'us-central1'),
+        project=getattr(settings, 'LLM_PROJECT', '') or None,
+        location=getattr(settings, 'LLM_LOCATION', 'global') or 'global',
     )
     resp = client.models.generate_content(
-        model=getattr(settings, 'LLM_MODELO_TRANSCRIPCION', 'gemini-2.0-flash'),
+        model=getattr(settings, 'LLM_MODEL', 'gemini-3.1-flash-lite'),
         contents=[
             types.Part.from_bytes(data=audio_bytes, mime_type=mime),
             _PROMPT,

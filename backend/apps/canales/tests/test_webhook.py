@@ -113,3 +113,22 @@ class AudioTests(CanalTestCase):
                 'voice': {'file_id': 'voz2'},
             }})
         self.assertIn('audio', self.ultima_respuesta()[1].lower())
+
+
+class TranscripcionConfigTests(CanalTestCase):
+    """El audio usa la MISMA configuración LLM_* que el resto (sin red)."""
+
+    def test_usa_proyecto_region_y_modelo_de_settings(self):
+        from django.test import override_settings
+        from apps.canales import transcripcion
+        with override_settings(LLM_PROJECT='erp-system-468516', LLM_LOCATION='global',
+                               LLM_MODEL='gemini-3.1-flash-lite'), \
+             mock.patch('google.genai.Client') as cliente:
+            cliente.return_value.models.generate_content.return_value.text = ' ya pagó acme? '
+            texto = transcripcion.transcribir(b'OGG')
+        self.assertEqual(texto, 'ya pagó acme?')
+        kwargs = cliente.call_args.kwargs
+        self.assertEqual((kwargs['vertexai'], kwargs['project'], kwargs['location']),
+                         (True, 'erp-system-468516', 'global'))
+        llamada = cliente.return_value.models.generate_content.call_args.kwargs
+        self.assertEqual(llamada['model'], 'gemini-3.1-flash-lite')
