@@ -14,6 +14,8 @@ import logging
 import pydantic
 from django.conf import settings
 from django.core.cache import cache
+from django.db import transaction
+from django.utils.html import escape
 from django.core.signing import TimestampSigner
 from django.urls import reverse
 from django.utils import timezone
@@ -50,6 +52,12 @@ MSG_NO_VINCULADO = (
     'Hasta entonces no puedo atenderte por aquí.'
 )
 MSG_SOLO_LECTURA = 'Tu rol es de solo lectura: puedo darte información, pero no crear ni cambiar nada.'
+
+
+def esc(v):
+    """REVIEW_BOT #13 — parse_mode=HTML: un cliente llamado «<b>Acme» no debe
+    romper el sendMessage."""
+    return escape(str(v))
 
 
 def _log(usuario, herramienta, argumentos, resultado_resumen, ok=True):
@@ -127,20 +135,20 @@ def _formatear_lectura(nombre, res):
     if 'error' in res:
         return res['error']
     if res.get('ambiguo'):
-        lineas = [f'  • {c["numero"]} — {c["cliente"]} ({c["total"]})' for c in res.get('candidatas', [])]
+        lineas = [f'  • {esc(c["numero"])} — {esc(c["cliente"])} ({esc(c["total"])})' for c in res.get('candidatas', [])]
         if res.get('clientes'):
-            lineas = [f'  • {c["nombre"]} ({c["documento"]})' for c in res['clientes']]
+            lineas = [f'  • {esc(c["nombre"])} ({esc(c["documento"])})' for c in res['clientes']]
         return 'Encontré varios. ¿Cuál es?\n' + '\n'.join(lineas)
     if nombre == 'consultar_venta':
         s = 'S/' if res['moneda'] == 'PEN' else '$'
         pagado = '✅ PAGADA' if res['estado_pago'] == 'pagado' else f'🔶 Pendiente · saldo {s} {res["saldo"]}'
-        return (f'Venta <b>{res["numero"]}</b> — {res["cliente"]}\n'
+        return (f'Venta <b>{esc(res["numero"])}</b> — {esc(res["cliente"])}\n'
                 f'Total {s} {res["total"]} · cobrado {s} {res["cobrado"]}\n'
                 f'{pagado}\nOperativo: {res["estado_operativo"]}')
     if nombre == 'ventas_detenidas':
         if not res['detenidas']:
             return '✅ No hay ventas detenidas. Todo al día.'
-        cuerpo = '\n'.join(f'  • <b>{d["numero"]}</b> {d["cliente"]} — {d["motivo"]}' for d in res['detenidas'])
+        cuerpo = '\n'.join(f'  • <b>{esc(d["numero"])}</b> {esc(d["cliente"])} — {esc(d["motivo"])}' for d in res['detenidas'])
         extra = f'\n(+{res["total"] - len(res["detenidas"])} más en el ERP)' if res['total'] > len(res['detenidas']) else ''
         return f'🔴 {res["total"]} venta(s) detenida(s):\n{cuerpo}{extra}'
     if nombre in ('buscar_producto', 'consultar_stock'):
@@ -148,12 +156,12 @@ def _formatear_lectura(nombre, res):
         if not prods:
             return 'No encontré productos con ese nombre.'
         return 'Encontré:\n' + '\n'.join(
-            f'  • {p["nombre"]} ({p["sku"]}) — S/ {p["precio_venta"]}'
+            f'  • {esc(p["nombre"])} ({esc(p["sku"])}) — S/ {esc(p["precio_venta"])}'
             + (f' · stock {p["stock"]}' if p.get('stock') else '') for p in prods)
     if nombre == 'buscar_cliente':
         if not res['clientes']:
             return 'No encontré clientes con ese nombre o documento.'
-        return 'Clientes:\n' + '\n'.join(f'  • {c["nombre"]} ({c["documento"]})' for c in res['clientes'])
+        return 'Clientes:\n' + '\n'.join(f'  • {esc(c["nombre"])} ({esc(c["documento"])})' for c in res['clientes'])
     return str(res)
 
 
@@ -163,6 +171,17 @@ def procesar(canal: Canal, mensaje: MensajeEntrante):
     """Procesa un mensaje YA deduplicado. Siempre termina en UNA respuesta."""
     vinc = VinculacionTelegram.objects.filter(chat_id=int(mensaje.id_externo)).select_related(
         'usuario', 'usuario__empresa').first() if mensaje.id_externo.lstrip('-').isdigit() else None
+
+    # REVIEW_BOT #10 — tope por chat_id ANTES de cualquier trabajo, también
+    # para no vinculados y /start (fuerza bruta de códigos, ruido barato)
+    hora = timezone.now().strftime('%Y%m%d%H')
+    k_chat = f'canales:msj:chat{mensaje.id_externo}:{hora}'
+    cache.get_or_set(k_chat, 0, 3700)
+    try:
+        if cache.incr(k_chat) > LIMITE_USUARIO_HORA:
+            return  # silencio: responder también alimenta el abuso
+    except ValueError:
+        pass
 
     # /start CODIGO — canje de vinculación (A3)
     if mensaje.texto and mensaje.texto.startswith('/start'):
@@ -219,6 +238,9 @@ def procesar(canal: Canal, mensaje: MensajeEntrante):
     if _tokens_agotados(usuario, mensaje.canal):
         canal.responder(mensaje.id_externo, 'Tu empresa agotó el presupuesto diario del asistente.')
         return
+
+    # REVIEW_BOT #11 — nadie dicta una cotización de 100 KB: tope antes del LLM
+    texto = texto[:1000]
 
     # ¿es una corrección a un borrador pendiente en modo edición?
     borrador_en_edicion = BorradorAgente.objects.filter(
@@ -306,8 +328,8 @@ def _manejar_start(canal, mensaje):
     _log(vinc.usuario, 'vincular', {}, f'chat {mensaje.id_externo}')
     canal.responder(
         mensaje.id_externo,
-        f'✅ Listo, {vinc.usuario.nombre or vinc.usuario.email}. Este chat quedó vinculado a '
-        f'<b>{vinc.usuario.empresa.nombre}</b>.\n\n{FUERA_DE_ALCANCE}',
+        f'✅ Listo, {esc(vinc.usuario.nombre or vinc.usuario.email)}. Este chat quedó vinculado a '
+        f'<b>{esc(vinc.usuario.empresa.nombre)}</b>.\n\n{FUERA_DE_ALCANCE}',
     )
 
 
@@ -315,6 +337,10 @@ def _manejar_callback(canal, mensaje, usuario):
     if hasattr(canal, 'ack_callback') and mensaje.callback_id:
         canal.ack_callback(mensaje.callback_id)
     partes = mensaje.callback.split(':')
+    # REVIEW_BOT #12 — callback_data es forjable: id no numérico → fuera
+    if len(partes) == 3 and not partes[1].isdigit():
+        canal.responder(mensaje.id_externo, FUERA_DE_ALCANCE)
+        return
 
     # cot:<id>:enviada — marcar cotización como enviada tras compartir el PDF
     if partes[0] == 'cot' and len(partes) == 3 and partes[2] == 'enviada':
@@ -325,6 +351,11 @@ def _manejar_callback(canal, mensaje, usuario):
             return
         if usuario.rol == 'solo_lectura':
             canal.responder(mensaje.id_externo, MSG_SOLO_LECTURA)
+            return
+        # REVIEW_BOT #5 — solo desde borrador: una aceptada/convertida no retrocede
+        if cot.estado not in ('borrador', 'enviada'):
+            canal.responder(mensaje.id_externo,
+                            f'La cotización ya está {esc(cot.get_estado_display().lower())}; no la muevo.')
             return
         cot.estado = 'enviada'
         cot.save(update_fields=['estado'])
@@ -364,16 +395,33 @@ def _manejar_callback(canal, mensaje, usuario):
         if usuario.rol == 'solo_lectura':
             canal.responder(mensaje.id_externo, MSG_SOLO_LECTURA)
             return
+        # REVIEW_BOT #3 — cada toque del botón es un update_id distinto: sin
+        # lock, dos hilos confirmaban dos veces (cobro doble). El estado se
+        # re-chequea CON select_for_update dentro de la transacción; el
+        # perdedor del lock ve 'confirmado' y no ejecuta nada.
+        class _YaResuelto(Exception):
+            pass
+
         try:
-            resultado = servicios.confirmar_borrador(borrador)
+            with transaction.atomic():
+                bloqueado = BorradorAgente.objects.select_for_update().get(pk=borrador.pk)
+                if bloqueado.estado != 'pendiente':
+                    raise _YaResuelto(bloqueado.get_estado_display().lower())
+                resultado = servicios.confirmar_borrador(bloqueado)
+                bloqueado.documento_id = resultado['documento_id']
+                bloqueado.documento_numero = resultado.get('numero', '')
+                # marcar() solo persiste estado/resuelto_at: el documento va aparte
+                bloqueado.save(update_fields=['documento_id', 'documento_numero'])
+                bloqueado.marcar('confirmado')
+        except _YaResuelto as ya:
+            canal.responder(mensaje.id_externo, f'Ese borrador ya está {ya}.')
+            return
         except Exception as e:
             logger.exception('confirmar_borrador falló')
             _log(usuario, f'confirmar_{borrador.tipo}', {'borrador': borrador.id}, str(e), ok=False)
-            canal.responder(mensaje.id_externo, f'No pude crearlo: {e}')
+            canal.responder(mensaje.id_externo, f'No pude crearlo: {esc(e)}')
             return
-        borrador.documento_id = resultado['documento_id']
-        borrador.documento_numero = resultado.get('numero', '')
-        borrador.marcar('confirmado')
+        borrador = bloqueado
         _log(usuario, f'confirmar_{borrador.tipo}', {'borrador': borrador.id}, resultado)
         if borrador.tipo == 'cotizacion':
             canal.responder(
@@ -400,14 +448,17 @@ def _manejar_foto(canal, mensaje, usuario):
     from django.core.files.base import ContentFile
     from django.core.files.storage import default_storage
 
+    if usuario.rol == 'solo_lectura':
+        canal.responder(mensaje.id_externo, MSG_SOLO_LECTURA)
+        return
     try:
         contenido = canal.descargar_archivo(mensaje.foto_file_id)
     except Exception:
         logger.exception('descarga de foto falló')
         canal.responder(mensaje.id_externo, 'No pude descargar la foto. Inténtalo de nuevo.')
         return
-    if usuario.rol == 'solo_lectura':
-        canal.responder(mensaje.id_externo, MSG_SOLO_LECTURA)
+    if len(contenido) > 10 * 1024 * 1024:  # mismo tope que validate_upload
+        canal.responder(mensaje.id_externo, 'La foto pesa más de 10 MB; mándala más liviana.')
         return
     ruta = default_storage.save(
         f'canales/empresa_{usuario.empresa_id}/{uuid.uuid4().hex}.jpg', ContentFile(contenido),
@@ -421,10 +472,16 @@ def _manejar_foto(canal, mensaje, usuario):
         from apps.ventas.models import PagoVenta
         pago = PagoVenta.objects.filter(pk=reciente.documento_id, venta__empresa=usuario.empresa).first()
         if pago:
-            pago.comprobante.name = ruta
-            pago.save(update_fields=['comprobante'])
+            if pago.comprobante:
+                canal.responder(mensaje.id_externo,
+                                f'El cobro de {esc(reciente.documento_numero)} ya tiene comprobante; no lo piso.')
+                return
+            # REVIEW_BOT #7 — update() y no save(): clean() compara el monto
+            # contra el saldo YA reducido y revienta justo cuando el cobro
+            # saldó la venta (el caso más común del piloto).
+            PagoVenta.objects.filter(pk=pago.pk).update(comprobante=ruta)
             _log(usuario, 'foto_comprobante', {'pago': pago.id}, ruta)
-            canal.responder(mensaje.id_externo, f'📎 Foto adjuntada como comprobante del cobro de {reciente.documento_numero}.')
+            canal.responder(mensaje.id_externo, f'📎 Foto adjuntada como comprobante del cobro de {esc(reciente.documento_numero)}.')
             return
     _log(usuario, 'foto_sin_contexto', {}, ruta)
     canal.responder(mensaje.id_externo,

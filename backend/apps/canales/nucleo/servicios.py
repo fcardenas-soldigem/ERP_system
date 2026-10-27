@@ -255,6 +255,15 @@ def confirmar_borrador(borrador):
 
     if borrador.tipo == 'cotizacion':
         from apps.cotizaciones.serializers import CotizacionSerializer
+        # REVIEW_BOT #4 — CotizacionSerializer no es scoped: re-validar que el
+        # cliente y los productos del payload son de la empresa del usuario
+        # ANTES de serializar (defensa ante un payload manipulado a futuro).
+        if not Cliente.objects.filter(pk=borrador.payload.get('cliente'), empresa=usuario.empresa).exists():
+            raise ValueError('El cliente no pertenece a tu empresa.')
+        ids_producto = [d['producto'] for d in borrador.payload.get('detalles', []) if d.get('producto')]
+        if ids_producto and Producto.objects.filter(
+                pk__in=ids_producto, empresa=usuario.empresa).count() != len(set(ids_producto)):
+            raise ValueError('Hay productos que no pertenecen a tu empresa.')
         # empresa y usuario_creador los fija el SERVIDOR (nunca el payload del chat)
         data = {**borrador.payload, 'empresa': usuario.empresa_id, 'usuario_creador': usuario.id}
         ser = CotizacionSerializer(data=data, context=contexto)
