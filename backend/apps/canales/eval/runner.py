@@ -139,6 +139,9 @@ def _chequear_cotizacion(payload, checks, fallos):
             fallos.append(f'ítem «{esp["producto"]}»: precio {d.get("precio_unitario")} ≠ {esp["precio"]}')
         if 'estado' in esp and d.get('estado') != esp['estado']:
             fallos.append(f'ítem «{esp["producto"]}»: estado {d.get("estado")} ≠ {esp["estado"]}')
+        if 'opciones_min' in esp and len(d.get('opciones') or []) < esp['opciones_min']:
+            fallos.append(f'ítem «{esp["producto"]}»: {len(d.get("opciones") or [])} opciones '
+                          f'(se esperaban ≥ {esp["opciones_min"]})')
 
 
 def _chequear_venta(usuario, payload, checks, fallos):

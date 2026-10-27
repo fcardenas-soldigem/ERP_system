@@ -63,6 +63,32 @@ CASOS = [
     {'id': 15, 'texto': 'factura de corporacion delta ya quedo facturada',
      'final': 'cambiar_estado_operativo',
      'checks': {'venta_cliente': 'Corporacion Delta', 'nuevo_estado': 'facturado'}},
+
+    # ── punto 4: casos difíciles ──────────────────────────────────────────────
+    # producto ambiguo: hay dos monitores LG → el borrador lo marca y ofrece opciones
+    {'id': 16, 'texto': 'cotiza 2 monitores lg a transportes lima',
+     'final': 'preparar_cotizacion',
+     'checks': {'cliente': 'Transportes Lima',
+                'items': [{'producto': 'lg', 'cantidad': 2, 'estado': 'ambiguo', 'opciones_min': 2}]}},
+    # cliente inexistente: queda pendiente (se ofrecerá «Crear cliente nuevo»)
+    {'id': 17, 'texto': 'cotiza 1 jabra 750 a ferreteria el sol',
+     'final': 'preparar_cotizacion',
+     'checks': {'cliente_pendiente': True,
+                'items': [{'producto': 'Jabra Evolve2 750', 'cantidad': 1, 'precio': 450}]}},
+    # cantidad en palabras
+    {'id': 18, 'texto': 'cotiza una docena de chalecos reflectivos a comercial galvez',
+     'final': 'preparar_cotizacion',
+     'checks': {'cliente': 'Comercial Galvez',
+                'items': [{'producto': 'Chaleco', 'cantidad': 12, 'precio': 25}]}},
+    # moneda mezclada: el precio lo da en dólares
+    {'id': 19, 'texto': 'cotizale a minera andes 2 monitores lg 27 a 420 dolares c/u',
+     'final': 'preparar_cotizacion',
+     'checks': {'cliente': 'Minera Andes', 'moneda': 'USD',
+                'items': [{'producto': '27UL500', 'cantidad': 2, 'precio': 420}]}},
+    # fuera de alcance: ninguna tool, respuesta fija
+    {'id': 20, 'texto': 'que hora es?',
+     'final': None,
+     'checks': {}},
 ]
 
 

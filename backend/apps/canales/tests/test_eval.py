@@ -45,6 +45,12 @@ ORACULO = {
         {'producto': 'laptop hp 640', 'cantidad': 2}, {'producto': 'mouse inalambrico', 'cantidad': 1}]}),
     14: ('preparar_cobro', {'cliente_query': 'andino', 'monto': 2000}),
     15: ('cambiar_estado_operativo', {'cliente_query': 'corporacion delta', 'nuevo_estado': 'facturado'}),
+    16: ('preparar_cotizacion', {'cliente': 'transportes lima', 'items': [{'producto': 'monitores lg', 'cantidad': 2}]}),
+    17: ('preparar_cotizacion', {'cliente': 'ferreteria el sol', 'items': [{'producto': 'jabra 750', 'cantidad': 1}]}),
+    18: ('preparar_cotizacion', {'cliente': 'comercial galvez', 'items': [{'producto': 'chalecos reflectivos', 'cantidad': 12}]}),
+    19: ('preparar_cotizacion', {'cliente': 'minera andes', 'moneda': 'USD',
+                                 'items': [{'producto': 'monitores lg 27', 'cantidad': 2, 'precio_unitario': 420}]}),
+    20: (None, None),   # fuera de alcance: el modelo no llama ninguna tool
 }
 
 
@@ -78,6 +84,11 @@ class DatasetTests(SimpleTestCase):
 
     def test_umbral_13_de_15(self):
         self.assertEqual(umbral(15), 13)
+        self.assertEqual(umbral(20), 18)   # con los 5 casos difíciles (≈ 87 %)
+
+    def test_son_20_casos_con_los_5_dificiles(self):
+        self.assertEqual(len(CASOS), 20)
+        self.assertIsNone(next(c for c in CASOS if c['id'] == 20)['final'])
 
 
 class EvalPuntaAPuntaTests(TestCase):
@@ -124,6 +135,14 @@ class EvalPuntaAPuntaTests(TestCase):
             {caso['texto']: ('consultar_venta', {'cliente_query': 'lg'})}))[0]
         self.assertEqual(r.estado, 'incorrecto')
         self.assertIn('tool final', r.fallos[0])
+
+    def test_producto_ambiguo_sin_opciones_es_parcial(self):
+        """Si alguien borra un monitor LG, el ítem ya no es ambiguo: el eval lo detecta."""
+        from apps.inventario.models.producto import Producto
+        Producto.objects.filter(empresa=self.empresa, sku='LG27').update(is_active=False)
+        caso = next(c for c in CASOS if c['id'] == 16)
+        r = evaluar(self.usuario, [caso], cliente_llm=_guion())[0]
+        self.assertEqual(r.estado, 'parcial')
 
     def test_tool_correcta_con_cantidad_mal_es_parcial(self):
         caso = next(c for c in CASOS if c['id'] == 1)
