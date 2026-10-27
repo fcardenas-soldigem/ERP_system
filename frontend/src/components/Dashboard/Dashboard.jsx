@@ -207,8 +207,9 @@ const Dashboard = () => {
 
   const alerts = buildAlerts(resumen);
 
-  // Móvil (< md): alertas primero, las métricas a la vista en 2 columnas,
-  // luego accesos y gráfico. El título lo muestra la cabecera móvil.
+  // Móvil (< md): alertas primero, las métricas a la vista en 2 columnas y el
+  // gráfico. Sin chips de acciones rápidas: crear documentos es el FAB "+".
+  // El título lo muestra la cabecera móvil.
   if (esMovil) {
     return (
       <Box bg={bg} minH="100vh">
@@ -219,9 +220,6 @@ const Dashboard = () => {
         )}
         <Box mb={5}>
           <StatCardsCarousel cards={statCards} cuadriculaMovil />
-        </Box>
-        <Box mb={5}>
-          <QuickActions />
         </Box>
         <Box mb={5}>
           <HeroChart resumen={resumen} />
