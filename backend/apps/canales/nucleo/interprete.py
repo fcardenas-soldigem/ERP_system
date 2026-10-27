@@ -40,9 +40,28 @@ FUERA_DE_ALCANCE = (
 )
 
 
+def _esquema_sin_refs(modelo):
+    """model_json_schema() emite $defs/$ref para modelos anidados; el adaptador
+    de Vertex exige JSON Schema sin $ref → se inlinean las definiciones."""
+    esquema = modelo.model_json_schema()
+    defs = esquema.pop('$defs', {})
+
+    def resolver(nodo):
+        if isinstance(nodo, dict):
+            ref = nodo.get('$ref', '')
+            if ref.startswith('#/$defs/'):
+                return resolver(dict(defs[ref.split('/')[-1]]))
+            return {k: resolver(v) for k, v in nodo.items()}
+        if isinstance(nodo, list):
+            return [resolver(x) for x in nodo]
+        return nodo
+
+    return resolver(esquema)
+
+
 def _tools():
     return [
-        ToolSpec(name=nombre, description=desc, parameters=esquema.model_json_schema())
+        ToolSpec(name=nombre, description=desc, parameters=_esquema_sin_refs(esquema))
         for nombre, (esquema, desc) in CATALOGO.items()
     ]
 

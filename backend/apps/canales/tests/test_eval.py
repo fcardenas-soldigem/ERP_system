@@ -36,3 +36,14 @@ class EvalDatasetTests(SimpleTestCase):
         ok, detalle = comparar(caso, 'preparar_cobro', E.PrepararCobro(venta_numero='V-000012', monto=400))
         self.assertFalse(ok)
         self.assertIn('monto', detalle)
+
+
+class EsquemasParaVertexTests(SimpleTestCase):
+    def test_ningun_esquema_lleva_ref(self):
+        """El adaptador de Vertex no acepta $ref: las tools deben ir inlineadas."""
+        import json
+        from apps.canales.nucleo.interprete import _tools
+        for spec in _tools():
+            plano = json.dumps(spec.parameters)
+            self.assertNotIn('$ref', plano, spec.name)
+            self.assertNotIn('$defs', plano, spec.name)
