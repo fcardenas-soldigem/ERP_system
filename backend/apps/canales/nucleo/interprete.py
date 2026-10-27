@@ -8,6 +8,7 @@ Es un bot de TAREAS: si el modelo no elige herramienta, la respuesta es fija
 import logging
 
 from apps.ai_assistant.services.llm_client import LLMMessage, ToolSpec, get_llm_client
+from apps.ai_assistant.services.tool_specs import schema_de_pydantic
 
 from . import esquemas as E
 
@@ -40,28 +41,12 @@ FUERA_DE_ALCANCE = (
 )
 
 
-def _esquema_sin_refs(modelo):
-    """model_json_schema() emite $defs/$ref para modelos anidados; el adaptador
-    de Vertex exige JSON Schema sin $ref → se inlinean las definiciones."""
-    esquema = modelo.model_json_schema()
-    defs = esquema.pop('$defs', {})
-
-    def resolver(nodo):
-        if isinstance(nodo, dict):
-            ref = nodo.get('$ref', '')
-            if ref.startswith('#/$defs/'):
-                return resolver(dict(defs[ref.split('/')[-1]]))
-            return {k: resolver(v) for k, v in nodo.items()}
-        if isinstance(nodo, list):
-            return [resolver(x) for x in nodo]
-        return nodo
-
-    return resolver(esquema)
-
-
 def _tools():
     return [
-        ToolSpec(name=nombre, description=desc, parameters=_esquema_sin_refs(esquema))
+        # mismo sanitizador que el asistente web: un solo lugar decide qué
+        # JSON Schema acepta Gemini (antes el bot tenía uno propio que dejaba
+        # pasar exclusiveMinimum → eval_agente 0/15 contra Vertex real)
+        ToolSpec(name=nombre, description=desc, parameters=schema_de_pydantic(esquema))
         for nombre, (esquema, desc) in CATALOGO.items()
     ]
 
