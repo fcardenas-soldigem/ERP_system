@@ -405,7 +405,12 @@ const VentaList = () => {
           {(ventas?.results || [])
             .filter((venta) => !slaFiltro || venta.estado_sla_operativo === slaFiltro)
             .map((venta) => (
-            <Tr key={venta.id}>
+            <Tr
+              key={venta.id}
+              cursor="pointer"
+              _hover={{ bg: 'gray.50' }}
+              onClick={() => navigate(`/app/ventas/${venta.id}`)}
+            >
               <Td>{venta.numero}</Td>
               <Td>{venta.cliente_nombre}</Td>
               <Td>{formatDate(venta.fecha_emision)}</Td>
@@ -414,7 +419,8 @@ const VentaList = () => {
               <Td>{getEstadoBadge(venta.estado)}</Td>
               <Td>{getOperativoBadge(venta)}</Td>
               <Td isNumeric>{formatCurrency(venta.total, venta.moneda)}</Td>
-              <Td>
+              {/* stopPropagation: las acciones no deben abrir el detalle (CLAUDE.md) */}
+              <Td onClick={(e) => e.stopPropagation()} cursor="default">
                 <HStack spacing={1}>
                   {/* F3 — Acción rápida: siguiente paso del timeline (1 clic). */}
                   {puedeEscribir && SIGUIENTE_ESTADO[venta.estado_operativo] && (
