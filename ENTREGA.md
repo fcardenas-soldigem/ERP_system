@@ -83,6 +83,12 @@ que la gente trabaje (el default nuevo es operador, no admin).
 | fix | 55e8d53 | Esquemas de tools sin $ref (Vertex los rechaza) |
 | REVIEW #1#2#8#9 | 4856dd2 | RolEscritura en importador/core/empresas/tokens + router-walk ampliado + vistas muertas fuera |
 | REVIEW #3-#13 | 66e881c | Carrera de doble confirmación (lock), foto del comprobante, transición cot:enviada, límites para no vinculados, truncado, callbacks forjados, escape HTML |
+| schemas | 1f00bc8 | Sanitizador único de schemas para Gemini (exclusiveMinimum→minimum) + test con FunctionDeclaration real |
+| 0.3 rev. | 2355207 | Sesión iPhone por mismo origen (rewrite /api/ en Vercel) |
+| eval p1 | 1cb8ff2 | preparar_cotizacion con cliente e ítems en texto; el servidor resuelve (búsqueda difusa) y pregunta lo ambiguo con botones |
+| eval p2 | b43c02b | buscar_producto absorbe consultar_stock (precio, stock, último costo, proveedor) |
+| eval p3 | 3922f21 | Bucle de tools compartido bot/eval + eval_agente de punta a punta |
+| eval p4 | 83c7b37 | 5 casos difíciles (20 en total) |
 
 ### Suite (tras las correcciones de la revisión)
 - Backend: **283 tests OK** (3 skips) en Postgres (36 de canales).
@@ -117,7 +123,7 @@ que la gente trabaje (el default nuevo es operador, no admin).
    (TimestampSigner + SECRET_KEY).
 3. **Calidad del intérprete:** el eval (C11) corre contra Vertex real; en
    local no hay credenciales — correrlo en prod/staging antes de invitar
-   usuarios (umbral 13/15).
+   usuarios (umbral 18/20: el mismo ≈ 87 % de 13/15).
 4. **Costo LLM:** limitado por B9; revisar los contadores la primera semana
    (la atomicidad fina de los contadores llega con Redis en prod).
 5. WhatsApp es solo esqueleto: no exponer todavía.
@@ -138,7 +144,12 @@ que la gente trabaje (el default nuevo es operador, no admin).
 4. Activar el webhook (una vez, desde cualquier máquina con los env):
    `python manage.py telegram_set_webhook --url https://erp-backend-25656632090.southamerica-west1.run.app` (Cloud Run directo; el comando rechaza otros hosts)
    (registra URL + secret + comandos; `--borrar` lo revierte).
-5. Eval del intérprete: `python manage.py eval_agente` (≥13/15 para abrir el piloto).
+5. Eval de punta a punta: `python manage.py eval_agente` (≥18/20 correctos para abrir
+   el piloto). Corre el bucle real sobre la empresa de seed_demo en una
+   transacción que se revierte; reporta por caso correcto/parcial/incorrecto,
+   rondas, latencia y tokens. Último resultado real conocido (eval anterior,
+   gemini-3.1-flash-lite): 11/15 — los 4 fallos eran de diseño y están
+   corregidos (puntos 1–3); falta re-correrlo contra Vertex.
 6. Piloto: cada usuario entra a Configuración → «Vincular Telegram».
 
 ### Qué probar a mano (Bloque 1)
