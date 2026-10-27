@@ -117,7 +117,8 @@ const StatusTabs = ({ active, counts, onSelect }) => (
 const FloatingActionBar = ({ count, onMarkPagada, onMarkPendiente, onCancel, isLoading }) => (
     <Box
         position="fixed"
-        bottom={6}
+        // Móvil: por encima de la barra de navegación inferior
+        bottom={{ base: 'calc(56px + env(safe-area-inset-bottom) + 12px)', md: 6 }}
         left="50%"
         transform="translateX(-50%)"
         zIndex={100}

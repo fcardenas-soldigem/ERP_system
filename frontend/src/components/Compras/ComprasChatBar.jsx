@@ -166,7 +166,8 @@ const ComprasChatBar = () => {
   };
 
   return (
-    <Box position="fixed" bottom="4" right="4" zIndex={1000}>
+    // Móvil (< md): oculto — el asistente vive en la pestaña "Jorge" y el "+" es del FAB.
+    <Box position="fixed" bottom="4" right="4" zIndex={1000} display={{ base: 'none', md: 'block' }}>
       {/* Botón flotante para abrir chat */}
       {!isOpen && (
         <Tooltip label="Asistente de Compras" placement="left">
