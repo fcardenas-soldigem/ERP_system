@@ -152,9 +152,9 @@ const HeroChart = ({ resumen }) => {
         <Box>
           <Flex align="center" gap={1} mb={1}>
             <Text
-              fontSize="10px"
+              fontSize="xs"
               fontWeight="semibold"
-              color="gray.400"
+              color="gray.600"
               textTransform="uppercase"
               letterSpacing="wider"
             >

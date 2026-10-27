@@ -35,7 +35,7 @@ const StatCard = ({
 }) => {
   const bg     = useColorModeValue('white', 'gray.800');
   const border = useColorModeValue('gray.100', 'gray.700');
-  const subCol = useColorModeValue('gray.400', 'gray.500');
+  const subCol = useColorModeValue('gray.600', 'gray.400'); // QW10 — AA sobre blanco
 
   const trendUp      = trend > 0;
   const trendColor   = trend === undefined ? 'gray.400'
@@ -68,7 +68,7 @@ const StatCard = ({
       <Flex justify="space-between" align="center">
         <Flex align="center" gap={1}>
           <Text
-            fontSize="10px"
+            fontSize="xs"
             fontWeight="semibold"
             color={subCol}
             textTransform="uppercase"

@@ -112,7 +112,7 @@ const AlertsBar = ({ alerts = [], apiladas = false }) => {
 
   return (
     <Box>
-      <Text fontSize="xs" fontWeight="semibold" color="gray.400"
+      <Text fontSize="xs" fontWeight="semibold" color="gray.600"
             textTransform="uppercase" letterSpacing="wider" mb={3}>
         Alertas
       </Text>
