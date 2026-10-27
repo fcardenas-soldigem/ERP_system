@@ -319,3 +319,41 @@ filas existentes: ninguno (el login ya no asigna empresa a usuarios huérfanos; 
 prod existiera un usuario con `empresa=NULL`, dejará de poder entrar hasta asignarle
 empresa en el admin — revisar con `SELECT id FROM authentication_customuser WHERE empresa_id IS NULL;`
 antes del deploy).
+
+## 10. Sesión en iPhone — cookie de refresh same-site (rama `fix/review-movil`, 0.3)
+
+El frontend de prod debe llamar a `https://api.soldigem.com.pe` (mismo sitio que
+`erp.soldigem.com.pe`), nunca a la URL `*.run.app`: Safari iOS bloquea por defecto
+las cookies cross-site y el refresh token se perdía al reabrir la PWA (login en
+cada apertura).
+
+**Qué cambia en Vercel (frontend):**
+
+| Variable | Valor |
+|---|---|
+| `VITE_API_URL` | `https://api.soldigem.com.pe` |
+
+(Requiere redeploy del frontend: Vite inyecta la variable en build.)
+
+**Qué cambia en Cloud Run (backend):**
+
+| Variable | Valor | Por qué |
+|---|---|---|
+| `REFRESH_COOKIE_DOMAIN` | `.soldigem.com.pe` | la cookie `refresh_token` viaja entre erp.* y api.* como same-site |
+
+La cookie pasa de `SameSite=None` a **`SameSite=Lax` + `Secure` +
+`Domain=.soldigem.com.pe`** (`apps/authentication/views.py::_cookie_kwargs`).
+`SESSION_COOKIE_SAMESITE`/`CSRF_COOKIE_SAMESITE` pasan a `Lax`.
+
+**Verificar que ya está (sin cambios):** `DJANGO_ALLOWED_HOSTS` incluye
+`api.soldigem.com.pe`; `CORS_ALLOWED_ORIGINS=https://erp.soldigem.com.pe`
+(CORS sigue siendo necesario: same-site pero cross-origin);
+`CSRF_TRUSTED_ORIGINS` ya lista ambos dominios (settings.py).
+
+**Prueba manual post-deploy:** entrar desde un iPhone real, cerrar Safari/la PWA,
+reabrir → debe seguir dentro. En las DevTools: la cookie `refresh_token` con
+`Domain=.soldigem.com.pe; SameSite=Lax; Secure; HttpOnly`.
+
+**Ojo:** al cambiar el dominio de la cookie, las sesiones existentes (cookie vieja
+host-only de *.run.app) dejan de renovar: los usuarios activos ven un (1) login
+extra tras este deploy.

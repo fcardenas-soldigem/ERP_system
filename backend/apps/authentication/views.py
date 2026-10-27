@@ -23,19 +23,32 @@ _REFRESH_COOKIE_MAX_AGE = int(
 )
 
 
+# 0.3 — SameSite=Lax SIEMPRE: el front (erp.soldigem.com.pe) y la API
+# (api.soldigem.com.pe) son el mismo sitio, y Safari iOS bloquea por defecto
+# las cookies cross-site (None), lo que obligaba a re-loguearse al reabrir.
+# Domain=.soldigem.com.pe llega por REFRESH_COOKIE_DOMAIN (solo prod).
+def _cookie_kwargs():
+    return dict(
+        httponly=True,
+        secure=not settings.DEBUG,
+        samesite='Lax',
+        domain=settings.REFRESH_COOKIE_DOMAIN,
+    )
+
+
 def _set_refresh_cookie(response, refresh_token_str):
-    # SameSite=None requires Secure=True (browsers reject None+Secure=False since Chrome 80).
-    # In dev (DEBUG=True) we use Lax+Secure=False so localhost works without HTTPS.
-    # In prod (DEBUG=False) we use None+Secure=True for cross-domain Vercel→Cloud Run.
-    is_prod = not settings.DEBUG
     response.set_cookie(
         'refresh_token',
         refresh_token_str,
-        httponly=True,
-        secure=is_prod,
-        samesite='None' if is_prod else 'Lax',
         max_age=_REFRESH_COOKIE_MAX_AGE,
+        **_cookie_kwargs(),
     )
+
+
+def _delete_refresh_cookie(response):
+    # mismo domain/samesite que al crearla; si difieren, el navegador no la borra
+    kw = _cookie_kwargs()
+    response.delete_cookie('refresh_token', domain=kw['domain'], samesite=kw['samesite'])
 
 
 class CookieTokenObtainPairView(TokenObtainPairView):
@@ -82,14 +95,14 @@ class CookieTokenRefreshView(APIView):
                 {'error': 'Token inválido o expirado'},
                 status=status.HTTP_401_UNAUTHORIZED,
             )
-            response.delete_cookie('refresh_token')
+            _delete_refresh_cookie(response)
             return response
         except User.DoesNotExist:
             response = Response(
                 {'error': 'Usuario no encontrado'},
                 status=status.HTTP_401_UNAUTHORIZED,
             )
-            response.delete_cookie('refresh_token')
+            _delete_refresh_cookie(response)
             return response
 
 
@@ -149,7 +162,7 @@ class LogoutView(APIView):
         refresh_token_str = request.data.get('refresh') or request.COOKIES.get('refresh_token')
 
         response = Response({'message': 'Sesión cerrada correctamente'})
-        response.delete_cookie('refresh_token')
+        _delete_refresh_cookie(response)
 
         if not refresh_token_str:
             return response

@@ -74,8 +74,15 @@ SESSION_COOKIE_SECURE = not DEBUG  # True en producción
 CSRF_COOKIE_SECURE = not DEBUG     # True en producción
 SESSION_COOKIE_HTTPONLY = True     # Previene acceso desde JavaScript
 CSRF_COOKIE_HTTPONLY = True        # Previene acceso desde JavaScript
-SESSION_COOKIE_SAMESITE = 'None'   # Cross-domain Vercel→Cloud Run (requiere Secure=True, ya activo en prod)
-CSRF_COOKIE_SAMESITE = 'None'      # Idem — Django mantiene CSRF token-based protection
+# 0.3 — front y API viven bajo el MISMO sitio (erp./api.soldigem.com.pe):
+# Lax basta y Safari iOS deja de descartar la cookie (con None+cross-site la
+# bloqueaba por defecto y cada apertura de la PWA pedía login de nuevo).
+SESSION_COOKIE_SAMESITE = 'Lax'
+CSRF_COOKIE_SAMESITE = 'Lax'
+
+# Dominio de la cookie de refresh (httpOnly). En prod: .soldigem.com.pe para
+# que erp.* y api.* la compartan como same-site. En local queda host-only.
+REFRESH_COOKIE_DOMAIN = os.getenv('REFRESH_COOKIE_DOMAIN') or None
 
 # HSTS (HTTP Strict Transport Security) - fuerza HTTPS en el navegador
 SECURE_HSTS_SECONDS = 31536000 if not DEBUG else 0  # 1 año en producción
