@@ -97,6 +97,26 @@ export const seccionesVisibles = (conStock) => (
     : MENU_SECTIONS.map((s) => ({ ...s, items: s.items.filter((it) => it.name !== 'Inventario') }))
 );
 
+// ─── Crear documento (FAB "+" móvil) ─────────────────────────────────────────
+// Lista (ruta exacta) → documentos que crea. Con más de un tipo, el FAB abre
+// una hoja para elegir; con uno, navega directo.
+const NUEVA_COTIZACION = {
+  titulo: 'Nueva cotización',
+  documentos: [
+    { label: 'Cotización de productos', icon: Package, path: '/app/cotizaciones/nueva' },
+    { label: 'Cotización de servicios', icon: Wrench,  path: '/app/cotizaciones/servicios/nueva' },
+  ],
+};
+
+export const CREAR_DOCUMENTO = {
+  '/app/dashboard':                NUEVA_COTIZACION,
+  '/app/cotizaciones':             NUEVA_COTIZACION,
+  '/app/ventas':                   { titulo: 'Nueva venta', documentos: [{ label: 'Nueva venta', icon: ShoppingCart, path: '/app/ventas/nueva' }] },
+  '/app/compras':                  { titulo: 'Nueva compra', documentos: [{ label: 'Nueva compra', icon: Package, path: '/app/compras/nueva' }] },
+  '/app/compras/ordenes':          { titulo: 'Nueva orden de compra', documentos: [{ label: 'Nueva orden de compra', icon: Package, path: '/app/compras/orden-compra/nueva' }] },
+  '/app/compras/ordenes-servicio': { titulo: 'Nueva OC de servicio', documentos: [{ label: 'Nueva OC de servicio', icon: Wrench, path: '/app/compras/orden-servicio/nueva' }] },
+};
+
 // Títulos de pantalla para la cabecera móvil. Gana el prefijo más largo.
 const TITULOS = [
   ['/app/dashboard', 'Inicio'],
