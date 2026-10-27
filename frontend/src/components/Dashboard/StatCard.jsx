@@ -4,7 +4,8 @@ import {
   useColorModeValue,
 } from '@chakra-ui/react';
 import { FiArrowUpRight, FiArrowDownRight, FiInfo } from 'react-icons/fi';
-import Sparkline from './Sparkline';
+// 0.6 — recharts diferido: la tarjeta pinta sin esperar el gráfico
+const Sparkline = React.lazy(() => import('./Sparkline'));
 
 /**
  * Single stat card with sparkline.
@@ -128,7 +129,9 @@ const StatCard = ({
       {/* Sparkline */}
       {!compacto && sparkData.length > 1 && (
         <Box h="30px" mx={-1}>
-          <Sparkline data={sparkData} color={sparkColor} height={30} />
+          <React.Suspense fallback={null}>
+            <Sparkline data={sparkData} color={sparkColor} height={30} />
+          </React.Suspense>
         </Box>
       )}
 

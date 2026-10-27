@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { Suspense, lazy } from 'react';
 import {
   Box, Button, Flex, Text, SimpleGrid, useColorModeValue,
 } from '@chakra-ui/react';
@@ -9,7 +9,8 @@ import { PageHeader } from '../ui';
 
 // Dashboard sub-components
 import QuickActions       from './QuickActions';
-import HeroChart          from './HeroChart';
+// 0.6 — recharts (330 KB) se difiere: el Inicio pinta KPI y alertas primero
+const HeroChart = lazy(() => import('./HeroChart'));
 import StatCardsCarousel  from './StatCardsCarousel';
 import RecentSales        from './RecentSales';
 import TopProducts        from './TopProducts';
@@ -237,7 +238,9 @@ const Dashboard = () => {
           <StatCardsCarousel cards={statCards} cuadriculaMovil />
         </Box>
         <Box mb={5}>
-          <HeroChart resumen={resumen} />
+          <Suspense fallback={<Box h="260px" bg="white" borderRadius="xl" border="1px solid" borderColor="gray.100" />}>
+            <HeroChart resumen={resumen} />
+          </Suspense>
         </Box>
         <Box mb={5}>
           <RecentSales />
@@ -270,7 +273,9 @@ const Dashboard = () => {
 
       {/* ── Sección 1: Hero Chart (ventas del mes) ── */}
       <Box mb={6}>
-        <HeroChart resumen={resumen} />
+        <Suspense fallback={<Box h="260px" bg="white" borderRadius="xl" border="1px solid" borderColor="gray.100" />}>
+            <HeroChart resumen={resumen} />
+          </Suspense>
       </Box>
 
       {/* ── Sección 2: Stat Cards (4 métricas clave) ── */}
