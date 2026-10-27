@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box, Flex, Text, Button, Icon } from '@chakra-ui/react';
 import { useNavigate } from 'react-router-dom';
-import { FiAlertTriangle, FiClock, FiPackage } from 'react-icons/fi';
+import { FiAlertTriangle, FiClock, FiPackage, FiChevronRight } from 'react-icons/fi';
 
 const LEVEL_STYLES = {
   urgent:  { border: '#ef4444', bg: '#fef2f2', icon: FiAlertTriangle, iconColor: '#ef4444' },
@@ -52,14 +52,63 @@ const AlertCard = ({ message, actionLabel, actionPath, level = 'warning' }) => {
   );
 };
 
+// Móvil: una fila tocable por alerta dentro de una sola tarjeta blanca.
+// El color queda solo en el ícono — menos ruido que cuatro fondos de color.
+const AlertRow = ({ message, actionLabel, actionPath, level = 'warning', primera }) => {
+  const navigate = useNavigate();
+  const { icon, iconColor } = LEVEL_STYLES[level] ?? LEVEL_STYLES.info;
+  return (
+    <Flex
+      as="button"
+      type="button"
+      aria-label={actionLabel ? `${message}. ${actionLabel}` : message}
+      onClick={() => actionPath && navigate(actionPath)}
+      w="100%"
+      minH="52px"
+      px={4}
+      py={3}
+      gap={3}
+      align="center"
+      textAlign="left"
+      borderTop={primera ? 'none' : '1px solid'}
+      borderColor="neutral.100"
+      _dark={{ borderColor: 'gray.700' }}
+      _active={{ bg: 'neutral.50', _dark: { bg: 'whiteAlpha.100' } }}
+      sx={{ WebkitTapHighlightColor: 'transparent' }}
+    >
+      <Icon as={icon} color={iconColor} boxSize="16px" flexShrink={0} />
+      <Text flex="1" fontSize="13px" lineHeight="18px" color="neutral.700" _dark={{ color: 'neutral.200' }}>
+        {message}
+      </Text>
+      {actionPath && <Icon as={FiChevronRight} color="neutral.400" boxSize="16px" flexShrink={0} />}
+    </Flex>
+  );
+};
+
 /**
  * AlertsBar — horizontal scrollable strip of alert cards.
  * Only renders if there are alerts.
  *
  * alerts: Array<{ message, actionLabel, actionPath, level }>
  */
-const AlertsBar = ({ alerts = [] }) => {
+const AlertsBar = ({ alerts = [], apiladas = false }) => {
   if (!alerts.length) return null;
+
+  // Móvil: una debajo de otra, ancho completo — sin carrusel que esconda alertas.
+  if (apiladas) {
+    return (
+      <Box
+        bg="white"
+        border="1px solid"
+        borderColor="neutral.200"
+        borderRadius="xl"
+        overflow="hidden"
+        _dark={{ bg: 'gray.800', borderColor: 'gray.700' }}
+      >
+        {alerts.map((a, i) => <AlertRow key={i} {...a} primera={i === 0} />)}
+      </Box>
+    );
+  }
 
   return (
     <Box>

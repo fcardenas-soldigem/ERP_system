@@ -9,7 +9,7 @@ import StatCard from './StatCard';
  * F-003 fix: removed invalid `columns={{ base: 0 }}` — display handles visibility.
  * F-004 fix: dot index computed from IntersectionObserver, not scrollWidth math.
  */
-const StatCardsCarousel = ({ cards = [] }) => {
+const StatCardsCarousel = ({ cards = [], cuadriculaMovil = false }) => {
   const scrollRef  = useRef(null);
   const cardRefs   = useRef([]);
   const [activeIdx, setActiveIdx] = useState(0);
@@ -48,6 +48,19 @@ const StatCardsCarousel = ({ cards = [] }) => {
     if (!el) return;
     el.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' });
   }, []);
+
+  // Móvil (< md): todas las métricas a la vista, 2 columnas, sin deslizar.
+  if (cuadriculaMovil) {
+    return (
+      <SimpleGrid columns={2} spacing={3}>
+        {cards.map((c, i) => (
+          <Box key={i} gridColumn={cards.length % 2 && i === cards.length - 1 ? 'span 2' : undefined}>
+            <StatCard {...c} compacto />
+          </Box>
+        ))}
+      </SimpleGrid>
+    );
+  }
 
   return (
     <Box>

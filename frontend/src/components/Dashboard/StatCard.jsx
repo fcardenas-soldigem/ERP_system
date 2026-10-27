@@ -19,6 +19,7 @@ import Sparkline from './Sparkline';
  *  alert        string?  — red badge text if urgent
  *  pulseBadge   boolean  — pulsing red dot for critical alerts
  *  tooltip      string?  — 1-línea de contexto (ícono ⓘ junto al label)
+ *  compacto     boolean  — móvil en cuadrícula de 2: menos padding, valor más chico, sin sparkline
  */
 const StatCard = ({
   label,
@@ -30,6 +31,7 @@ const StatCard = ({
   alert,
   pulseBadge = false,
   tooltip,
+  compacto = false,
 }) => {
   const bg     = useColorModeValue('white', 'gray.800');
   const border = useColorModeValue('gray.100', 'gray.700');
@@ -48,10 +50,10 @@ const StatCard = ({
       border="1px solid"
       borderColor={border}
       borderRadius="xl"
-      p={5}
+      p={compacto ? 3.5 : 5}
       display="flex"
       flexDirection="column"
-      gap={3}
+      gap={compacto ? 2 : 3}
       transition="box-shadow 0.2s, border-color 0.2s"
       cursor="default"
       _hover={{
@@ -59,8 +61,8 @@ const StatCard = ({
         borderColor: 'gray.200',
       }}
       /* mobile carousel: each card takes 75vw so one is always visible */
-      minW={{ base: '72vw', sm: 'unset' }}
-      scrollSnapAlign={{ base: 'start', sm: 'none' }}
+      minW={compacto ? 0 : { base: '72vw', sm: 'unset' }}
+      scrollSnapAlign={compacto ? undefined : { base: 'start', sm: 'none' }}
     >
       {/* Label row */}
       <Flex justify="space-between" align="center">
@@ -103,9 +105,9 @@ const StatCard = ({
       </Flex>
 
       {/* Value + trend */}
-      <Flex align="baseline" gap={2}>
+      <Flex align="baseline" gap={compacto ? 1.5 : 2} wrap={compacto ? 'wrap' : undefined}>
         <Text
-          fontSize="2xl"
+          fontSize={compacto ? 'lg' : '2xl'}
           fontWeight="bold"
           color="gray.900"
           fontVariantNumeric="tabular-nums"
@@ -124,7 +126,7 @@ const StatCard = ({
       </Flex>
 
       {/* Sparkline */}
-      {sparkData.length > 1 && (
+      {!compacto && sparkData.length > 1 && (
         <Box h="30px" mx={-1}>
           <Sparkline data={sparkData} color={sparkColor} height={30} />
         </Box>
@@ -133,7 +135,7 @@ const StatCard = ({
       {/* Sub text + alert badge */}
       <Flex align="center" justify="space-between" mt="auto">
         {sub && (
-          <Text fontSize="xs" color={subCol}>
+          <Text fontSize="xs" color={subCol} noOfLines={compacto ? 2 : undefined}>
             {sub}
           </Text>
         )}
