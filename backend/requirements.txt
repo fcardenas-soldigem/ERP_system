@@ -66,3 +66,4 @@ joblib==1.3.2
 matplotlib==3.8.2
 seaborn==0.13.0
 tqdm==4.67.1
+pydantic==2.11.3  # esquemas de entrada de los servicios del agente (B5)

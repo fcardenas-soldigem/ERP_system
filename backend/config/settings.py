@@ -84,6 +84,18 @@ CSRF_COOKIE_SAMESITE = 'Lax'
 # que erp.* y api.* la compartan como same-site. En local queda host-only.
 REFRESH_COOKIE_DOMAIN = os.getenv('REFRESH_COOKIE_DOMAIN') or None
 
+# === CANALES DE MENSAJERÍA (Bloque 1: bot de Telegram) ===
+# TG_* vive SOLO en el entorno: en local backend/.env.local con valores de
+# prueba; el token real de producción nunca se escribe en el repo ni en local.
+TG_BOT_TOKEN = os.getenv('TG_BOT_TOKEN', '')
+TG_WEBHOOK_SECRET = os.getenv('TG_WEBHOOK_SECRET', '')
+TG_BOT_USERNAME = os.getenv('TG_BOT_USERNAME', 'SoldigemBot')
+# Base pública para links firmados que el bot comparte (PDF de cotización)
+API_BASE_URL = os.getenv('API_BASE_URL', '')
+# Límites del asistente (B9); el de usuario es fijo: 60 mensajes/hora
+CANALES_LIMITE_MENSAJES_EMPRESA_DIA = int(os.getenv('CANALES_LIMITE_MENSAJES_EMPRESA_DIA', '1000'))
+CANALES_LIMITE_TOKENS_EMPRESA_DIA = int(os.getenv('CANALES_LIMITE_TOKENS_EMPRESA_DIA', '300000'))
+
 # HSTS (HTTP Strict Transport Security) - fuerza HTTPS en el navegador
 SECURE_HSTS_SECONDS = 31536000 if not DEBUG else 0  # 1 año en producción
 SECURE_HSTS_INCLUDE_SUBDOMAINS = not DEBUG
@@ -127,7 +139,8 @@ INSTALLED_APPS = [
     'apps.guias',        # Guías de Remisión
     'apps.servicios',    # Órdenes de Servicio de Reparación
     'apps.leads',        # Captura de leads (landing acceso anticipado)
-    'apps.agente',       # Agente MCP (tokens, log de auditoría, endpoint /api/mcp/)
+    'apps.agente',
+    'apps.canales',       # Agente MCP (tokens, log de auditoría, endpoint /api/mcp/)
 ]
 
 # Middleware
