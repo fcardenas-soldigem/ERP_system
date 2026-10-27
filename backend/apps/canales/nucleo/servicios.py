@@ -47,21 +47,45 @@ def buscar_cliente(usuario, entrada: E.BuscarCliente):
     }
 
 
+def _ultimas_compras(empresa, ids):
+    """{producto_id: (costo, proveedor)} de la última compra NO borrador ni
+    anulada; una sola consulta para todos los ids."""
+    from apps.compras.models import CompraDetalle
+    out = {}
+    filas = (CompraDetalle.objects
+             .filter(producto_id__in=ids, compra__empresa=empresa)
+             .exclude(compra__estado__in=('borrador', 'anulada'))
+             .order_by('producto_id', '-compra__fecha_emision', '-id')
+             .values_list('producto_id', 'precio_unitario', 'compra__proveedor__razon_social'))
+    for pid, costo, proveedor in filas:
+        out.setdefault(pid, (costo, proveedor or ''))
+    return out
+
+
 def buscar_producto(usuario, entrada: E.BuscarProducto):
-    """Fuzzy simple y robusto: cada palabra debe aparecer en nombre o SKU
-    («jabra 750» encuentra «Auricular Jabra Evolve2 750»)."""
-    qs = Producto.objects.filter(empresa=usuario.empresa, is_active=True)
-    for palabra in entrada.query.split():
-        qs = qs.filter(Q(nombre__icontains=palabra) | Q(sku__icontains=palabra))
-    return {
-        'productos': [
-            {
-                'id': p.id, 'sku': p.sku, 'nombre': p.nombre,
-                'precio_venta': str(p.precio_venta), 'stock': str(getattr(p, 'stock_total', '') or ''),
-            }
-            for p in qs[:5]
-        ],
-    }
+    """Una tool por intención: TODO lo que se pregunta de un producto (precio,
+    stock, último costo, proveedor). Reemplaza a consultar_stock, que se
+    solapaba con esta y confundía al modelo (#11 del eval)."""
+    estado, encontrados = busqueda.resolver_producto(usuario.empresa, entrada.query)
+    if not encontrados:
+        return {'productos': []}
+    ids = [pid for pid, _, _ in encontrados]
+    productos = {p.id: p for p in Producto.objects.filter(empresa=usuario.empresa, pk__in=ids)}
+    compras = _ultimas_compras(usuario.empresa, ids)
+    salida = []
+    for pid in ids:
+        p = productos.get(pid)
+        if not p:
+            continue
+        costo, proveedor = compras.get(pid, (p.precio_compra, ''))
+        salida.append({
+            'id': p.id, 'sku': p.sku, 'nombre': p.nombre,
+            'precio_venta': str(p.precio_venta), 'moneda': p.moneda,
+            'stock': str(p.stock_total), 'ultimo_costo': str(costo or ''),
+            'proveedor': proveedor,
+        })
+    # sin coincidencia completa: son sugerencias, se dice
+    return {'productos': salida, 'aproximado': estado == 'no_encontrado'}
 
 
 def _resolver_venta(usuario, venta_id=None, venta_numero=None, cliente_query=None, extra_filtro=None):
@@ -73,7 +97,11 @@ def _resolver_venta(usuario, venta_id=None, venta_numero=None, cliente_query=Non
     if venta_numero:
         return qs.filter(numero__iexact=venta_numero.strip()).first(), None
     if cliente_query:
-        candidatas = list(qs.filter(cliente__nombre__icontains=cliente_query.strip()).order_by('-fecha_emision')[:3])
+        # misma búsqueda difusa que al cotizar («ferreteria union», «andino»);
+        # si no hay coincidencia completa del cliente, no se adivina la venta
+        estado, encontrados = busqueda.resolver_cliente(usuario.empresa, cliente_query)
+        ids = [cid for cid, _, _ in encontrados] if estado in ('ok', 'ambiguo') else []
+        candidatas = list(qs.filter(cliente_id__in=ids).order_by('-fecha_emision')[:3])
         if len(candidatas) == 1:
             return candidatas[0], None
         if candidatas:
@@ -102,13 +130,6 @@ def consultar_venta(usuario, entrada: E.ConsultarVenta):
         'saldo': str(saldo),
         'estado_operativo': venta.get_estado_operativo_display(),
     }
-
-
-def consultar_stock(usuario, entrada: E.ConsultarStock):
-    res = buscar_producto(usuario, E.BuscarProducto(query=entrada.query))
-    if not res['productos']:
-        return {'error': 'No encontré ese producto.'}
-    return {'stock': res['productos']}
 
 
 def ventas_detenidas(usuario, entrada: E.VentasDetenidas):
@@ -356,6 +377,7 @@ def preparar_cobro(usuario, entrada: E.PrepararCobro):
 def cambiar_estado_operativo(usuario, entrada: E.CambiarEstadoOperativo):
     venta, candidatas = _resolver_venta(
         usuario, venta_id=entrada.venta_id, venta_numero=entrada.venta_numero,
+        cliente_query=entrada.cliente_query,
     )
     if candidatas:
         return {'ambiguo': True, 'candidatas': candidatas}

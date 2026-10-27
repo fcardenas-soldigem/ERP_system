@@ -122,3 +122,65 @@ class CotizacionPorTextoTests(CanalTestCase):
         self._cotizar({'cliente': '<b>raro', 'items': [{'producto': 'jabra 750', 'cantidad': 1}]})
         texto = self.ultima_respuesta()[1]
         self.assertIn('&lt;b&gt;raro', texto)
+
+
+class BuscarProductoTests(CanalTestCase):
+    """Punto 2 — una tool por intención: buscar_producto lo trae todo."""
+
+    def test_devuelve_precio_stock_costo_y_proveedor(self):
+        from apps.canales.nucleo import esquemas as E, servicios
+        Producto.objects.filter(pk=self.producto.pk).update(stock_total=Decimal('15'))
+        res = servicios.buscar_producto(self.vendedor, E.BuscarProducto(query='jabra 750'))
+        p = res['productos'][0]
+        self.assertEqual((p['nombre'], p['sku'], p['precio_venta'], p['stock']),
+                         ('Auricular Jabra Evolve2 750', 'JB-750', '450.00', '15.00'))
+        # sin compras registradas: último costo = precio de compra del catálogo
+        self.assertEqual(p['ultimo_costo'], '300.00')
+        self.assertFalse(res['aproximado'])
+
+    def test_consultar_stock_ya_no_existe(self):
+        from apps.canales.nucleo.interprete import CATALOGO
+        self.assertNotIn('consultar_stock', CATALOGO)
+
+    def test_respuesta_del_bot_muestra_todo(self):
+        self.mock_llm('buscar_producto', {'query': 'jabra 750'})
+        self.post_update(self.update_texto(self.CHAT_A, 'precio y stock del jabra 750?'))
+        texto = self.ultima_respuesta()[1]
+        for dato in ('Jabra Evolve2 750', 'JB-750', '450.00', 'stock', 'últ. costo'):
+            self.assertIn(dato, texto)
+
+    def test_estado_por_cliente(self):
+        """«ya se entregó lo de transportes lima»: sin número de venta."""
+        from apps.canales.nucleo import esquemas as E, servicios
+        res = servicios.cambiar_estado_operativo(self.vendedor, E.CambiarEstadoOperativo(
+            cliente_query='transportes lima', nuevo_estado='entregado'))
+        self.assertEqual(res['borrador']['payload']['venta'], self.venta.id)
+
+
+class UltimoCostoTests(CanalTestCase):
+    def _compra(self, proveedor, fecha, precio, estado='pendiente'):
+        from apps.compras.models import Compra, CompraDetalle
+        from apps.inventario.models.almacen import Almacen
+        almacen, _ = Almacen.objects.get_or_create(empresa=self.empresa_a, nombre='Central',
+                                                   defaults={'direccion': 'x'})
+        c = Compra.objects.create(empresa=self.empresa_a, proveedor=proveedor, fecha_emision=fecha,
+                                  almacen=almacen)
+        CompraDetalle.objects.create(compra=c, producto=self.producto, cantidad=Decimal('1'),
+                                     precio_unitario=Decimal(precio))
+        # save() de compra y de detalle recalculan el estado (contado → pagada):
+        # se fija al final, como lo hace anular()
+        Compra.objects.filter(pk=c.pk).update(estado=estado)
+        return c
+
+    def test_ultimo_costo_y_proveedor_de_la_ultima_compra_valida(self):
+        import datetime as dt
+        from apps.canales.nucleo import esquemas as E, servicios
+        from apps.compras.models import Proveedor
+        viejo = Proveedor.objects.create(empresa=self.empresa_a, razon_social='Proveedor Viejo SAC', ruc='20100000001')
+        nuevo = Proveedor.objects.create(empresa=self.empresa_a, razon_social='Proveedor Nuevo SAC', ruc='20100000002')
+        hoy = dt.date.today()
+        self._compra(viejo, hoy - dt.timedelta(days=30), '280')
+        self._compra(nuevo, hoy - dt.timedelta(days=5), '295')
+        self._compra(viejo, hoy, '999', estado='anulada')        # no cuenta
+        p = servicios.buscar_producto(self.vendedor, E.BuscarProducto(query='jabra 750'))['productos'][0]
+        self.assertEqual((p['ultimo_costo'], p['proveedor']), ('295.00', 'Proveedor Nuevo SAC'))

@@ -36,7 +36,7 @@ CASOS = [
     {
         'id': 5,
         'texto': 'cuanto stock queda de teclados logitech',
-        'tool': 'consultar_stock',
+        'tool': 'buscar_producto',
         'params': {'query': 'logitech'},
     },
     {
@@ -72,7 +72,7 @@ CASOS = [
     {
         'id': 11,
         'texto': 'tienes el precio del monitor lg 24? hay en stock?',
-        'tool': 'consultar_stock',
+        'tool': 'buscar_producto',
         'params': {'query': 'lg 24'},
     },
     {

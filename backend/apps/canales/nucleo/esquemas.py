@@ -13,7 +13,8 @@ class BuscarCliente(BaseModel):
 
 
 class BuscarProducto(BaseModel):
-    query: str = Field(min_length=2, max_length=120, description='nombre aproximado o SKU, p. ej. "jabra 750"')
+    query: str = Field(min_length=2, max_length=120,
+                       description='producto en texto, como lo dijo el usuario: "jabra 750", "monitor lg 24"')
 
 
 class ItemCotizacion(BaseModel):
@@ -64,6 +65,9 @@ class PrepararCobro(BaseModel):
 class CambiarEstadoOperativo(BaseModel):
     venta_numero: Optional[str] = Field(default=None, max_length=40)
     venta_id: Optional[int] = None
+    # «ya se entregó lo de minera andes»: el vendedor nombra al cliente, no el número
+    cliente_query: Optional[str] = Field(default=None, max_length=120,
+                                         description='cliente en texto si no dieron número de venta')
     nuevo_estado: Literal[
         'pendiente_compra', 'comprado', 'recibido', 'entregado',
         'esperando_oc_nr', 'facturado', 'cobrado',
@@ -73,10 +77,6 @@ class CambiarEstadoOperativo(BaseModel):
 class ConsultarVenta(BaseModel):
     venta_numero: Optional[str] = Field(default=None, max_length=40)
     cliente_query: Optional[str] = Field(default=None, max_length=120)
-
-
-class ConsultarStock(BaseModel):
-    query: str = Field(min_length=2, max_length=120)
 
 
 class VentasDetenidas(BaseModel):

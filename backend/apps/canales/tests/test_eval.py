@@ -19,7 +19,7 @@ class EvalDatasetTests(SimpleTestCase):
         tools = {c['tool'] for c in CASOS}
         self.assertLessEqual(
             {'preparar_cotizacion', 'preparar_cobro', 'cambiar_estado_operativo',
-             'consultar_venta', 'consultar_stock', 'ventas_detenidas'}, tools)
+             'consultar_venta', 'buscar_producto', 'ventas_detenidas'}, tools)
 
     def test_comparador_acepta_match_laxo(self):
         caso = CASOS[0]  # cotización: cliente (texto) + items.0.cantidad

@@ -37,7 +37,6 @@ SERVICIOS_LECTURA = {
     'buscar_cliente': servicios.buscar_cliente,
     'buscar_producto': servicios.buscar_producto,
     'consultar_venta': servicios.consultar_venta,
-    'consultar_stock': servicios.consultar_stock,
     'ventas_detenidas': servicios.ventas_detenidas,
 }
 SERVICIOS_PREPARACION = {
@@ -179,13 +178,18 @@ def _formatear_lectura(nombre, res):
         cuerpo = '\n'.join(f'  • <b>{esc(d["numero"])}</b> {esc(d["cliente"])} — {esc(d["motivo"])}' for d in res['detenidas'])
         extra = f'\n(+{res["total"] - len(res["detenidas"])} más en el ERP)' if res['total'] > len(res['detenidas']) else ''
         return f'🔴 {res["total"]} venta(s) detenida(s):\n{cuerpo}{extra}'
-    if nombre in ('buscar_producto', 'consultar_stock'):
-        prods = res.get('productos') or res.get('stock') or []
+    if nombre == 'buscar_producto':
+        prods = res.get('productos') or []
         if not prods:
             return 'No encontré productos con ese nombre.'
-        return 'Encontré:\n' + '\n'.join(
-            f'  • {esc(p["nombre"])} ({esc(p["sku"])}) — S/ {esc(p["precio_venta"])}'
-            + (f' · stock {p["stock"]}' if p.get('stock') else '') for p in prods)
+        def linea(p):
+            s = 'S/' if p.get('moneda', 'PEN') == 'PEN' else '$'
+            costo = f' · últ. costo {s} {esc(p["ultimo_costo"])}' if p.get('ultimo_costo') else ''
+            prov = f' ({esc(p["proveedor"])})' if p.get('proveedor') else ''
+            return (f'  • <b>{esc(p["nombre"])}</b> ({esc(p["sku"])})\n'
+                    f'    venta {s} {esc(p["precio_venta"])} · stock {esc(p["stock"])}{costo}{prov}')
+        cabecera = 'No hay coincidencia exacta; ¿es alguno de estos?\n' if res.get('aproximado') else ''
+        return cabecera + '\n'.join(linea(p) for p in prods)
     if nombre == 'buscar_cliente':
         if not res['clientes']:
             return 'No encontré clientes con ese nombre o documento.'
