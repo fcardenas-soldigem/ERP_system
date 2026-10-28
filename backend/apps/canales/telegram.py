@@ -36,7 +36,11 @@ class TelegramCanal(Canal):
                 callback_id=str(cb.get('id', '')),
                 nombre_remitente=cb.get('from', {}).get('first_name', ''),
             )
-        msg = payload.get('message') or payload.get('edited_message')
+        # fix V2 punto 4 — un mensaje EDITADO llega como update nuevo (update_id
+        # distinto), así que la idempotencia por update_id no lo frena: tratarlo
+        # como mensaje volvía a procesar el texto completo y duplicaba borradores.
+        # Se ignora: lo ya respondido no se reinterpreta.
+        msg = payload.get('message')
         if not msg:
             return None
         chat_id = str(msg.get('chat', {}).get('id', ''))
@@ -63,8 +67,25 @@ class TelegramCanal(Canal):
             r = requests.post(_api('sendMessage'), json=data, timeout=_TIMEOUT)
             if not r.ok:
                 logger.error('telegram sendMessage %s: %s', r.status_code, r.text[:200])
-        except requests.RequestException:
+                return None
+            # message_id: para poder desactivar los botones si el borrador se reemplaza
+            mid = (r.json() or {}).get('result', {}).get('message_id')
+            return mid if isinstance(mid, int) else None
+        except (requests.RequestException, ValueError):
             logger.exception('telegram sendMessage falló (chat %s)', id_externo)
+            return None
+
+    def editar_botones(self, id_externo, mensaje_id, botones=None):
+        """Quita (o cambia) los botones de un mensaje viejo: un borrador
+        reemplazado no debe seguir ofreciendo «Confirmar». Best-effort."""
+        markup = {'inline_keyboard': [[{'text': b.texto, 'callback_data': b.accion}]
+                                      for b in botones]} if botones else {'inline_keyboard': []}
+        try:
+            requests.post(_api('editMessageReplyMarkup'),
+                          json={'chat_id': id_externo, 'message_id': mensaje_id,
+                                'reply_markup': markup}, timeout=_TIMEOUT)
+        except requests.RequestException:
+            logger.exception('telegram editMessageReplyMarkup falló (chat %s)', id_externo)
 
     def ack_callback(self, callback_id: str):
         """Quita el relojito del botón pulsado."""

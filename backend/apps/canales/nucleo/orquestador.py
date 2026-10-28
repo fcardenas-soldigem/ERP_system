@@ -10,6 +10,7 @@ Reglas duras:
 - 60 mensajes/usuario/hora + límites por empresa y canal (B9).
 """
 import logging
+from decimal import Decimal
 
 from django.conf import settings
 from django.core.cache import cache
@@ -23,6 +24,7 @@ from apps.agente.models import AgenteAccionLog
 from apps.canales.base import Boton, Canal, MensajeEntrante
 from apps.canales.models import BorradorAgente, VinculacionTelegram
 
+from . import contexto as ctx
 from . import servicios
 from .interprete import FUERA_DE_ALCANCE, resolver
 
@@ -50,6 +52,25 @@ def esc(v):
     """REVIEW_BOT #13 — parse_mode=HTML: un cliente llamado «<b>Acme» no debe
     romper el sendMessage."""
     return escape(str(v))
+
+
+class _CanalConMemoria:
+    """Envuelve el canal para que cada respuesta del bot quede en la memoria
+    corta del chat (fix V2 punto 3). Todo lo demás pasa directo al canal."""
+
+    def __init__(self, canal, usuario, id_externo):
+        self._canal, self._usuario, self._id_externo = canal, usuario, id_externo
+
+    def responder(self, id_externo, texto, botones=None):
+        try:
+            ctx.guardar_mensaje(self._usuario, self._canal.nombre, self._id_externo,
+                                'assistant', texto)
+        except Exception:
+            logger.exception('no se pudo guardar la respuesta del bot en el historial')
+        return self._canal.responder(id_externo, texto, botones=botones)
+
+    def __getattr__(self, atributo):
+        return getattr(self._canal, atributo)
 
 
 def _log(usuario, herramienta, argumentos, resultado_resumen, ok=True):
@@ -107,6 +128,14 @@ def _botones_borrador(borrador):
     ]
 
 
+def _guardar_mensaje_bot_id(borrador, mensaje_id):
+    """Recuerda qué mensaje del chat ofrece los botones de este borrador: si lo
+    reemplaza otro, a ese mensaje se le quitan los botones (fix V2 punto 4)."""
+    if isinstance(mensaje_id, int):
+        borrador.payload['mensaje_bot_id'] = mensaje_id
+        borrador.save(update_fields=['payload'])
+
+
 def _responder_borrador(canal, id_externo, borrador, resumen=None, prefijo=''):
     """B7 — SIEMPRE un solo mensaje. Cotización con pendientes: resumen +
     la primera pregunta con sus opciones (máx. 3) + Cancelar. Sin pendientes:
@@ -118,13 +147,15 @@ def _responder_borrador(canal, id_externo, borrador, resumen=None, prefijo=''):
             texto, opciones = pregunta
             botones = [Boton(texto=t[:60], accion=a) for t, a in opciones]
             botones.append(Boton(texto='❌ Cancelar', accion=f'b:{borrador.id}:no'))
-            canal.responder(id_externo, f'{prefijo}{resumen}\n\n{texto}', botones=botones)
+            mid = canal.responder(id_externo, f'{prefijo}{resumen}\n\n{texto}', botones=botones)
+            _guardar_mensaje_bot_id(borrador, mid)
             return
-    canal.responder(
+    mid = canal.responder(
         id_externo,
         f'{prefijo}{resumen}\n\n¿Confirmo? (expira en 30 min)',
         botones=_botones_borrador(borrador),
     )
+    _guardar_mensaje_bot_id(borrador, mid)
 
 
 def _borrador_esperando_documento(usuario, id_externo):
@@ -135,7 +166,20 @@ def _borrador_esperando_documento(usuario, id_externo):
     ).order_by('-created_at').first()
 
 
-def _crear_borrador(usuario, mensaje, tipo, payload):
+def _crear_borrador(canal, usuario, mensaje, tipo, payload):
+    """fix V2 punto 4 — UN solo borrador pendiente por chat: el nuevo desplaza
+    al anterior (estado «reemplazado») y desactiva los botones del mensaje
+    viejo, para que no queden dos «Confirmar» vivos."""
+    for viejo in BorradorAgente.objects.filter(
+            usuario=usuario, empresa=usuario.empresa, estado='pendiente',
+            id_externo=mensaje.id_externo):
+        viejo.marcar('reemplazado')
+        mensaje_id = (viejo.payload or {}).get('mensaje_bot_id')
+        if mensaje_id:
+            try:
+                canal.editar_botones(mensaje.id_externo, mensaje_id)
+            except Exception:
+                logger.exception('no se pudieron desactivar los botones del borrador %s', viejo.id)
     return BorradorAgente.objects.create(
         empresa=usuario.empresa, usuario=usuario, tipo=tipo, payload=payload,
         canal=mensaje.canal, id_externo=mensaje.id_externo,
@@ -165,6 +209,23 @@ def _formatear_lectura(nombre, res):
         return (f'Venta <b>{esc(res["numero"])}</b> — {esc(res["cliente"])}\n'
                 f'Total {s} {res["total"]} · cobrado {s} {res["cobrado"]}\n'
                 f'{pagado}\nOperativo: {res["estado_operativo"]}')
+    if nombre == 'resumen_ventas':
+        def soles(v):
+            return f'S/ {Decimal(v):,.2f}'
+        actual, anterior = Decimal(res['total_mes']), Decimal(res['total_mes_anterior'])
+        if anterior > 0:
+            delta = (actual - anterior) / anterior * 100
+            comparacion = f'{"▲" if delta >= 0 else "▼"} {abs(delta):.0f}% vs mes anterior ({soles(anterior)})'
+        else:
+            comparacion = f'mes anterior: {soles(anterior)}'
+        lineas = [f'📊 Ventas de {res["mes"]}: <b>{soles(actual)}</b> ({res["n_ventas"]} venta(s))',
+                  comparacion]
+        if res['top_clientes']:
+            lineas.append('Top clientes:')
+            lineas += [f'  {i}. {esc(c["nombre"])} — {soles(c["total"])}'
+                       for i, c in enumerate(res['top_clientes'], 1)]
+        lineas.append(f'Por cobrar: <b>{soles(res["por_cobrar"])}</b>')
+        return '\n'.join(lineas)
     if nombre == 'ventas_detenidas':
         if not res['detenidas']:
             return '✅ No hay ventas detenidas. Todo al día.'
@@ -217,6 +278,8 @@ def procesar(canal: Canal, mensaje: MensajeEntrante):
         return
 
     usuario = vinc.usuario
+    # memoria corta (punto 3): las respuestas del bot quedan en el historial
+    canal = _CanalConMemoria(canal, usuario, mensaje.id_externo)
 
     if mensaje.texto and mensaje.texto.split('@')[0] in ('/desvincular', '/stop'):
         vinc.delete()
@@ -267,6 +330,10 @@ def procesar(canal: Canal, mensaje: MensajeEntrante):
     # REVIEW_BOT #11 — nadie dicta una cotización de 100 KB: tope antes del LLM
     texto = texto[:1000]
 
+    # punto 3 — historial ANTES de guardar el mensaje actual (que va aparte)
+    historial = ctx.historial_chat(usuario, mensaje.id_externo)
+    ctx.guardar_mensaje(usuario, mensaje.canal, mensaje.id_externo, 'user', texto)
+
     # punto 1 — «Crear cliente nuevo» pidió RUC/DNI: este mensaje es la respuesta
     esperando = _borrador_esperando_documento(usuario, mensaje.id_externo)
     if esperando and not esperando.expirado and not texto.startswith('/'):
@@ -283,26 +350,21 @@ def procesar(canal: Canal, mensaje: MensajeEntrante):
                             prefijo=f'{aviso}\n\n' if aviso else '')
         return
 
-    # ¿es una corrección a un borrador pendiente en modo edición?
-    borrador_en_edicion = BorradorAgente.objects.filter(
+    # punto 3 — cualquier borrador pendiente del chat es contexto: un mensaje
+    # de seguimiento («cliente X», «que sean 6») lo completa o corrige en vez
+    # de crear otro desde cero (ya no hace falta pulsar «Editar» antes)
+    borrador_pendiente = BorradorAgente.objects.filter(
         usuario=usuario, estado='pendiente', id_externo=mensaje.id_externo,
-        payload__en_edicion=True,
     ).order_by('-created_at').first()
+    if borrador_pendiente and borrador_pendiente.expirado:
+        borrador_pendiente = None
 
     try:
-        contexto = None
-        if borrador_en_edicion and not borrador_en_edicion.expirado:
-            from apps.ai_assistant.services.llm_client import LLMMessage
-            contexto = [LLMMessage(
-                role='user',
-                content=('Borrador pendiente de tipo '
-                         f'{borrador_en_edicion.tipo}: {borrador_en_edicion.payload}. '
-                         'El siguiente mensaje lo corrige: vuelve a llamar la herramienta '
-                         'correspondiente con los datos corregidos completos.'),
-            )]
-        # punto 3 — bucle de tools compartido con eval_agente (máx. 3 rondas):
+        contexto = historial + ([ctx.contexto_borrador(borrador_pendiente)]
+                                if borrador_pendiente else [])
+        # bucle de tools compartido con eval_agente (máx. 3 rondas):
         # las lecturas ya vienen ejecutadas; las preparaciones, no
-        r = resolver(usuario, texto, contexto)
+        r = resolver(usuario, texto, contexto or None)
         _registrar_tokens(usuario, mensaje.canal, r)
     except Exception:
         logger.exception('intérprete falló')
@@ -337,11 +399,9 @@ def procesar(canal: Canal, mensaje: MensajeEntrante):
         canal.responder(mensaje.id_externo, _formatear_lectura(nombre, res))
         return
 
-    # al preparar uno nuevo, el anterior en edición queda cancelado (uno a la vez)
-    if borrador_en_edicion:
-        borrador_en_edicion.marcar('cancelado')
     b = res['borrador']
-    borrador = _crear_borrador(usuario, mensaje, b['tipo'], b['payload'])
+    # _crear_borrador reemplaza cualquier pendiente del chat (uno a la vez)
+    borrador = _crear_borrador(canal, usuario, mensaje, b['tipo'], b['payload'])
     _responder_borrador(canal, mensaje.id_externo, borrador, resumen=b['resumen'])
 
 
@@ -372,6 +432,11 @@ def _manejar_start(canal, mensaje):
 
 
 def _manejar_callback(canal, mensaje, usuario):
+    # fix V2 punto 4 — idempotencia también por callback_query.id: si el
+    # proveedor reenvía el mismo callback (reintento), no se procesa dos veces.
+    if mensaje.callback_id and not cache.add(
+            f'canales:cb:{mensaje.canal}:{mensaje.callback_id}', 1, 3600):
+        return
     if hasattr(canal, 'ack_callback') and mensaje.callback_id:
         canal.ack_callback(mensaje.callback_id)
     partes = mensaje.callback.split(':')

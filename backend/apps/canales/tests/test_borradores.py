@@ -98,7 +98,8 @@ class EdicionYExpiracionTests(CanalTestCase):
         self.assertTrue(any('corrige' in (msg.content or '') for msg in historial))
 
         b1.refresh_from_db()
-        self.assertEqual(b1.estado, 'cancelado')  # el anterior quedó cancelado
+        # V2: el nuevo borrador DESPLAZA al anterior (antes se marcaba cancelado)
+        self.assertEqual(b1.estado, 'reemplazado')
         b2 = BorradorAgente.objects.get(estado='pendiente')
         self.assertIn("'cantidad': '5'", str(b2.payload))
 

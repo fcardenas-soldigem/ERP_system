@@ -101,10 +101,13 @@ class CanalTestCase(APITestCase):
         return {'update_id': CanalTestCase._update_id,
                 'message': {'chat': {'id': chat_id}, 'from': {'first_name': 'Test'}, 'text': texto}}
 
-    def update_callback(self, chat_id, data):
+    def update_callback(self, chat_id, data, callback_id=None):
         CanalTestCase._update_id += 1
+        # cada toque real trae un callback_query.id distinto; uno repetido es un
+        # reintento del proveedor y el orquestador lo descarta (idempotencia V2)
         return {'update_id': CanalTestCase._update_id,
-                'callback_query': {'id': 'cb1', 'data': data,
+                'callback_query': {'id': callback_id or f'cb{CanalTestCase._update_id}',
+                                   'data': data,
                                    'from': {'first_name': 'Test'},
                                    'message': {'chat': {'id': chat_id}}}}
 

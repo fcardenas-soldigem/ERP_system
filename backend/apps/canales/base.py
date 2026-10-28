@@ -39,8 +39,14 @@ class Canal(ABC):
         """Convierte el update crudo del proveedor en MensajeEntrante (o None si no aplica)."""
 
     @abstractmethod
-    def responder(self, id_externo: str, texto: str, botones: Optional[list[Boton]] = None) -> None:
-        """Envía UN mensaje (B7: siempre una sola respuesta) con botones opcionales."""
+    def responder(self, id_externo: str, texto: str, botones: Optional[list[Boton]] = None) -> Optional[int]:
+        """Envía UN mensaje (B7: siempre una sola respuesta) con botones opcionales.
+        Devuelve el id del mensaje enviado si el proveedor lo da (para poder
+        desactivar sus botones después), o None."""
+
+    def editar_botones(self, id_externo: str, mensaje_id: int, botones: Optional[list[Boton]] = None) -> None:
+        """Reemplaza (o quita, con None) los botones de un mensaje ya enviado.
+        Best-effort: un canal sin soporte lo ignora."""
 
     def descargar_archivo(self, file_id: str) -> bytes:  # audio/foto (A4)
         raise NotImplementedError

@@ -11,7 +11,7 @@ import threading
 
 from django.conf import settings
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
-from django.db import IntegrityError, close_old_connections
+from django.db import IntegrityError, close_old_connections, transaction
 from django.http import HttpResponse
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -73,8 +73,11 @@ class TelegramWebhookView(APIView):
             return Response({'ok': True})  # no es un update: lo ignoramos
 
         # A2 — idempotencia: Telegram reintenta; cada update se procesa una vez.
+        # atomic propio: el IntegrityError esperado no debe romper una
+        # transacción exterior (ATOMIC_REQUESTS o la de los tests).
         try:
-            UpdateProcesado.objects.create(canal='telegram', update_id=update_id)
+            with transaction.atomic():
+                UpdateProcesado.objects.create(canal='telegram', update_id=update_id)
         except IntegrityError:
             return Response({'ok': True, 'duplicado': True})
 
