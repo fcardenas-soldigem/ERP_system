@@ -15,7 +15,8 @@ from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.test import SimpleTestCase, TestCase
 
-from apps.canales.eval.mensajes import CASOS, umbral
+from apps.canales.eval.mensajes import (CASOS, EDITA_CANTIDAD, MENSAJE_PILOTO,
+                                        SEGUIMIENTO_CLIENTE, umbral)
 from apps.canales.eval.runner import evaluar, preparar_datos
 from apps.canales.nucleo.interprete import CATALOGO
 from apps.empresas.models import Empresa
@@ -53,6 +54,32 @@ ORACULO = {
     20: (None, None),   # fuera de alcance: el modelo no llama ninguna tool
 }
 
+# fix V2 — argumentos que un modelo perfecto daría en el caso del piloto
+_ITEM_PEDESTAL = {'descripcion': 'PEDESTAL CON INCLINACIÓN 90° TV 32 A 75 PULG / VESA MAX 600X400MM / CARGA 75KG',
+                  'cantidad': 4, 'precio_unitario': '441.00', 'precio_incluye_igv': True}
+_ITEM_GABINETE = {'descripcion': 'Gabinete de Piso para Servidores / 32 RU / 60x80x150 cm',
+                  'cantidad': 1, 'precio_unitario': '1750', 'precio_incluye_igv': True}
+_ARGS_PILOTO = {'items': [_ITEM_PEDESTAL, _ITEM_GABINETE], 'moneda': 'PEN'}
+_ARGS_CON_CLIENTE = {**_ARGS_PILOTO, 'cliente': 'Uhman Perú sac'}
+_ARGS_CANTIDAD_6 = {**_ARGS_CON_CLIENTE,
+                    'items': [{**_ITEM_PEDESTAL, 'cantidad': 6}, _ITEM_GABINETE]}
+
+ORACULO.update({
+    21: ('preparar_cotizacion', _ARGS_PILOTO),
+    23: (None, None),                                   # pide aclaración, sin tool
+    24: ('resumen_ventas', {'periodo': 'mes'}),
+    26: ('preparar_cotizacion', {'cliente': 'acme', 'items': [
+        {'descripcion': 'teclado logitech k120', 'cantidad': 2, 'precio_unitario': 35}]}),
+})
+
+# casos multi-turno: el guion se indexa por el TEXTO de cada turno
+ORACULO_TURNOS = {
+    MENSAJE_PILOTO: ('preparar_cotizacion', _ARGS_PILOTO),
+    SEGUIMIENTO_CLIENTE: ('preparar_cotizacion', _ARGS_CON_CLIENTE),
+    'Cliente Uhman Perú sac': ('preparar_cotizacion', _ARGS_CON_CLIENTE),
+    EDITA_CANTIDAD: ('preparar_cotizacion', _ARGS_CANTIDAD_6),
+}
+
 
 class LLMGuionado:
     """Responde según el texto del usuario; tras un resultado de tool, texto."""
@@ -68,7 +95,8 @@ class LLMGuionado:
 
 
 def _guion(sobrescribir=None):
-    guion = {c['texto']: ORACULO[c['id']] for c in CASOS if c['id'] in ORACULO}
+    guion = {c['texto']: ORACULO[c['id']] for c in CASOS if 'texto' in c and c['id'] in ORACULO}
+    guion.update(ORACULO_TURNOS)
     guion.update(sobrescribir or {})
     return LLMGuionado(guion)
 
@@ -77,18 +105,21 @@ class DatasetTests(SimpleTestCase):
     def test_ids_unicos_y_tools_existentes(self):
         self.assertEqual(len({c['id'] for c in CASOS}), len(CASOS))
         for c in CASOS:
-            self.assertTrue(c['final'] is None or c['final'] in CATALOGO, c['id'])
+            self.assertTrue(c['final'] in (None, 'aclaracion') or c['final'] in CATALOGO, c['id'])
 
     def test_cubre_todas_las_intenciones(self):
         self.assertLessEqual(set(CATALOGO), {c['final'] for c in CASOS})
 
-    def test_umbral_13_de_15(self):
-        self.assertEqual(umbral(15), 13)
-        self.assertEqual(umbral(20), 18)   # con los 5 casos difíciles (≈ 87 %)
+    def test_umbral_90_por_ciento(self):
+        self.assertEqual(umbral(20), 18)
+        self.assertEqual(umbral(26), 24)   # con los 6 casos del fix V2
 
-    def test_son_20_casos_con_los_5_dificiles(self):
-        self.assertEqual(len(CASOS), 20)
+    def test_son_26_casos_con_los_del_fix_v2(self):
+        self.assertEqual(len(CASOS), 26)
         self.assertIsNone(next(c for c in CASOS if c['id'] == 20)['final'])
+        # los casos que crearían datos incorrectos están marcados como críticos
+        criticos = {c['id'] for c in CASOS if c.get('critico')}
+        self.assertEqual(criticos, {21, 22, 23, 25, 26})
 
 
 class EvalPuntaAPuntaTests(TestCase):
@@ -102,7 +133,8 @@ class EvalPuntaAPuntaTests(TestCase):
 
     def test_oraculo_saca_todo_correcto(self):
         """Valida el eval mismo: dataset + fixture + chequeos son alcanzables."""
-        casos = [c for c in CASOS if c['id'] in ORACULO]
+        casos = [c for c in CASOS if c['id'] in ORACULO or 'turnos' in c]
+        self.assertEqual(len(casos), len(CASOS))   # nadie se queda sin oráculo
         resultados = evaluar(self.usuario, casos, cliente_llm=_guion())
         malos = [(r.id, r.estado, r.fallos) for r in resultados if r.estado != 'correcto']
         self.assertEqual(malos, [])

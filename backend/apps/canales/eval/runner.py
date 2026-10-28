@@ -111,6 +111,7 @@ class ResultadoCaso:
     tokens: int = 0
     fallos: list = field(default_factory=list)
     llamadas: list = field(default_factory=list)
+    critico: bool = False        # fix V2: un crítico que falla tumba el eval
 
 
 def _contiene(a, b):
@@ -123,6 +124,11 @@ def _chequear_cotizacion(payload, checks, fallos):
                       f'«{payload.get("cliente_nombre") or payload.get("cliente_texto")}» ({payload.get("cliente_estado")})')
     if checks.get('cliente_pendiente') and payload.get('cliente'):
         fallos.append(f'cliente: esperaba PENDIENTE, se resolvió a «{payload.get("cliente_nombre")}»')
+    if 'cliente_texto' in checks and not _contiene(payload.get('cliente_texto') or '', checks['cliente_texto']):
+        fallos.append(f'cliente_texto: esperaba «{checks["cliente_texto"]}», quedó «{payload.get("cliente_texto")}»')
+    if 'precios_incluyen_igv' in checks and bool(payload.get('precios_incluyen_igv')) != checks['precios_incluyen_igv']:
+        fallos.append(f'precios_incluyen_igv: esperaba {checks["precios_incluyen_igv"]}, '
+                      f'quedó {payload.get("precios_incluyen_igv")}')
     if 'moneda' in checks and payload.get('moneda') != checks['moneda']:
         fallos.append(f'moneda: esperaba {checks["moneda"]}, quedó {payload.get("moneda")}')
     detalles = payload.get('detalles', [])
@@ -182,25 +188,59 @@ def chequear(usuario, final, resultado, checks):
 
 
 def evaluar_caso(usuario, caso, cliente_llm=None):
-    rc = ResultadoCaso(id=caso['id'], texto=caso['texto'], esperado=caso['final'] or '—',
-                       final='—', estado='incorrecto')
+    """Un caso puede ser multi-turno (`turnos`): cada turno ve el historial y el
+    borrador pendiente como en producción (nucleo.contexto), y se evalúa a dónde
+    llegó el ÚLTIMO turno. `final: 'aclaracion'` acepta que el modelo no llame
+    ninguna tool O que el servidor responda con un error que pide aclaración."""
+    from types import SimpleNamespace
+
+    from apps.ai_assistant.services.llm_client import LLMMessage
+    from apps.canales.nucleo import contexto as ctx
+
+    turnos = caso.get('turnos') or [caso['texto']]
+    rc = ResultadoCaso(id=caso['id'], texto=turnos[-1], esperado=caso['final'] or '—',
+                       final='—', estado='incorrecto', critico=bool(caso.get('critico')))
+    historial, borrador, final, resultado = [], None, None, None
     t0 = time.monotonic()
     try:
-        r = resolver(usuario, caso['texto'], cliente=cliente_llm)
+        for texto in turnos:
+            contexto = list(historial)
+            if borrador is not None:
+                contexto.append(ctx.contexto_borrador(borrador))
+            r = resolver(usuario, texto, contexto or None, cliente=cliente_llm)
+            rc.rondas += r.rondas
+            rc.tokens += r.tokens_entrada + r.tokens_salida
+            rc.llamadas += r.llamadas
+            final = r.nombre if r.tipo in ('preparacion', 'lectura') else None
+            resultado = None
+            respuesta_bot = '(sin tool)'
+            if r.tipo == 'preparacion':
+                resultado = PREPARACIONES[final](usuario, r.entrada)   # no escribe
+                if 'borrador' in resultado:
+                    b = resultado['borrador']
+                    # como el orquestador: el nuevo borrador reemplaza al anterior
+                    borrador = SimpleNamespace(tipo=b['tipo'], payload=b['payload'])
+                    respuesta_bot = b['resumen']
+                else:
+                    respuesta_bot = resultado.get('error', '')
+            elif r.tipo == 'lectura':
+                resultado = r.resultado
+                respuesta_bot = json.dumps(resultado, ensure_ascii=False, default=str)[:300]
+            historial.append(LLMMessage(role='user', content=texto))
+            historial.append(LLMMessage(role='assistant', content=str(respuesta_bot)[:600]))
     except Exception as e:  # credenciales, red, proveedor…
         rc.fallos = [f'error: {type(e).__name__}: {str(e)[:150]}']
         rc.ms = int((time.monotonic() - t0) * 1000)
         return rc
-    rc.rondas, rc.tokens, rc.llamadas = r.rondas, r.tokens_entrada + r.tokens_salida, r.llamadas
-    final = r.nombre if r.tipo in ('preparacion', 'lectura') else None
-    rc.final = final or '—'
-    resultado = None
-    if r.tipo == 'preparacion':
-        resultado = PREPARACIONES[final](usuario, r.entrada)   # no escribe: devuelve el borrador
-    elif r.tipo == 'lectura':
-        resultado = r.resultado
     rc.ms = int((time.monotonic() - t0) * 1000)
+    rc.final = final or '—'
 
+    if caso['final'] == 'aclaracion':
+        if final is None or (isinstance(resultado, dict) and 'error' in resultado):
+            rc.estado = 'correcto'
+        else:
+            rc.fallos = ['se creó un borrador donde se esperaba pedir aclaración']
+        return rc
     if final != caso['final']:
         rc.fallos = [f'tool final: esperaba {caso["final"] or "ninguna"}, llegó {final or "ninguna"}']
         return rc
@@ -208,7 +248,7 @@ def evaluar_caso(usuario, caso, cliente_llm=None):
         rc.estado = 'correcto'
         return rc
     rc.fallos = chequear(usuario, final, resultado, caso.get('checks', {}))
-    if es_consulta(final) and rc.rondas > MAX_RONDAS_CONSULTA:
+    if len(turnos) == 1 and es_consulta(final) and rc.rondas > MAX_RONDAS_CONSULTA:
         rc.fallos.append(f'consulta con {rc.rondas} rondas (máx. {MAX_RONDAS_CONSULTA})')
     rc.estado = 'parcial' if rc.fallos else 'correcto'
     return rc

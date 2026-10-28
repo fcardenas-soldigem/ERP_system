@@ -91,7 +91,56 @@ CASOS = [
      'checks': {}},
 ]
 
+# ── fix V2: el caso real del piloto (cotización libre + contexto) ─────────────
+# El mensaje 1 EXACTO: multilínea, dos productos fuera de catálogo, precios con
+# IGV incluido y sin cliente. Los textos se comparten con los tests del oráculo.
+MENSAJE_PILOTO = (
+    'Crea una cotización de 4 PEDESTAL CON INCLINACIÓN 90° TV 32 A 75 PULG / VESA MAX\n'
+    '600X400MM / CARGA 75KG  precio S/. 441.00 incluido IGV\n\n'
+    '1 Gabinete de Piso para Servidores / 32 RU / 60x80x150 cm (AnchoxProf.xAlt.) /\n'
+    'Puerta Frontal Microperforadas y Posterior doble Microperforadas  precio S/. 1750 incluido IGV'
+)
+SEGUIMIENTO_CLIENTE = 'Cliente Uhman Perú sac\nYa te di los productos y cantidades'
+EDITA_CANTIDAD = 'cámbiale la cantidad del pedestal a 6'
+
+# Un caso `critico` no admite fallo: si crea datos incorrectos (ítem basura,
+# precio mal, ítems perdidos), el eval NO pasa aunque el % global alcance.
+CASOS += [
+    # el mensaje 1 exacto → borrador con 2 líneas libres y pregunta por el cliente
+    {'id': 21, 'critico': True, 'texto': MENSAJE_PILOTO,
+     'final': 'preparar_cotizacion',
+     'checks': {'cliente_pendiente': True, 'precios_incluyen_igv': True,
+                'items': [{'producto': 'PEDESTAL', 'cantidad': 4, 'precio': 441, 'estado': 'libre'},
+                          {'producto': 'Gabinete', 'cantidad': 1, 'precio': 1750, 'estado': 'libre'}]}},
+    # el seguimiento con el cliente completa el MISMO borrador (ítems intactos)
+    {'id': 22, 'critico': True, 'turnos': [MENSAJE_PILOTO, SEGUIMIENTO_CLIENTE],
+     'final': 'preparar_cotizacion',
+     'checks': {'cliente_texto': 'uhman', 'precios_incluyen_igv': True,
+                'items': [{'producto': 'PEDESTAL', 'cantidad': 4, 'precio': 441},
+                          {'producto': 'Gabinete', 'cantidad': 1, 'precio': 1750}]}},
+    # «ya te di los productos» SIN borrador previo: pide aclaración, nada de ítems basura
+    {'id': 23, 'critico': True, 'texto': 'ya te di los productos',
+     'final': 'aclaracion',
+     'checks': {}},
+    # resumen de ventas: antes caía al mensaje de ayuda
+    {'id': 24, 'texto': 'cuánto voy en ventas este mes',
+     'final': 'resumen_ventas',
+     'checks': {'contiene': ['total_mes', 'por_cobrar']}},
+    # edición por mensaje: cambia UNA cantidad y conserva el resto
+    {'id': 25, 'critico': True,
+     'turnos': [MENSAJE_PILOTO, 'Cliente Uhman Perú sac', EDITA_CANTIDAD],
+     'final': 'preparar_cotizacion',
+     'checks': {'items': [{'producto': 'PEDESTAL', 'cantidad': 6},
+                          {'producto': 'Gabinete', 'cantidad': 1}]}},
+    # producto que SÍ está en catálogo: usa el producto, no una línea libre
+    {'id': 26, 'critico': True, 'texto': 'cotiza 2 teclados logitech k120 a acme a 35 soles',
+     'final': 'preparar_cotizacion',
+     'checks': {'cliente': 'Acme',
+                'items': [{'producto': 'Teclado Logitech K120', 'cantidad': 2, 'estado': 'ok'}]}},
+]
+
 
 def umbral(n_casos):
-    """13/15 correctos (≈ 87 %), proporcional si cambia el número de casos."""
-    return -(-n_casos * 13 // 15)  # techo
+    """Fix V2: al menos 90 % de los casos correctos (techo), y además ningún
+    caso `critico` puede fallar (lo exige eval_agente aparte)."""
+    return -(-n_casos * 9 // 10)  # techo

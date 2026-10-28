@@ -12,7 +12,8 @@ una transacción que SIEMPRE se revierte: no queda nada en la BD.
 
 Por caso: correcto / parcial / incorrecto, rondas, latencia y tokens. Una
 consulta con más de 2 rondas cuenta como parcial.
-Umbral: 18/20 correctos (≈ 87 %) Y ninguna consulta con más de 2 rondas.
+Umbral (fix V2): ≥ 90 % correctos, ninguna consulta con más de 2 rondas Y
+ningún caso crítico (los que crearían datos incorrectos) fallando.
 """
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
@@ -69,13 +70,20 @@ class Command(BaseCommand):
             + (f' (casos {", ".join(f"#{i}" for i in lentas)})' if lentas else ''))
         if opts['caso'] is None:
             minimo = umbral(n)
-            if correctos < minimo or lentas:
+            # fix V2: un caso crítico que no quede correcto crea datos
+            # incorrectos (ítems basura, precios mal): tumba el eval solo.
+            criticos_mal = [r.id for r in resultados if r.critico and r.estado != 'correcto']
+            if correctos < minimo or lentas or criticos_mal:
                 motivo = []
                 if correctos < minimo:
                     motivo.append(f'{correctos}/{n} correctos < {minimo}')
                 if lentas:
                     motivo.append(f'{len(lentas)} consulta(s) con >{MAX_RONDAS_CONSULTA} rondas')
+                if criticos_mal:
+                    motivo.append('caso(s) crítico(s) fallando: '
+                                  + ', '.join(f'#{i}' for i in criticos_mal))
                 self.stderr.write(self.style.ERROR('Umbral NO superado: ' + '; '.join(motivo) + '.'))
                 raise SystemExit(1)
             self.stdout.write(self.style.SUCCESS(
-                f'Umbral superado ({minimo}/{n} y ninguna consulta con >{MAX_RONDAS_CONSULTA} rondas).'))
+                f'Umbral superado ({minimo}/{n}, ninguna consulta con >{MAX_RONDAS_CONSULTA} rondas '
+                f'y todos los casos críticos correctos).'))
