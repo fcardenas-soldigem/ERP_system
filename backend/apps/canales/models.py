@@ -102,6 +102,10 @@ class BorradorAgente(models.Model):
     # al confirmar: a qué documento real dio origen
     documento_id = models.IntegerField(null=True, blank=True)
     documento_numero = models.CharField(max_length=40, blank=True)
+    # id del mensaje de Telegram que muestra ESTE borrador (sus botones): al
+    # reemplazarlo se desactivan, y un callback que llegue desde otro mensaje
+    # se detecta como desactualizado (evidencia de prod 2026-10-28)
+    mensaje_bot_id = models.BigIntegerField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     resuelto_at = models.DateTimeField(null=True, blank=True)
 

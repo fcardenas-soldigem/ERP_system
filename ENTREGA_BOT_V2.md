@@ -318,6 +318,51 @@ la latencia y ~45 % del costo. El único parcial (#7) es un matiz de la búsqued
 difusa de RUC, no de capacidad del modelo; flash-preview solo aporta ese caso a
 ~2× costo y +1 s de latencia por mensaje.
 
+## 5-ter. Tanda 4 — duplicados y Confirmar «reemplazado» (evidencia de prod)
+
+**Evidencia** (chat 8714291689, 2026-10-28): ids 2 (22:08:12) y 3 (22:08:14)
+nacieron de UN mensaje; ids 4 (22:12:27) y 5 (22:12:58) del seguimiento; el
+usuario tocó Confirmar y recibió «Ese borrador ya está reemplazado.» dos veces;
+ningún borrador tiene documento_id.
+
+**Diagnóstico con los logs de prod (solo lectura, 22:00–22:15 UTC):**
+- Updates del webhook: 22:05:37, 22:06:00, 22:06:39, 22:11:39, 22:12:26,
+  22:12:47, 22:12:56 — **ninguno a las 22:08**.
+- llm_call: 22:08:13 (ms=1434), 22:12:02 (ms=7299), 22:12:49 (ms=1715) — todas
+  1 ronda, 1 tool_call. **El loop del agente NO llamó dos veces a
+  preparar_cotizacion** (cada tool_calls=1), y no hubo dos updates a las 22:08.
+- Conclusión: el webhook respondía 200 y procesaba en un **hilo daemon**, pero
+  en Cloud Run el CPU se congela al responder: los hilos de los updates de
+  22:05/22:06 gatearon ~2–3 MINUTOS y terminaron a las 22:08:12/14 (los dos
+  borradores «simultáneos»). El usuario, sin respuesta, reenvió el mensaje
+  (updates 22:06:00/22:06:39 y 22:11:39/22:12:26) — update_id nuevos que la
+  idempotencia no puede frenar — y las respuestas salieron FUERA DE ORDEN: el
+  último mensaje visible era el del borrador 4, ya desplazado por el 5. De ahí
+  el «ya está reemplazado» ×2. Los callbacks (22:12:47/56) funcionaron bien.
+
+**Correcciones:**
+1. **Webhook síncrono**: se procesa dentro del request (CPU asignado, sin hilos
+   congelados, respuestas en orden). Un turno toma 1.5–8 s (LLM_TIMEOUT corta a
+   30), dentro de lo que Telegram tolera; un reintento del mismo update recibe
+   «duplicado» al instante porque el dedup corre ANTES de procesar.
+2. **Invariante un turno → máx. una mutación**: `_crear_borrador` corre con
+   `select_for_update` (lock por chat) y **deduplica por contenido**: un
+   payload idéntico al pendiente vigente con <2 min de antigüedad devuelve el
+   MISMO borrador (reenvíos del usuario no mutan nada). En el loop del agente,
+   dos tool calls de escritura en una misma respuesta ya contaban UNA (la
+   primera corta el bucle) — ahora con test.
+3. **`mensaje_bot_id` en el MODELO** (`canales.0003`, `ADD COLUMN bigint NULL`,
+   aditiva): cada borrador sabe qué mensaje de Telegram lo muestra; el callback
+   trae su `message_id` y se valida. Confirmar sobre el mensaje de un borrador
+   **reemplazado** ya no responde «ya está reemplazado»: desactiva esos botones
+   y **reenvía el borrador vigente** con sus botones; sobre el vigente, confirma
+   y la cotización nace con `documento_id`.
+
+**Tests de reproducción** (`ReproduccionProdTests`, con los datos del incidente):
+reenvío del mismo pedido → 1 solo borrador; Confirmar desde el mensaje del
+borrador reemplazado → reenvío del vigente y luego confirmación real con
+documento_id; doble tool call de escritura en una respuesta → solo la primera.
+
 ## 6. Tests
 
 - Nuevos: `apps/canales/tests/test_cotizacion_libre.py` (22 tests que

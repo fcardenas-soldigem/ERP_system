@@ -1,17 +1,21 @@
 """
 Vistas del canal (A2/A3) + PDF firmado para compartir por chat.
 
-El webhook devuelve 200 DE INMEDIATO y procesa en un hilo aparte: Telegram
-reintenta si tardamos, y el LLM puede tomar segundos. gunicorn corre con
-gthread (workers con hilos), así que el hilo sobrevive a la respuesta.
+El webhook procesa EN EL REQUEST (síncrono). Antes devolvía 200 de inmediato y
+procesaba en un hilo daemon, pero en Cloud Run el CPU se congela al responder:
+los hilos gateaban durante MINUTOS (evidencia de prod 2026-10-28 22:05-22:12,
+chat 8714291689: updates a las 22:05/22:06 cuyos borradores nacieron a las
+22:08, duplicados y con mensajes fuera de orden porque el usuario reenvió al no
+ver respuesta). Un turno toma 1.5-8 s (LLM_TIMEOUT corta en 30): dentro de lo
+que Telegram tolera (~60 s), y la idempotencia por update_id ya responde
+«duplicado» a cualquier reintento mientras se procesa.
 """
 import json
 import logging
-import threading
 
 from django.conf import settings
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
-from django.db import IntegrityError, close_old_connections, transaction
+from django.db import IntegrityError, transaction
 from django.http import HttpResponse
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -26,22 +30,6 @@ from .telegram import TelegramCanal
 logger = logging.getLogger(__name__)
 
 FIRMA_PDF_MAX_EDAD = 72 * 3600  # 72 h
-
-
-def _procesar_en_hilo(payload):
-    # En tests: ejecución en línea (determinista); en prod: hilo daemon.
-    if getattr(settings, 'CANALES_WEBHOOK_SINCRONO', False):
-        procesar_update(payload)
-        return
-
-    def _correr():
-        try:
-            procesar_update(payload)
-        finally:
-            # solo en el hilo: la conexión del request no es nuestra
-            close_old_connections()
-
-    threading.Thread(target=_correr, daemon=True).start()
 
 
 def procesar_update(payload):
@@ -81,8 +69,11 @@ class TelegramWebhookView(APIView):
         except IntegrityError:
             return Response({'ok': True, 'duplicado': True})
 
-        _procesar_en_hilo(payload)
-        return Response({'ok': True})  # 200 inmediato
+        # síncrono: con CPU asignado al request no hay hilos congelados, las
+        # respuestas salen EN ORDEN y un reintento del mismo update ya cayó
+        # arriba como duplicado
+        procesar_update(payload)
+        return Response({'ok': True})
 
 
 class VincularTelegramView(APIView):

@@ -34,6 +34,8 @@ class TelegramCanal(Canal):
                 id_externo=str(chat.get('id', cb.get('from', {}).get('id', ''))),
                 callback=cb.get('data', ''),
                 callback_id=str(cb.get('id', '')),
+                # desde QUÉ mensaje se tocó el botón: valida contra el borrador
+                mensaje_id=cb.get('message', {}).get('message_id'),
                 nombre_remitente=cb.get('from', {}).get('first_name', ''),
             )
         # fix V2 punto 4 / C3 — un mensaje EDITADO llega como update nuevo

@@ -174,10 +174,23 @@ def _botones_borrador(borrador):
 
 def _guardar_mensaje_bot_id(borrador, mensaje_id):
     """Recuerda qué mensaje del chat ofrece los botones de este borrador: si lo
-    reemplaza otro, a ese mensaje se le quitan los botones (fix V2 punto 4)."""
+    reemplaza otro, a ese mensaje se le quitan los botones, y un callback desde
+    otro mensaje se detecta como desactualizado (fix V2 punto 4 + tanda 4)."""
     if isinstance(mensaje_id, int):
-        borrador.payload['mensaje_bot_id'] = mensaje_id
-        borrador.save(update_fields=['payload'])
+        borrador.mensaje_bot_id = mensaje_id
+        borrador.save(update_fields=['mensaje_bot_id'])
+
+
+def _resumen_payload(borrador):
+    """Resumen para REENVIAR un borrador vigente (el de cotización se recalcula
+    en _responder_borrador; cobro y estado se arman desde su payload)."""
+    if borrador.tipo == 'cotizacion':
+        return None
+    p = borrador.payload or {}
+    if borrador.tipo == 'cobro':
+        return (f'💰 <b>Cobro</b> de {esc(p.get("monto"))} ({esc(p.get("metodo_pago"))}) '
+                f'— venta {esc(p.get("venta_numero"))}')
+    return f'🚚 Venta <b>{esc(p.get("venta_numero"))}</b> → {esc(p.get("nuevo_estado"))}'
 
 
 def _responder_borrador(canal, id_externo, borrador, resumen=None, prefijo=''):
@@ -210,24 +223,58 @@ def _borrador_esperando_documento(usuario, id_externo):
     ).order_by('-created_at').first()
 
 
+def _firma_payload(tipo, payload):
+    """Huella del CONTENIDO del borrador (sin claves volátiles): dos payloads
+    iguales son el mismo pedido, venga de un reenvío del usuario o de un
+    reintento del proveedor."""
+    import hashlib
+    import json as _json
+    base = {k: v for k, v in (payload or {}).items() if k not in ('en_edicion', 'mensaje_bot_id')}
+    return hashlib.sha1(_json.dumps([tipo, base], sort_keys=True, default=str).encode()).hexdigest()
+
+
 def _crear_borrador(canal, usuario, mensaje, tipo, payload):
-    """fix V2 punto 4 — UN solo borrador pendiente por chat: el nuevo desplaza
-    al anterior (estado «reemplazado») y desactiva los botones del mensaje
-    viejo, para que no queden dos «Confirmar» vivos."""
-    for viejo in BorradorAgente.objects.filter(
+    """fix V2 punto 4 + tanda 4 — UN solo borrador pendiente por chat y UNA
+    mutación como máximo por pedido:
+
+    - lock por chat (select_for_update): dos turnos simultáneos del mismo chat
+      no crean dos borradores (evidencia de prod: ids 2 y 3 con 2 s de
+      diferencia, hilos del webhook congelados por Cloud Run).
+    - dedup por CONTENIDO: si el pendiente vigente tiene el mismo payload y es
+      reciente (<2 min), se devuelve ese en vez de crear otro (el usuario
+      reenvió el mismo mensaje al no ver respuesta).
+    - si hay que crear, el anterior pasa a «reemplazado» y pierde sus botones.
+    """
+    from datetime import timedelta
+
+    firma = _firma_payload(tipo, payload)
+    desactivar = []
+    with transaction.atomic():
+        pendientes = list(BorradorAgente.objects.select_for_update().filter(
             usuario=usuario, empresa=usuario.empresa, estado='pendiente',
-            id_externo=mensaje.id_externo):
-        viejo.marcar('reemplazado')
-        mensaje_id = (viejo.payload or {}).get('mensaje_bot_id')
-        if mensaje_id:
-            try:
-                canal.editar_botones(mensaje.id_externo, mensaje_id)
-            except Exception:
-                logger.exception('no se pudieron desactivar los botones del borrador %s', viejo.id)
-    return BorradorAgente.objects.create(
-        empresa=usuario.empresa, usuario=usuario, tipo=tipo, payload=payload,
-        canal=mensaje.canal, id_externo=mensaje.id_externo,
-    )
+            id_externo=mensaje.id_externo))
+        for viejo in pendientes:
+            if (_firma_payload(viejo.tipo, viejo.payload) == firma
+                    and viejo.created_at >= timezone.now() - timedelta(seconds=120)):
+                logger.warning('borrador duplicado evitado (chat %s): mismo contenido que #%s',
+                               mensaje.id_externo, viejo.id)
+                return viejo
+        for viejo in pendientes:
+            viejo.marcar('reemplazado')
+            mensaje_id = viejo.mensaje_bot_id or (viejo.payload or {}).get('mensaje_bot_id')
+            if mensaje_id:
+                desactivar.append(mensaje_id)
+        nuevo = BorradorAgente.objects.create(
+            empresa=usuario.empresa, usuario=usuario, tipo=tipo, payload=payload,
+            canal=mensaje.canal, id_externo=mensaje.id_externo,
+        )
+    # fuera de la transacción: tocar Telegram no debe alargar el lock
+    for mensaje_id in desactivar:
+        try:
+            canal.editar_botones(mensaje.id_externo, mensaje_id)
+        except Exception:
+            logger.exception('no se pudieron desactivar los botones (mensaje %s)', mensaje_id)
+    return nuevo
 
 
 def _link_pdf_firmado(cotizacion_id):
@@ -537,6 +584,32 @@ def _manejar_callback(canal, mensaje, usuario):
     borrador = BorradorAgente.objects.filter(pk=partes[1], usuario=usuario, empresa=usuario.empresa).first()
     if not borrador:
         canal.responder(mensaje.id_externo, 'Ese borrador ya no existe.')
+        return
+    # tanda 4 — el botón debe venir del mensaje que MUESTRA este borrador. Si el
+    # borrador sigue pendiente y el mensaje difiere, es el mismo contenido
+    # reenviado (dedup): se procede. Pero un botón de un borrador REEMPLAZADO
+    # (evidencia de prod: Confirmar sobre el id 4 ya desplazado por el 5) no se
+    # queda en «ya está reemplazado»: se reenvía el borrador vigente.
+    if (borrador.mensaje_bot_id and mensaje.mensaje_id
+            and borrador.mensaje_bot_id != mensaje.mensaje_id and borrador.estado == 'pendiente'):
+        logger.warning('callback desde un mensaje viejo del MISMO borrador %s (chat %s): se procede',
+                       borrador.id, mensaje.id_externo)
+    if borrador.estado == 'reemplazado':
+        if isinstance(mensaje.mensaje_id, int):
+            try:
+                canal.editar_botones(mensaje.id_externo, mensaje.mensaje_id)
+            except Exception:
+                logger.exception('no se pudieron desactivar los botones del mensaje %s', mensaje.mensaje_id)
+        vigente = BorradorAgente.objects.filter(
+            usuario=usuario, empresa=usuario.empresa, estado='pendiente',
+            id_externo=mensaje.id_externo).order_by('-created_at').first()
+        if vigente and not vigente.expirado:
+            _responder_borrador(canal, mensaje.id_externo, vigente,
+                                resumen=_resumen_payload(vigente),
+                                prefijo='Ese mensaje quedó desactualizado; este es el borrador vigente:\n\n')
+        else:
+            canal.responder(mensaje.id_externo,
+                            'Ese borrador fue reemplazado y ya no hay uno vigente. Pídemelo de nuevo.')
         return
     if borrador.estado != 'pendiente':
         canal.responder(mensaje.id_externo, f'Ese borrador ya está {borrador.get_estado_display().lower()}.')

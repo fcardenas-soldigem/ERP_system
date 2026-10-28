@@ -25,7 +25,7 @@ AJUSTES = dict(
     TG_BOT_TOKEN='000000:token-prueba',
     TG_WEBHOOK_SECRET=SECRETO,
     TG_BOT_USERNAME='SoldigemPruebaBot',
-    CANALES_WEBHOOK_SINCRONO=True,
+    # el webhook procesa SIEMPRE en el request (tanda 4): ya no hay modo hilo
     CACHES={'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
                         'LOCATION': 'canales-tests'}},
 )
@@ -101,15 +101,19 @@ class CanalTestCase(APITestCase):
         return {'update_id': CanalTestCase._update_id,
                 'message': {'chat': {'id': chat_id}, 'from': {'first_name': 'Test'}, 'text': texto}}
 
-    def update_callback(self, chat_id, data, callback_id=None):
+    def update_callback(self, chat_id, data, callback_id=None, message_id=None):
         CanalTestCase._update_id += 1
         # cada toque real trae un callback_query.id distinto; uno repetido es un
-        # reintento del proveedor y el orquestador lo descarta (idempotencia V2)
+        # reintento del proveedor y el orquestador lo descarta (idempotencia V2).
+        # message_id: desde qué mensaje se tocó el botón (validación tanda 4).
+        msg = {'chat': {'id': chat_id}}
+        if message_id is not None:
+            msg['message_id'] = message_id
         return {'update_id': CanalTestCase._update_id,
                 'callback_query': {'id': callback_id or f'cb{CanalTestCase._update_id}',
                                    'data': data,
                                    'from': {'first_name': 'Test'},
-                                   'message': {'chat': {'id': chat_id}}}}
+                                   'message': msg}}
 
     def respuestas_bot(self):
         """[(chat_id, texto, botones)] de todos los sendMessage capturados."""

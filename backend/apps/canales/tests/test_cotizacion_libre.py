@@ -284,10 +284,15 @@ class BorradoresDuplicadosTests(CanalTestCase):
         self.tg_requests.post.return_value.json.return_value = {'result': {'message_id': 77}}
         self.post_update(self.update_texto(self.CHAT_A, MENSAJE_PILOTO))
         primero = BorradorAgente.objects.get(estado='pendiente')
-        self.assertEqual(primero.payload['mensaje_bot_id'], 77)
+        self.assertEqual(primero.mensaje_bot_id, 77)
 
-        self.programar_llm(m, 'preparar_cotizacion', ARGS_PILOTO_CON_CLIENTE)
-        self.post_update(self.update_texto(self.CHAT_A, 'mejor hazla de nuevo'))
+        # contenido DISTINTO (cantidad 6): reemplaza; uno idéntico solo dedupea
+        self.programar_llm(m, 'preparar_cotizacion', {
+            **ARGS_PILOTO_CON_CLIENTE,
+            'items': [{**ARGS_PILOTO_SIN_CLIENTE['items'][0], 'cantidad': 6},
+                      ARGS_PILOTO_SIN_CLIENTE['items'][1]],
+        })
+        self.post_update(self.update_texto(self.CHAT_A, 'mejor pon 6 pedestales'))
         primero.refresh_from_db()
         self.assertEqual(primero.estado, 'reemplazado')
         ediciones = [c for c in self.tg_requests.post.call_args_list
@@ -338,6 +343,93 @@ class CierreA1Tests(CanalTestCase):
         with self.assertLogs('apps.canales.nucleo.orquestador', level='WARNING') as logs:
             self.post_update(self.update_texto(self.CHAT_A, 'cotiza algo'))
         self.assertTrue(any('faltan_datos' in m and 'preparar_cotizacion' in m for m in logs.output))
+
+
+class ReproduccionProdTests(CanalTestCase):
+    """Tanda 4 — evidencia de prod (chat 8714291689, 2026-10-28 22:05–22:13 UTC):
+    un mensaje reenviado creó los borradores 2 y 3 (2 s de diferencia); el
+    seguimiento duplicado creó el 4 y el 5; Confirmar llegó desde el mensaje
+    del 4 (ya reemplazado) y respondió «ya está reemplazado» dos veces."""
+
+    def test_reenvio_del_mismo_pedido_no_crea_dos_borradores(self):
+        """ids 2 y 3: mismo multilínea, DOS updates (update_id distintos porque
+        el usuario reenvió al no ver respuesta) → UNA sola mutación."""
+        m = self.mock_llm('preparar_cotizacion', ARGS_PILOTO_SIN_CLIENTE)
+        self.post_update(self.update_texto(self.CHAT_A, MENSAJE_PILOTO))
+        self.programar_llm(m, 'preparar_cotizacion', ARGS_PILOTO_SIN_CLIENTE)
+        with self.assertLogs('apps.canales.nucleo.orquestador', level='WARNING') as logs:
+            self.post_update(self.update_texto(self.CHAT_A, MENSAJE_PILOTO))
+        self.assertTrue(any('borrador duplicado evitado' in x for x in logs.output))
+        self.assertEqual(BorradorAgente.objects.count(), 1)   # ids 2 y 3 → UNO
+        self.assertEqual(BorradorAgente.objects.filter(estado='pendiente').count(), 1)
+
+    def test_confirmar_sobre_mensaje_reemplazado_reenvia_el_vigente(self):
+        """ids 4 y 5: el usuario tocó Confirmar en el mensaje del 4 (reemplazado).
+        Ya no responde «ya está reemplazado»: reenvía el borrador vigente, y
+        Confirmar sobre el mensaje vigente SÍ crea la cotización."""
+        m = self.mock_llm('preparar_cotizacion', ARGS_PILOTO_CON_CLIENTE)
+        self.post_update(self.update_texto(self.CHAT_A, MENSAJE_PILOTO))
+        b4 = BorradorAgente.objects.get(estado='pendiente')
+        # seguimiento con contenido distinto → b5 reemplaza a b4
+        self.programar_llm(m, 'preparar_cotizacion', {
+            **ARGS_PILOTO_CON_CLIENTE,
+            'items': [{**ARGS_PILOTO_SIN_CLIENTE['items'][0], 'cantidad': 6},
+                      ARGS_PILOTO_SIN_CLIENTE['items'][1]],
+        })
+        self.post_update(self.update_texto(self.CHAT_A, 'que sean 6 pedestales'))
+        b4.refresh_from_db()
+        b5 = BorradorAgente.objects.get(estado='pendiente')
+        self.assertEqual(b4.estado, 'reemplazado')
+        # los mensajes de Telegram que muestran cada borrador
+        BorradorAgente.objects.filter(pk=b4.pk).update(mensaje_bot_id=90)
+        BorradorAgente.objects.filter(pk=b5.pk).update(mensaje_bot_id=91)
+
+        # cliente nuevo resuelto para poder confirmar b5
+        payload = b5.payload
+        payload, _ = servicios.aplicar_resolucion(self.vendedor, payload, 'cn', '')
+        payload, _ = servicios.aplicar_documento(self.vendedor, payload, '20612345678')
+        BorradorAgente.objects.filter(pk=b5.pk).update(payload=payload)
+
+        # Confirmar desde el MENSAJE VIEJO (el del b4): reenvía el vigente
+        self.post_update(self.update_callback(self.CHAT_A, f'b:{b4.id}:ok', message_id=90))
+        chat, texto, botones = self.ultima_respuesta()
+        self.assertIn('borrador vigente', texto)
+        self.assertNotIn('ya está reemplazado', texto)
+        self.assertIn(f'b:{b5.id}:ok', botones)               # botones del VIGENTE
+        self.assertEqual(Cotizacion.objects.count(), 0)       # no confirmó nada
+        ediciones = [c.kwargs['json']['message_id'] for c in self.tg_requests.post.call_args_list
+                     if 'editMessageReplyMarkup' in (c.args[0] if c.args else '')]
+        self.assertIn(90, ediciones)                          # botones viejos desactivados
+
+        # Confirmar desde el mensaje VIGENTE: crea la cotización
+        self.post_update(self.update_callback(self.CHAT_A, f'b:{b5.id}:ok', message_id=91))
+        b5.refresh_from_db()
+        self.assertEqual(b5.estado, 'confirmado')
+        self.assertIsNotNone(b5.documento_id)                 # en prod quedaban en null
+        self.assertEqual(Cotizacion.objects.count(), 1)
+
+    def test_dos_tool_calls_de_escritura_en_una_respuesta_cuentan_una(self):
+        """Invariante: un turno → como máximo UNA mutación. Si el modelo emite
+        dos preparar_cotizacion en la misma respuesta, solo la primera vale."""
+        from apps.ai_assistant.services.llm_client import LLMResponse, ToolCall
+        from apps.canales.nucleo.interprete import resolver
+
+        doble = LLMResponse(text='', tool_calls=[
+            ToolCall(id='t1', name='preparar_cotizacion',
+                     arguments={'cliente': 'Transportes Lima',
+                                'items': [{'producto_id': self.producto.id, 'cantidad': 1}]}),
+            ToolCall(id='t2', name='preparar_cotizacion',
+                     arguments={'cliente': 'Transportes Lima',
+                                'items': [{'producto_id': self.producto.id, 'cantidad': 9}]}),
+        ], tokens_entrada=50, tokens_salida=20, modelo='fake')
+
+        class LLM:
+            def chat(self, **kw):
+                return doble
+
+        r = resolver(self.vendedor, 'cotiza', cliente=LLM())
+        self.assertEqual(r.tipo, 'preparacion')
+        self.assertEqual(r.entrada.items[0].cantidad, 1)      # SOLO la primera
 
 
 class ParteCTests(CanalTestCase):
