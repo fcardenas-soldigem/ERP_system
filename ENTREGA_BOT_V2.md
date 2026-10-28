@@ -273,15 +273,15 @@ respuesta del 2.º update: {'ok': True, 'duplicado': True} · borradores creados
 sendChatAction "typing": 8 envíos · transacción revertida: la BD local quedó intacta.
 ```
 
-### A3 — SQL de las migraciones pendientes en prod
+### A3 — SQL de las migraciones que ESTA RAMA agrega sobre main
+
+(Corregido en la tanda 3: `authentication.0003`, `canales.0001`,
+`compras.0026`, `empresas.0009` y la squash de compras **ya están aplicadas en
+prod desde el deploy del 2026-10-27**. Lo único nuevo de esta rama:)
 
 | Migración | SQL | ¿Altera tabla existente con datos? |
 |---|---|---|
-| `authentication.0003_simplificar_roles` | RunPython (UPDATE de roles sobre `authentication_customuser`) + AlterField sin SQL | **SÍ** — UPDATE de datos (protegido: nunca degrada superusuarios ni al único admin; tests A3 de la tanda 1) |
-| `canales.0001_initial` | CREATE TABLE ×3 (`borradoragente`, `updateprocesado`, `vinculaciontelegram`) + índices | No — tablas nuevas |
-| `canales.0002_memoria_chat_y_borrador_reemplazado` | CREATE TABLE `canales_mensajeconversacion` + índices (SQL completo en §3) | No — tabla nueva |
-| `compras.0026_proveedor_telefono_como_el_modelo` | `ALTER TABLE compras_proveedor ALTER COLUMN telefono TYPE varchar(15); … DROP NOT NULL;` | **SÍ** — `compras_proveedor` (solo metadatos: ensanchar varchar y quitar NOT NULL no reescriben la tabla; lock breve) |
-| `empresas.0009_uuid_default_en_bd` | `ALTER TABLE empresas_empresa ALTER COLUMN uuid SET DEFAULT gen_random_uuid();` | **SÍ** — `empresas_empresa` (solo metadatos; reafirma el default que prod ya tiene) |
+| `canales.0002_memoria_chat_y_borrador_reemplazado` | CREATE TABLE `canales_mensajeconversacion` + 3 índices + 2 FK (SQL completo en §3); el AlterField de `estado` es solo choices (no-op SQL) | **No** — tabla nueva; riesgo nulo |
 
 ### A4 — TG_BOT_USERNAME
 
