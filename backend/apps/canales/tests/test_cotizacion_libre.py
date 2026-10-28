@@ -116,8 +116,10 @@ class LineasLibresTests(CanalTestCase):
         payload = borrador.payload
         self.assertEqual(payload['cliente_estado'], 'no_encontrado')
         payload, _ = servicios.aplicar_resolucion(self.vendedor, payload, 'cn', '')
-        payload, aviso = servicios.aplicar_documento(self.vendedor, payload, '20612345678')
-        self.assertIsNone(aviso)
+        with mock.patch('apps.core.services.documento_service.DocumentoService.consultar_documento',
+                        return_value={'success': True, 'data': {'razon_social': 'UHMAN PERU S.A.C.'}}):
+            payload, aviso = servicios.aplicar_documento(self.vendedor, payload, '20612345678')
+        self.assertIn('RUC 20612345678 →', aviso)   # verificación APIS (bot-ventas punto 5)
         borrador.payload = payload
         borrador.save(update_fields=['payload'])
 

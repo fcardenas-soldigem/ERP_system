@@ -56,7 +56,7 @@ class TransicionEnviadaTests(CanalTestCase):
         """#12 — ids no numéricos: respuesta fija, nunca silencio/500."""
         for data in ('cot:abc:enviada', 'b:x:ok', 'b::ok'):
             self.post_update(self.update_callback(self.CHAT_A, data))
-            self.assertIn('Puedo ayudarte con', self.ultima_respuesta()[1])
+            self.assertIn('Sí puedo', self.ultima_respuesta()[1])
 
 
 class FotoComprobanteTests(CanalTestCase):

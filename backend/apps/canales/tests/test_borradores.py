@@ -179,4 +179,4 @@ class LimitesTests(CanalTestCase):
     def test_fuera_de_alcance_respuesta_fija(self):
         self.mock_llm(None, None)  # el modelo no elige herramienta
         self.post_update(self.update_texto(self.CHAT_A, 'cuéntame un chiste'))
-        self.assertIn('Puedo ayudarte con', self.ultima_respuesta()[1])
+        self.assertIn('Sí puedo', self.ultima_respuesta()[1])
