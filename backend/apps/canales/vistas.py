@@ -29,7 +29,9 @@ from .telegram import TelegramCanal
 
 logger = logging.getLogger(__name__)
 
-FIRMA_PDF_MAX_EDAD = 72 * 3600  # 72 h
+# punto 6 (bot-ventas): 7 días — el vendedor comparte el link y el cliente lo
+# abre días después; pasado eso, 410 y se pide uno nuevo al asistente.
+FIRMA_PDF_MAX_EDAD = 7 * 24 * 3600
 
 
 def procesar_update(payload):
@@ -120,10 +122,16 @@ class PDFCotizacionFirmadoView(APIView):
     def get(self, request):
         firma = request.query_params.get('t', '')
         try:
-            cot_id = TimestampSigner(salt='canales.pdf').unsign(firma, max_age=FIRMA_PDF_MAX_EDAD)
+            valor = TimestampSigner(salt='canales.pdf').unsign(firma, max_age=FIRMA_PDF_MAX_EDAD)
         except SignatureExpired:
             return Response({'detail': 'El enlace venció. Pide uno nuevo al asistente.'}, status=410)
         except BadSignature:
+            return Response(status=status.HTTP_403_FORBIDDEN)
+
+        # token atado a documento + empresa (punto 6): «id:empresa_id»
+        try:
+            cot_id, empresa_id = (int(x) for x in valor.split(':'))
+        except ValueError:
             return Response(status=status.HTTP_403_FORBIDDEN)
 
         from apps.cotizaciones.models import Cotizacion
@@ -132,6 +140,8 @@ class PDFCotizacionFirmadoView(APIView):
             cot = Cotizacion.objects.get(pk=cot_id)
         except Cotizacion.DoesNotExist:
             return Response(status=status.HTTP_404_NOT_FOUND)
+        if cot.empresa_id != empresa_id:
+            return Response(status=status.HTTP_403_FORBIDDEN)
         pdf = CotizacionPDFGenerator(cot).generar_pdf()
         resp = HttpResponse(pdf.getvalue(), content_type='application/pdf')
         resp['Content-Disposition'] = f'inline; filename="{cot.numero}.pdf"'
