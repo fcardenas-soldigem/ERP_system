@@ -23,13 +23,14 @@ logger = logging.getLogger(__name__)
 # servicio → (esquema pydantic, descripción para el modelo)
 CATALOGO = {
     # una tool por intención; cada descripción dice cuándo NO usarla
-    'preparar_cotizacion': (E.PrepararCotizacion, 'Cotizar / hacer una proforma. Pasa el cliente y cada producto en TEXTO, tal como los dijo el usuario («3 jabra 750 a transportes lima» → cliente "transportes lima", producto "jabra 750", cantidad 3): el servidor los busca. NO busques clientes ni productos antes. Cantidades en palabras a número («una docena» = 12). Si dicen precio por unidad, ponlo en precio_unitario con su moneda.'),
+    'preparar_cotizacion': (E.PrepararCotizacion, 'Cotizar / hacer una proforma. Pasa el cliente y cada producto en TEXTO COMPLETO, tal como los dijo el usuario («3 jabra 750 a transportes lima» → cliente "transportes lima", descripcion "jabra 750", cantidad 3): el servidor los busca y acepta productos fuera de catálogo. NO busques clientes ni productos antes. Cantidades en palabras a número («una docena» = 12). Si dan precio por unidad, ponlo en precio_unitario; si dicen «incluido IGV»/«con IGV», marca precio_incluye_igv. Sin cliente, llámala IGUAL solo con los ítems. Si hay un borrador pendiente y el mensaje lo corrige o completa (cliente, cantidades, quitar o sumar ítems), vuelve a llamarla con TODOS los datos ya corregidos.'),
     'preparar_cobro': (E.PrepararCobro, 'Registrar un pago o cobro RECIBIDO de un cliente («me pagaron», «depositó», «me yapearon»). Yape/Plin = transferencia. Sin monto → se cobra el saldo completo.'),
     'cambiar_estado_operativo': (E.CambiarEstadoOperativo, 'Marcar el avance de una venta: comprado, recibido (llegó al almacén), entregado, facturado. Por número de venta o por cliente.'),
     'consultar_venta': (E.ConsultarVenta, 'Saber si un cliente ya pagó una venta: estado de pago, cobrado y saldo pendiente.'),
     'buscar_producto': (E.BuscarProducto, 'Consultar UN producto: precio de venta, stock, último costo y proveedor. NO la uses para cotizar (preparar_cotizacion ya busca los productos).'),
     'buscar_cliente': (E.BuscarCliente, 'Consultar los datos de un cliente (RUC/DNI, teléfono). NO la uses para cotizar ni para cobrar.'),
     'ventas_detenidas': (E.VentasDetenidas, 'Listar las ventas detenidas o atrasadas y por qué.'),
+    'resumen_ventas': (E.ResumenVentas, 'Cifras de ventas del período («¿cuánto voy en ventas este mes?», «¿cómo vamos?»): total del mes vs el anterior, número de ventas, top clientes y por cobrar. NO es para una venta puntual (consultar_venta).'),
 }
 
 SYSTEM = (
@@ -37,7 +38,11 @@ SYSTEM = (
     'vendedor que escribe desde el teléfono, con jerga y errores de tipeo. Tu ÚNICO '
     'trabajo es elegir UNA herramienta y sus parámetros. No converses. Montos: '
     '"lucas" = soles; "2 lucas" = 2000 PEN. "Factura/venta de X" se busca por '
-    'cliente_query. Si el pedido no corresponde a ninguna herramienta, no llames ninguna.'
+    'cliente_query. Usa el historial del chat: un mensaje corto («cliente Acme», '
+    '«que sean 5», «quita el gabinete») suele completar o corregir el borrador '
+    'pendiente — vuelve a llamar la MISMA herramienta con todos los datos, los de '
+    'antes más lo nuevo; nunca inventes un ítem con frases como «los productos que '
+    'te dije». Si el pedido no corresponde a ninguna herramienta, no llames ninguna.'
 )
 
 FUERA_DE_ALCANCE = (
@@ -69,7 +74,8 @@ PREPARACIONES = ('preparar_cotizacion', 'preparar_cobro', 'cambiar_estado_operat
 # y el modelo repetía la búsqueda hasta el tope (eval #5, #7, #11: 5 rondas,
 # 5x tokens, 6,5 s). Forzar una ronda en texto daría lo mismo pagando una
 # llamada más: el bot NO usa el texto del modelo, formatea el resultado él mismo.
-LECTURAS = ('consultar_venta', 'ventas_detenidas', 'buscar_cliente', 'buscar_producto')
+LECTURAS = ('consultar_venta', 'ventas_detenidas', 'buscar_cliente', 'buscar_producto',
+            'resumen_ventas')
 
 
 @dataclass
@@ -109,6 +115,7 @@ def resolver(usuario, texto: str, historial: list[LLMMessage] | None = None,
         'ventas_detenidas': servicios.ventas_detenidas,
         'buscar_cliente': servicios.buscar_cliente,
         'buscar_producto': servicios.buscar_producto,
+        'resumen_ventas': servicios.resumen_ventas,
     }
     cliente = cliente or get_llm_client()
     tools = _tools()
