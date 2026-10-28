@@ -159,30 +159,166 @@ Umbral nuevo: **≥ 90 %** de casos correctos **y ningún caso crítico fallando
 
 - **Oráculo (sin red): 26/26 correctos** — valida dataset, fixture y chequeos
   (`test_eval.py::test_oraculo_saca_todo_correcto`).
-- **Eval real (punto 6): BLOQUEADO en esta máquina** — el ADC de gcloud está
-  vencido (`RefreshError: Reauthentication is needed`). Tras reautenticar
-  (`gcloud auth application-default login`), correr:
+- **Eval real (punto 6): CORRIDO contra Vertex con los dos modelos** — ver la
+  tabla comparativa y la recomendación en el §5 («Punto 6 — eval real con dos
+  modelos»). Resumen: flash-lite 25/26, flash-preview 26/26, ambos superan el
+  umbral con todos los críticos correctos; se recomienda mantener flash-lite.
 
-  ```bash
-  cd backend
-  LLM_PROJECT=erp-system-468516 LLM_MODEL=gemini-3.1-flash-lite \
-    ../venv/bin/python manage.py eval_agente
-  LLM_PROJECT=erp-system-468516 LLM_MODEL=gemini-3.1-flash \
-    ../venv/bin/python manage.py eval_agente
-  ```
+## 5. Cierre (tanda 2, parte A)
 
-  El comando imprime por caso: correcto/parcial/incorrecto, rondas, latencia y
-  tokens, y al final los totales para comparar aciertos, rondas, tokens y costo.
+### A1 — diagnóstico confirmado con logs de prod y puntos cerrados
 
-Precios de referencia (agregadores de terceros, verificar en la página oficial
-de Vertex): gemini‑3.1‑flash‑lite ≈ **$0.25 / $1.50** por 1M tokens
-entrada/salida; para gemini‑3.1‑flash no hay precio publicado consistente (el
-tier flash de Gemini 3 aparece ≈ $0.50 / $3.00, o sea ~2× el de lite). Con el
-volumen del bot (~1 tool-call corta por mensaje, decenas de mensajes/día), la
-diferencia es de centavos/día; **no cambiar el modelo de prod** salvo que el
-eval muestre una brecha clara de aciertos en los casos críticos.
+Logs reales de Cloud Run (`gcloud logging read … llm_call`, solo lectura),
+que confirman el diagnóstico del §1:
 
-## 5. Tests
+```
+15:03:19 llm_call … ms=4698 tokens_in=911  tokens_out=37  tool_calls=1   ← menos tokens_in que el turno anterior: NO viajaba historial
+15:01:53 llm_call … ms=2000 tokens_in=1246 tokens_out=19  tool_calls=0
+15:01:51 llm_call … ms=5400 tokens_in=1023 tokens_out=151 tool_calls=1   ← el modelo SÍ extrajo los ítems; preparar_cotizacion los descartó por falta de cliente
+14:58:32 llm_call … ms=3901 tokens_in=898  tokens_out=24  tool_calls=0   ← «ventas del mes» sin herramienta → mensaje de ayuda
+```
+
+Checklist A1:
+- [x] Borrador incompleto que conserva los ítems y pregunta solo lo que falta (§2 punto 1).
+- [x] Contexto conversacional + borrador pendiente (§2 punto 3).
+- [x] resumen_ventas (§2 punto 5).
+- [x] **UsoLLM**: el bot ahora registra tokens por (empresa, día, modelo) con el
+  mismo `UsoLLM.registrar` del asistente web (`orquestador._registrar_tokens`).
+- [x] **Fallbacks con causa**: «mensaje de ayuda» y «me faltan datos» se loguean
+  con WARNING (motivo, rondas, tools llamadas; sin contenido del chat) y toda
+  excepción del LLM con ERROR + stack. Tests `CierreA1Tests`.
+- [x] **sendChatAction "typing"** mientras el LLM procesa, renovado cada 4 s
+  (`_Escribiendo` + `TelegramCanal.enviar_accion`).
+- [x] Un solo borrador pendiente por chat; idempotencia por `update_id` y por
+  `callback_query.id` (§2 punto 4, con tests).
+
+### A2 — 8 casos de punta a punta con el LLM REAL (Vertex)
+
+Pipeline completo de producción (webhook → dedup → orquestador) contra la BD
+local, Telegram simulado (nada salió a api.telegram.org), Vertex real
+(`gemini-3.1-flash-lite`), todo en una transacción revertida. El ADC estaba
+vencido: las credenciales salieron de `gcloud auth print-access-token`.
+
+```
+━━━ CASO 1. pedido multilínea con «incluido IGV», sin cliente
+👤 Crea una cotización de 4 PEDESTAL CON INCLINACIÓN 90° TV 32 A 75 PULG / VESA MAX
+600X400MM / CARGA 75KG  precio S/. 441.00 incluido IGV
+
+1 Gabinete de Piso para Servidores / 32 RU / 60x80x150 cm (AnchoxProf.xAlt.) /
+Puerta Frontal Microperforadas y Posterior doble Microperforadas  precio S/. 1750 incluido IGV
+🤖 📝 Cotización para ❓ (por definir)
+  • PEDESTAL CON INCLINACIÓN 90° TV 32 A 75 PULG / VESA MAX 600X400MM / CARGA 75KG ×4 a S/ 441.00
+  • Gabinete de Piso para Servidores / 32 RU / 60x80x150 cm (AnchoxProf.xAlt.) / Puerta Frontal
+    Microperforadas y Posterior doble Microperforadas ×1 a S/ 1,750.00
+Subtotal: S/ 2,977.97 · IGV (18%): S/ 536.03
+Total: S/ 3,514.00                              ← 4×441 + 1750, al céntimo
+¿Para qué cliente es la cotización?             [botones: ❌ Cancelar]
+
+━━━ CASO 2. seguimiento «Cliente Uhman Perú sac»
+👤 Cliente Uhman Perú sac
+🤖 📝 Cotización para ❓ «Uhman Perú sac»       ← MISMOS ítems, mismo total S/ 3,514.00
+  • PEDESTAL … ×4 a S/ 441.00
+  • Gabinete … ×1 a S/ 1,750.00
+Subtotal: S/ 2,977.97 · IGV (18%): S/ 536.03 · Total: S/ 3,514.00
+No encontré al cliente «Uhman Perú sac».
+   [botones: ➕ Crear cliente nuevo «Uhman Perú sac» | ❌ Cancelar]
+
+━━━ CASO 3. «cámbiale el pedestal a 6 unidades»
+👤 cámbiale el pedestal a 6 unidades
+🤖 📝 Cotización para ❓ «Uhman Perú sac»
+  • PEDESTAL … ×6 a S/ 441.00                   ← cantidad editada
+  • Gabinete … ×1 a S/ 1,750.00                 ← el resto intacto
+Subtotal: S/ 3,725.42 · IGV (18%): S/ 670.58 · Total: S/ 4,396.00
+
+━━━ CASO 4. «quita el gabinete»
+👤 quita el gabinete
+🤖 📝 Cotización para ❓ «Uhman Perú sac»
+  • PEDESTAL … ×6 a S/ 441.00                   ← gabinete eliminado
+Subtotal: S/ 2,242.37 · IGV (18%): S/ 403.63 · Total: S/ 2,646.00
+
+━━━ CASO 5. «cuánto voy en ventas este mes»
+👤 cuánto voy en ventas este mes
+🤖 📊 Ventas de 2026-10: S/ 101,677.20 (7 venta(s))
+▲ 203% vs mes anterior (S/ 33,529.91)
+Top clientes: 1. Cliente QA Crédito — S/ 68,840.00 · 2. Cliente Demo 1 — S/ 17,286.60
+              3. Cliente Demo 2 — S/ 15,550.60
+Por cobrar: S/ 39,488.55
+
+Borradores tras 1–4: B15/B16/B17 reemplazados, UNO pendiente (pedestal ×6,
+igv_incluido=True) — y editMessageReplyMarkup desactivó los botones de los
+mensajes viejos (101, 102, 103).
+
+━━━ CASO 6. «ya te di los productos» SIN borrador previo (chat limpio)
+👤 ya te di los productos
+🤖 No me quedó claro qué productos cotizar. Dímelos de nuevo, uno por línea,
+   con cantidad y precio si lo tienes.
+Borradores creados: 0 ✔ (en la 1.ª corrida el modelo inventó «productos
+pendientes» ×1 S/ 0.00: se reforzó la validación del servidor — un ítem hecho
+solo de palabras genéricas se rechaza — y el caso quedó verde)
+
+━━━ CASO 7. audio .oga (6 s, voz sintética es_MX)
+👤 [voz] «Cotízale al cliente demo uno, dos monitores de 75 pulgadas a 1200 soles cada uno»
+🤖 📝 Cotización para ❓ «M1»
+  • monitores de 75 pulgadas ×2 a S/ 1,200.00   ← línea libre con precio, desde el audio
+Subtotal: S/ 2,400.00 · IGV (18%): S/ 432.00 · Total: S/ 2,832.00
+¿Cuál es el cliente «M1»?  [botones: Demo 2 | Demo 1 | ➕ Crear nuevo | ❌]
+(«M1» es un artefacto de la transcripción de la voz sintética sobre «demo uno»;
+el flujo pregunta el cliente con opciones, que es lo correcto)
+
+━━━ CASO 8. dos updates idénticos con el MISMO update_id
+👤 cotiza 1 soporte de pared reforzado a 90 soles para cliente demo 1 (update ×2)
+🤖 (una sola respuesta, un solo borrador)
+respuesta del 2.º update: {'ok': True, 'duplicado': True} · borradores creados: 1 ✔
+
+sendChatAction "typing": 8 envíos · transacción revertida: la BD local quedó intacta.
+```
+
+### A3 — SQL de las migraciones pendientes en prod
+
+| Migración | SQL | ¿Altera tabla existente con datos? |
+|---|---|---|
+| `authentication.0003_simplificar_roles` | RunPython (UPDATE de roles sobre `authentication_customuser`) + AlterField sin SQL | **SÍ** — UPDATE de datos (protegido: nunca degrada superusuarios ni al único admin; tests A3 de la tanda 1) |
+| `canales.0001_initial` | CREATE TABLE ×3 (`borradoragente`, `updateprocesado`, `vinculaciontelegram`) + índices | No — tablas nuevas |
+| `canales.0002_memoria_chat_y_borrador_reemplazado` | CREATE TABLE `canales_mensajeconversacion` + índices (SQL completo en §3) | No — tabla nueva |
+| `compras.0026_proveedor_telefono_como_el_modelo` | `ALTER TABLE compras_proveedor ALTER COLUMN telefono TYPE varchar(15); … DROP NOT NULL;` | **SÍ** — `compras_proveedor` (solo metadatos: ensanchar varchar y quitar NOT NULL no reescriben la tabla; lock breve) |
+| `empresas.0009_uuid_default_en_bd` | `ALTER TABLE empresas_empresa ALTER COLUMN uuid SET DEFAULT gen_random_uuid();` | **SÍ** — `empresas_empresa` (solo metadatos; reafirma el default que prod ya tiene) |
+
+### A4 — TG_BOT_USERNAME
+
+- Se usa solo en el backend (`apps/canales/vistas.py`): el deep link
+  `https://t.me/{TG_BOT_USERNAME}?start={codigo}` y el campo `bot` de la
+  respuesta. El frontend (`Cuenta/VincularTelegram.jsx`) muestra `codigo.link`
+  y `data.bot` tal como llegan: **cero hardcode en el frontend**.
+- `settings.py` tenía un default hardcodeado `'SoldigemBot'`: **eliminado**.
+  Ahora `TG_BOT_USERNAME = os.getenv('TG_BOT_USERNAME', '')` — viene SOLO del
+  entorno (.env.local en dev; variable del servicio en prod, ya listada en
+  DEPLOY.md §11). Si falta, el enlace sale visiblemente vacío en el Perfil en
+  vez de apuntar a otro bot.
+
+### Punto 6 (tanda 1) — eval real con dos modelos
+
+Corrido contra Vertex real (26 casos). Nota: **`gemini-3.1-flash` no existe
+como publisher model en Vertex (404)**; el tier flash disponible en el proyecto
+es `gemini-3-flash-preview`, y con ese se comparó.
+
+| | gemini-3.1-flash-lite (prod) | gemini-3-flash-preview |
+|---|---|---|
+| Correctos | **25/26** (1 parcial: #7 búsqueda de RUC) | **26/26** |
+| Casos críticos (21-26) | todos correctos ✔ | todos correctos ✔ |
+| Rondas | máx. 3, media 1.1 | máx. 3, media 1.1 |
+| Latencia media / total | **1,615 ms** / 42.0 s | 2,682 ms / 69.7 s (+66 %) |
+| Tokens totales | 42,037 | 47,198 |
+| Precio por 1M in/out (referencial, terceros) | $0.25 / $1.50 | ≈ $0.50 / $3.00 |
+| Costo por operación (≈1,600 tok, ~95 % input) | ≈ **$0.0004** | ≈ $0.0009 |
+| Umbral (≥90 % + críticos) | **superado** | **superado** |
+
+**Recomendación: quedarse con `gemini-3.1-flash-lite`** (el actual de prod, sin
+cambiarlo): pasa el umbral con todos los casos críticos correctos, a ~60 % de
+la latencia y ~45 % del costo. El único parcial (#7) es un matiz de la búsqueda
+difusa de RUC, no de capacidad del modelo; flash-preview solo aporta ese caso a
+~2× costo y +1 s de latencia por mensaje.
+
+## 6. Tests
 
 - Nuevos: `apps/canales/tests/test_cotizacion_libre.py` (22 tests que
   reproducen el caso real de punta a punta).
@@ -193,7 +329,7 @@ eval muestre una brecha clara de aciertos en los casos críticos.
 - Suite del app `canales`: **99/99 OK** en Postgres.
 - Suite completa del backend en Postgres: **374 tests OK (3 skipped), 0 fallos**.
 
-## 6. Archivos modificados
+## 7. Archivos modificados
 
 Backend (rama `fix/bot-cotizacion-libre`, 6 commits):
 - `apps/canales/nucleo/esquemas.py` — descripcion/precio_incluye_igv; cliente opcional; ResumenVentas
@@ -206,6 +342,11 @@ Backend (rama `fix/bot-cotizacion-libre`, 6 commits):
 - `apps/canales/vistas.py` — dedup en atomic propio
 - `apps/canales/eval/mensajes.py`, `eval/runner.py`, `management/commands/eval_agente.py` — casos 21-26, multi-turno, umbral
 - `apps/canales/tests/` — base, test_borradores, test_resolucion_texto, test_eval, test_cotizacion_libre (nuevo)
-- `config/settings.py` — CANALES_HISTORIAL_MENSAJES / _MAX_CHARS
+- `config/settings.py` — CANALES_HISTORIAL_MENSAJES / _MAX_CHARS; TG_BOT_USERNAME sin default (A4)
+
+Cierre tanda 2 (A1): `nucleo/interprete.py` (modelo/motivo en Resolucion),
+`nucleo/orquestador.py` (UsoLLM, typing, fallbacks con WARNING),
+`nucleo/servicios.py` (ítems sin contenido de producto se rechazan),
+`apps/canales/telegram.py` (sendChatAction), tests `CierreA1Tests`.
 
 Frontend: **sin cambios** (el formulario web ya soporta líneas libres).
