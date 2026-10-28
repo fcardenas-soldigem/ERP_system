@@ -335,6 +335,14 @@ def procesar(canal: Canal, mensaje: MensajeEntrante):
         canal.responder(mensaje.id_externo, aviso)
         return
 
+    # C3 — mensaje EDITADO: no se reinterpreta (duplicaba borradores); se avisa
+    # UNA sola vez por mensaje editado (ediciones sucesivas no spamean).
+    if mensaje.editado:
+        if cache.add(f'canales:edit:{mensaje.id_externo}:{mensaje.mensaje_id}', 1, 3600):
+            canal.responder(mensaje.id_externo,
+                            'Vi que editaste el mensaje. Para cambios, escríbeme uno nuevo.')
+        return
+
     # botones (callback) no gastan LLM
     if mensaje.callback:
         return _manejar_callback(canal, mensaje, usuario)

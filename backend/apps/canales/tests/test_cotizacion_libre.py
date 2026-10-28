@@ -232,19 +232,29 @@ class ContextoConversacionalTests(CanalTestCase):
 class BorradoresDuplicadosTests(CanalTestCase):
     """Punto 4 — un solo pendiente por chat; ediciones y reintentos no duplican."""
 
-    def test_mensaje_editado_no_se_procesa(self):
+    def _update_editado(self, mensaje_id=777):
+        CanalTestCase._update_id += 1
+        return {'update_id': CanalTestCase._update_id,
+                'edited_message': {'chat': {'id': self.CHAT_A}, 'message_id': mensaje_id,
+                                   'from': {'first_name': 'Test'}, 'text': MENSAJE_PILOTO}}
+
+    def test_mensaje_editado_avisa_una_vez_y_no_se_reinterpreta(self):
         """Causa raíz: un mensaje editado llega con update_id NUEVO, así que la
         idempotencia por update_id no lo frena. Antes se reinterpretaba el texto
-        completo y nacía un segundo borrador idéntico."""
+        completo y nacía un segundo borrador idéntico. Ahora (C3): aviso fijo,
+        UNA sola vez por mensaje editado, y cero borradores."""
         self.mock_llm('preparar_cotizacion', ARGS_PILOTO_CON_CLIENTE)
-        CanalTestCase._update_id += 1
-        r = self.post_update({'update_id': CanalTestCase._update_id,
-                              'edited_message': {'chat': {'id': self.CHAT_A},
-                                                 'from': {'first_name': 'Test'},
-                                                 'text': MENSAJE_PILOTO}})
+        r = self.post_update(self._update_editado())
         self.assertEqual(r.status_code, 200)
         self.assertEqual(BorradorAgente.objects.count(), 0)
-        self.assertEqual(self.respuestas_bot(), [])
+        chat, texto, _ = self.ultima_respuesta()
+        self.assertIn('editaste el mensaje', texto)
+        self.assertIn('escríbeme uno nuevo', texto)
+        # segunda edición del MISMO mensaje: silencio (no spamea)
+        n = len(self.respuestas_bot())
+        self.post_update(self._update_editado())
+        self.assertEqual(len(self.respuestas_bot()), n)
+        self.assertEqual(BorradorAgente.objects.count(), 0)
 
     def test_update_repetido_no_duplica(self):
         self.mock_llm('preparar_cotizacion', ARGS_PILOTO_CON_CLIENTE)
@@ -328,6 +338,51 @@ class CierreA1Tests(CanalTestCase):
         with self.assertLogs('apps.canales.nucleo.orquestador', level='WARNING') as logs:
             self.post_update(self.update_texto(self.CHAT_A, 'cotiza algo'))
         self.assertTrue(any('faltan_datos' in m and 'preparar_cotizacion' in m for m in logs.output))
+
+
+class ParteCTests(CanalTestCase):
+    """Tanda 3 — retención (C1) y aislamiento multi-tenant (C2)."""
+
+    def test_purgar_conversaciones_es_idempotente(self):
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        viejo = MensajeConversacion.objects.create(
+            empresa=self.empresa_a, usuario=self.vendedor, id_externo=str(self.CHAT_A),
+            rol='user', texto='viejo')
+        MensajeConversacion.objects.filter(pk=viejo.pk).update(
+            created_at=timezone.now() - timedelta(days=31))
+        contexto.guardar_mensaje(self.vendedor, 'telegram', str(self.CHAT_A), 'user', 'reciente')
+
+        out = StringIO()
+        call_command('purgar_conversaciones', stdout=out)
+        self.assertIn('1 mensaje(s) con más de 30 días', out.getvalue())
+        self.assertEqual(list(MensajeConversacion.objects.values_list('texto', flat=True)),
+                         ['reciente'])
+        out = StringIO()
+        call_command('purgar_conversaciones', stdout=out)   # idempotente
+        self.assertIn('0 mensaje(s)', out.getvalue())
+        self.assertEqual(MensajeConversacion.objects.count(), 1)
+
+    def test_contexto_del_llm_nunca_cruza_empresas(self):
+        """C2 — aunque el MISMO chat_id existiera en dos empresas, el contexto
+        que recibe el LLM para la empresa B jamás incluye mensajes de la A."""
+        chat = '424242'
+        contexto.guardar_mensaje(self.vendedor, 'telegram', chat, 'user',
+                                 'SECRETO-EMPRESA-A: margen del pedestal 38%')
+        contexto.guardar_mensaje(self.vendedor_b, 'telegram', chat, 'user', 'hola soy B')
+        ctx_b = contexto.construir_contexto(self.vendedor_b, chat)
+        contenidos = ' '.join(m.content for m in ctx_b)
+        self.assertNotIn('SECRETO-EMPRESA-A', contenidos)
+        self.assertIn('hola soy B', contenidos)
+        # y el ORM del admin scoped tampoco (patrón EmpresaScopedAdmin)
+        from apps.canales.admin import MensajeConversacionAdmin
+        from django.contrib.admin.sites import AdminSite
+        from types import SimpleNamespace
+        admin_b = MensajeConversacionAdmin(MensajeConversacion, AdminSite())
+        qs = admin_b.get_queryset(SimpleNamespace(user=self.vendedor_b))
+        self.assertEqual({m.empresa_id for m in qs}, {self.empresa_b.id})
 
 
 class ResumenVentasTests(CanalTestCase):

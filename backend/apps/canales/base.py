@@ -22,6 +22,9 @@ class MensajeEntrante(BaseModel):
     canal: str
     id_externo: str                      # chat_id (Telegram) / wa_id (WhatsApp)
     texto: Optional[str] = None
+    # C3 — edición de un mensaje ya atendido: se avisa una vez, no se reinterpreta
+    editado: bool = False
+    mensaje_id: Optional[int] = None     # id del mensaje editado (para avisar una sola vez)
     audio_file_id: Optional[str] = None  # id del archivo de voz en el proveedor
     foto_file_id: Optional[str] = None
     callback: Optional[str] = None       # accion de un botón pulsado

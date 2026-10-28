@@ -36,10 +36,20 @@ class TelegramCanal(Canal):
                 callback_id=str(cb.get('id', '')),
                 nombre_remitente=cb.get('from', {}).get('first_name', ''),
             )
-        # fix V2 punto 4 — un mensaje EDITADO llega como update nuevo (update_id
-        # distinto), así que la idempotencia por update_id no lo frena: tratarlo
-        # como mensaje volvía a procesar el texto completo y duplicaba borradores.
-        # Se ignora: lo ya respondido no se reinterpreta.
+        # fix V2 punto 4 / C3 — un mensaje EDITADO llega como update nuevo
+        # (update_id distinto), así que la idempotencia por update_id no lo
+        # frena: tratarlo como mensaje volvía a procesar el texto completo y
+        # duplicaba borradores. No se reinterpreta: el orquestador avisa UNA
+        # vez («escríbeme uno nuevo») y nada más.
+        editado = payload.get('edited_message')
+        if editado:
+            return MensajeEntrante(
+                canal=self.nombre,
+                id_externo=str(editado.get('chat', {}).get('id', '')),
+                editado=True,
+                mensaje_id=editado.get('message_id'),
+                nombre_remitente=editado.get('from', {}).get('first_name', ''),
+            )
         msg = payload.get('message')
         if not msg:
             return None

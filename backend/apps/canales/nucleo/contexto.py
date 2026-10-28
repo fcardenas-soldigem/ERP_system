@@ -32,8 +32,10 @@ def historial_chat(usuario, id_externo):
     max_chars = int(getattr(settings, 'CANALES_HISTORIAL_MAX_CHARS', 4000))
     if n <= 0:
         return []
+    # C2 — siempre acotado a la empresa además del usuario/chat: aunque un
+    # chat_id se reutilizara entre empresas, el contexto del LLM jamás cruza.
     filas = list(MensajeConversacion.objects.filter(
-        usuario=usuario, id_externo=id_externo,
+        empresa=usuario.empresa, usuario=usuario, id_externo=id_externo,
     ).order_by('-created_at')[:n])
     mensajes, usados = [], 0
     for f in filas:  # del más nuevo al más viejo: lo reciente entra primero

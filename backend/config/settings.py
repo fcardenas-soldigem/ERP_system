@@ -101,6 +101,9 @@ CANALES_LIMITE_TOKENS_EMPRESA_DIA = int(os.getenv('CANALES_LIMITE_TOKENS_EMPRESA
 # el agente y tope de caracteres total (proxy de tokens) para no inflar el prompt.
 CANALES_HISTORIAL_MENSAJES = int(os.getenv('CANALES_HISTORIAL_MENSAJES', '10'))
 CANALES_HISTORIAL_MAX_CHARS = int(os.getenv('CANALES_HISTORIAL_MAX_CHARS', '4000'))
+# Retención de la memoria del chat (C1): purgar_conversaciones borra los
+# mensajes con más de estos días (el contexto solo usa los últimos 10).
+CANALES_RETENCION_DIAS = int(os.getenv('CANALES_RETENCION_DIAS', '30'))
 
 # HSTS (HTTP Strict Transport Security) - fuerza HTTPS en el navegador
 SECURE_HSTS_SECONDS = 31536000 if not DEBUG else 0  # 1 año en producción

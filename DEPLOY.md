@@ -499,3 +499,29 @@ gcloud run jobs execute erp-telegram-webhook --region $REGION --wait
 Contra la URL **directa de Cloud Run** (el comando rechaza cualquier host que no
 sea `*.run.app`). Comprobar: `curl -s "https://api.telegram.org/bot<TOKEN>/getWebhookInfo"`
 → `url` termina en `/api/canales/telegram/` y `last_error_message` vacío.
+
+## 12-bis. Retención de la memoria del chat (purga diaria, fix V2 C1)
+
+`MensajeConversacion` guarda texto libre de los usuarios para el contexto del
+bot (los últimos 10 mensajes). Retención: `CANALES_RETENCION_DIAS` (30 por
+defecto). El comando `purgar_conversaciones` es idempotente.
+
+Cloud Run Job + Scheduler diario (crear UNA vez, tras el deploy del bot V2):
+
+```bash
+gcloud run jobs create erp-purgar-conversaciones \
+  --image "$IMAGE@$DIGEST" --region $REGION \
+  --command python --args manage.py,purgar_conversaciones \
+  --env-vars-file /tmp/erp-env-vars.yaml --set-secrets "$SECRETS" \
+  --max-retries 1 --task-timeout 5m
+
+# diario 03:30 Lima (08:30 UTC); misma SA que ya ejecuta erp-migrate
+gcloud scheduler jobs create http erp-purgar-conversaciones-diario \
+  --location $REGION --schedule "30 8 * * *" \
+  --uri "https://run.googleapis.com/v2/projects/erp-system-468516/locations/$REGION/jobs/erp-purgar-conversaciones:run" \
+  --oauth-service-account-email 25656632090-compute@developer.gserviceaccount.com
+```
+
+Verificar después: `gcloud run jobs execute erp-purgar-conversaciones --region $REGION --wait`
+→ «purga de conversaciones: N mensaje(s) … borrados.» (correrlo dos veces: la
+segunda borra 0).
