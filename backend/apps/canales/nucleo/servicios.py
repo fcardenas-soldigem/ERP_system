@@ -230,9 +230,24 @@ _META_FRASES = [
 ]
 
 
+# Palabras que hablan DE productos sin nombrar ninguno: un ítem hecho solo de
+# estas no es cotizable (el modelo llegó a inventar «productos pendientes» ×1).
+_GENERICAS = {
+    'producto', 'productos', 'item', 'items', 'articulo', 'articulos',
+    'pendiente', 'pendientes', 'cantidad', 'cantidades', 'precio', 'precios',
+    'unidad', 'unidades', 'cosa', 'cosas', 'varios', 'variados', 'generico',
+    'general', 'cotizacion', 'cotizar', 'pedido', 'detalle', 'detalles',
+    'anterior', 'anteriores', 'mismo', 'mismos', 'misma', 'mismas',
+}
+
+
 def _es_meta_frase(texto):
     t = busqueda.normalizar(texto)
-    return any(re.search(p, t) for p in _META_FRASES)
+    if any(re.search(p, t) for p in _META_FRASES):
+        return True
+    # sin contenido de producto: solo palabras genéricas o vacías
+    toks = [p for p in t.split() if p not in busqueda._VACIAS]
+    return bool(toks) and all(p in _GENERICAS for p in toks)
 
 
 def _precio_de(producto, item, moneda):

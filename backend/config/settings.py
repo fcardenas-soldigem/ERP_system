@@ -87,7 +87,10 @@ CSRF_COOKIE_SAMESITE = 'Lax'
 # prueba; el token real de producción nunca se escribe en el repo ni en local.
 TG_BOT_TOKEN = os.getenv('TG_BOT_TOKEN', '')
 TG_WEBHOOK_SECRET = os.getenv('TG_WEBHOOK_SECRET', '')
-TG_BOT_USERNAME = os.getenv('TG_BOT_USERNAME', 'SoldigemBot')
+# A4 — sin default hardcodeado: el username del bot viene SOLO del entorno
+# (.env.local en dev, variables del servicio en prod). Si falta, el enlace de
+# vinculación sale vacío y se nota en el Perfil, en vez de apuntar a otro bot.
+TG_BOT_USERNAME = os.getenv('TG_BOT_USERNAME', '')
 # Base pública para links firmados que el bot comparte (PDF de cotización).
 # Va por el mismo origen del ERP (rewrite /api/ de Vercel).
 API_BASE_URL = os.getenv('API_BASE_URL', 'https://erp.soldigem.com.pe')

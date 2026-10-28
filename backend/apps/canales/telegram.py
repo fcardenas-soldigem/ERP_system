@@ -87,6 +87,15 @@ class TelegramCanal(Canal):
         except requests.RequestException:
             logger.exception('telegram editMessageReplyMarkup falló (chat %s)', id_externo)
 
+    def enviar_accion(self, id_externo, accion='typing'):
+        """sendChatAction: «escribiendo…» mientras el LLM piensa (A1). La
+        indicación dura ~5 s, así que el orquestador la renueva cada 4 s."""
+        try:
+            requests.post(_api('sendChatAction'),
+                          json={'chat_id': id_externo, 'action': accion}, timeout=_TIMEOUT)
+        except requests.RequestException:
+            logger.warning('telegram sendChatAction falló (chat %s)', id_externo)
+
     def ack_callback(self, callback_id: str):
         """Quita el relojito del botón pulsado."""
         try:

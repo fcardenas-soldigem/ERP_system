@@ -10,6 +10,7 @@ Reglas duras:
 - 60 mensajes/usuario/hora + límites por empresa y canal (B9).
 """
 import logging
+import threading
 from decimal import Decimal
 
 from django.conf import settings
@@ -73,6 +74,39 @@ class _CanalConMemoria:
         return getattr(self._canal, atributo)
 
 
+class _Escribiendo:
+    """«escribiendo…» mientras el LLM procesa (A1): la indicación de Telegram
+    dura ~5 s, así que se renueva cada 4 s hasta que haya respuesta."""
+
+    INTERVALO = 4
+
+    def __init__(self, canal, id_externo):
+        self._canal, self._id_externo = canal, id_externo
+        self._alto = threading.Event()
+        self._hilo = None
+
+    def __enter__(self):
+        if not hasattr(self._canal, 'enviar_accion'):
+            return self
+
+        def _latir():
+            while not self._alto.is_set():
+                try:
+                    self._canal.enviar_accion(self._id_externo, 'typing')
+                except Exception:
+                    logger.warning('sendChatAction falló', exc_info=True)
+                self._alto.wait(self.INTERVALO)
+
+        self._hilo = threading.Thread(target=_latir, daemon=True)
+        self._hilo.start()
+        return self
+
+    def __exit__(self, *exc):
+        self._alto.set()
+        if self._hilo:
+            self._hilo.join(timeout=0.5)
+
+
 def _log(usuario, herramienta, argumentos, resultado_resumen, ok=True):
     AgenteAccionLog.objects.create(
         empresa=usuario.empresa, token=None, herramienta=f'canal:{herramienta}',
@@ -111,6 +145,16 @@ def _registrar_tokens(usuario, canal_nombre, resp):
         cache.incr(k, int(resp.tokens_entrada + resp.tokens_salida))
     except ValueError:
         pass
+    # A1 — el bot registra UsoLLM igual que el asistente web (empresa, día,
+    # modelo); antes el consumo del bot era invisible en la contabilidad
+    if resp.tokens_entrada or resp.tokens_salida:
+        try:
+            from apps.ai_assistant.models import UsoLLM
+            UsoLLM.registrar(usuario.empresa,
+                             resp.modelo or getattr(settings, 'LLM_MODEL', ''),
+                             resp.tokens_entrada, resp.tokens_salida)
+        except Exception:
+            logger.exception('no se pudo registrar UsoLLM del bot')
 
 
 def _tokens_agotados(usuario, canal_nombre):
@@ -363,18 +407,28 @@ def procesar(canal: Canal, mensaje: MensajeEntrante):
         contexto = historial + ([ctx.contexto_borrador(borrador_pendiente)]
                                 if borrador_pendiente else [])
         # bucle de tools compartido con eval_agente (máx. 3 rondas):
-        # las lecturas ya vienen ejecutadas; las preparaciones, no
-        r = resolver(usuario, texto, contexto or None)
+        # las lecturas ya vienen ejecutadas; las preparaciones, no.
+        # «escribiendo…» mientras tanto (A1), renovado cada 4 s.
+        with _Escribiendo(canal, mensaje.id_externo):
+            r = resolver(usuario, texto, contexto or None)
         _registrar_tokens(usuario, mensaje.canal, r)
     except Exception:
-        logger.exception('intérprete falló')
+        # severity ERROR con la causa (stack) — nunca el mensaje de ayuda
+        logger.exception('intérprete falló (chat %s)', mensaje.id_externo)
         canal.responder(mensaje.id_externo, 'El asistente tuvo un problema. Inténtalo de nuevo en un momento.')
         return
 
+    # A1 — todo fallback queda en el log con su causa (sin contenido del chat)
     if r.tipo == 'fuera':
+        logger.warning('fallback ayuda (chat %s): %s · rondas=%s llamadas=%s len=%s',
+                       mensaje.id_externo, r.motivo or 'sin herramienta',
+                       r.rondas, [t for _, t in r.llamadas], len(texto))
         canal.responder(mensaje.id_externo, FUERA_DE_ALCANCE)
         return
     if r.tipo == 'faltan_datos':
+        logger.warning('fallback faltan_datos (chat %s): %s · rondas=%s llamadas=%s',
+                       mensaje.id_externo, r.motivo or 'argumentos inválidos',
+                       r.rondas, [t for _, t in r.llamadas])
         canal.responder(mensaje.id_externo, 'Me faltan datos para eso. ¿Me das más detalle (cliente, producto, cantidad)?')
         return
     nombre, entrada = r.nombre, r.entrada

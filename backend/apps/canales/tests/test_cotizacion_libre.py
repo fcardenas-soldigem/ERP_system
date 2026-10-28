@@ -100,7 +100,8 @@ class LineasLibresTests(CanalTestCase):
     def test_meta_frase_pide_aclaracion_y_no_crea_item_basura(self):
         """El caso real: «productos y cantidades» NUNCA debe ser un ítem."""
         for frase in ('productos y cantidades', 'ya te di los productos',
-                      'lo que te dije', 'los mismos de antes'):
+                      'lo que te dije', 'los mismos de antes',
+                      'productos pendientes', 'los artículos del pedido'):
             entrada = E.PrepararCotizacion(cliente='Uhman', items=[
                 {'descripcion': frase, 'cantidad': 1}])
             res = servicios.preparar_cotizacion(self.vendedor, entrada)
@@ -294,6 +295,39 @@ class BorradoresDuplicadosTests(CanalTestCase):
         cobro.refresh_from_db()
         self.assertEqual(cobro.estado, 'reemplazado')
         self.assertEqual(BorradorAgente.objects.filter(estado='pendiente').count(), 1)
+
+
+class CierreA1Tests(CanalTestCase):
+    """Tanda 2 A1 — UsoLLM, typing y fallbacks con causa en el log."""
+
+    def test_el_bot_registra_uso_llm_como_el_asistente_web(self):
+        from apps.ai_assistant.models import UsoLLM
+        self.mock_llm('preparar_cotizacion', ARGS_PILOTO_CON_CLIENTE)
+        self.post_update(self.update_texto(self.CHAT_A, MENSAJE_PILOTO))
+        uso = UsoLLM.objects.get(empresa=self.empresa_a)
+        self.assertEqual((uso.tokens_entrada, uso.tokens_salida, uso.llamadas), (50, 20, 1))
+        self.assertEqual(uso.modelo, 'fake')
+
+    def test_typing_mientras_el_llm_procesa(self):
+        self.mock_llm('preparar_cotizacion', ARGS_PILOTO_CON_CLIENTE)
+        self.post_update(self.update_texto(self.CHAT_A, MENSAJE_PILOTO))
+        acciones = [c for c in self.tg_requests.post.call_args_list
+                    if 'sendChatAction' in (c.args[0] if c.args else '')]
+        self.assertGreaterEqual(len(acciones), 1)
+        self.assertEqual(acciones[0].kwargs['json']['action'], 'typing')
+
+    def test_fallback_de_ayuda_se_loguea_con_warning_y_causa(self):
+        self.mock_llm(None, None)   # el modelo no elige herramienta
+        with self.assertLogs('apps.canales.nucleo.orquestador', level='WARNING') as logs:
+            self.post_update(self.update_texto(self.CHAT_A, 'hola, qué tal'))
+        self.assertTrue(any('fallback ayuda' in m and 'herramienta' in m for m in logs.output))
+
+    def test_faltan_datos_se_loguea_con_warning_y_causa(self):
+        # argumentos inválidos sostenidos: cantidad imposible
+        self.mock_llm('preparar_cotizacion', {'items': [{'descripcion': 'algo', 'cantidad': -1}]})
+        with self.assertLogs('apps.canales.nucleo.orquestador', level='WARNING') as logs:
+            self.post_update(self.update_texto(self.CHAT_A, 'cotiza algo'))
+        self.assertTrue(any('faltan_datos' in m and 'preparar_cotizacion' in m for m in logs.output))
 
 
 class ResumenVentasTests(CanalTestCase):

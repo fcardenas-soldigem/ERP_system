@@ -90,6 +90,8 @@ class Resolucion:
     tokens_salida: int = 0
     ms: int = 0
     llamadas: list = field(default_factory=list)   # [(ronda, tool)] para el eval
+    modelo: str = ''               # para UsoLLM (A1): qué modelo consumió los tokens
+    motivo: str = ''               # causa de un faltan_datos/fuera, para el log
 
 
 def _firma(nombre, argumentos):
@@ -131,6 +133,7 @@ def resolver(usuario, texto: str, historial: list[LLMMessage] | None = None,
             res.rondas = ronda
             res.tokens_entrada += resp.tokens_entrada
             res.tokens_salida += resp.tokens_salida
+            res.modelo = getattr(resp, 'modelo', '') or res.modelo
             if not resp.tool_calls:
                 break
             mensajes.append(LLMMessage(role='assistant', content=resp.text or None,
@@ -153,6 +156,7 @@ def resolver(usuario, texto: str, historial: list[LLMMessage] | None = None,
                     entrada = esquema.model_validate(tc.arguments or {})
                 except pydantic.ValidationError as e:
                     hubo_args_invalidos = True
+                    res.motivo = f'{tc.name}: argumentos inválidos ({str(e)[:200]})'
                     # el modelo puede corregirse en la ronda siguiente
                     mensajes.append(LLMMessage(role='tool', tool_call_id=tc.id, name=tc.name,
                                                content=json.dumps({'error': 'argumentos inválidos',
@@ -170,6 +174,8 @@ def resolver(usuario, texto: str, historial: list[LLMMessage] | None = None,
         # el modelo no llegó a una tool válida (o se agotaron las rondas)
         if hubo_args_invalidos:
             res.tipo = 'faltan_datos'
+        elif not res.motivo:
+            res.motivo = 'el modelo no eligió ninguna herramienta'
         return res
     finally:
         res.ms = int((time.monotonic() - t0) * 1000)
