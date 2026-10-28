@@ -83,7 +83,11 @@ class DetalleVentaSerializer(EmpresaScopedModelSerializer):
         """
         REGLA DE NEGOCIO: Las materias primas no pueden venderse directamente.
         Solo los productos terminados pueden incluirse en ventas.
+        D1/bot-ventas: una línea de texto libre (producto null) no tiene nada
+        que validar aquí.
         """
+        if value is None:
+            return value
         if value.tipo_producto in ['RAW', 'SEMIFINISHED']:
             raise serializers.ValidationError(
                 f"ERROR: '{value.nombre}' es una materia prima/insumo y no puede venderse directamente. "
@@ -317,29 +321,37 @@ class VentaSerializer(serializers.ModelSerializer):
                         "detalles": ["Cada detalle debe ser un objeto válido"]
                     })
 
-                # Validar campos requeridos
-                required_fields = ['producto', 'cantidad', 'precio_unitario']
+                # Validar campos requeridos. D1/bot-ventas: 'producto' puede ser
+                # null (línea de texto libre) si la línea trae descripcion; la
+                # web siempre manda producto, así que su flujo no cambia.
+                required_fields = ['cantidad', 'precio_unitario']
                 for field in required_fields:
                     if field not in detalle:
                         raise serializers.ValidationError({
                             "detalles": [f"Falta el campo {field} en uno de los detalles"]
                         })
+                if detalle.get('producto') is None:
+                    if not str(detalle.get('descripcion') or '').strip():
+                        raise serializers.ValidationError({
+                            "detalles": ["Una línea sin producto necesita descripción"]
+                        })
 
                 try:
-                    # Validar producto
-                    producto_id = int(detalle['producto'])
-                    
-                    try:
-                        producto = Producto.objects.get(id=producto_id)
-                        
-                        if producto.empresa != self.context['request'].user.empresa:
+                    # Validar producto (si la línea lo tiene)
+                    if detalle.get('producto') is not None:
+                        producto_id = int(detalle['producto'])
+
+                        try:
+                            producto = Producto.objects.get(id=producto_id)
+
+                            if producto.empresa != self.context['request'].user.empresa:
+                                raise serializers.ValidationError({
+                                    "detalles": [f"El producto {producto_id} no pertenece a su empresa"]
+                                })
+                        except Producto.DoesNotExist:
                             raise serializers.ValidationError({
-                                "detalles": [f"El producto {producto_id} no pertenece a su empresa"]
+                                "detalles": [f"El producto {producto_id} no existe"]
                             })
-                    except Producto.DoesNotExist:
-                        raise serializers.ValidationError({
-                            "detalles": [f"El producto {producto_id} no existe"]
-                        })
 
                     # Validar cantidad y precio
                     cantidad = float(detalle['cantidad'])
@@ -420,11 +432,13 @@ class VentaSerializer(serializers.ModelSerializer):
             
             venta = Venta.objects.create(**validated_data)
 
-            # Crear los detalles
+            # Crear los detalles. D1/bot-ventas: producto puede ser null (línea
+            # libre) con descripcion; la web siempre manda producto (sin cambio).
             for i, detalle_data in enumerate(detalles_data):
                 DetalleVenta.objects.create(
                     venta=venta,
-                    producto_id=detalle_data['producto'],
+                    producto_id=detalle_data.get('producto'),
+                    descripcion=detalle_data.get('descripcion') or None,
                     cantidad=detalle_data['cantidad'],
                     precio_unitario=detalle_data['precio_unitario']
                 )

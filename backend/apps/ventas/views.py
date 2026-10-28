@@ -468,38 +468,13 @@ class VentaViewSet(viewsets.ModelViewSet):
         cache.delete(f'dashboard_simple_stats_{empresa_id}')
 
     def perform_create(self, serializer):
-        try:
-            venta = serializer.save()
-
-            if venta.tipo_venta in ['credito_30', 'credito_60']:
-                venta.estado = 'pendiente'
-                dias_credito = 30 if venta.tipo_venta == 'credito_30' else 60
-                venta.fecha_vencimiento = venta.fecha_emision + timezone.timedelta(days=dias_credito)
-                venta.save()
-
-                PagoVenta.objects.create(
-                    venta=venta,
-                    fecha=venta.fecha_emision,
-                    monto=venta.total,
-                    metodo_pago='pendiente',
-                    notas=f'Pago pendiente para venta a crédito de {dias_credito} días'
-                )
-
-            # §4.4 — El stock YA NO se descuenta al pagar; se descuenta al entrar
-            # a 'entregado' (estado operativo). Aquí solo se sincroniza cobrado↔pago.
-            if venta.estado == 'pagado':
-                venta._sincronizar_estado_operativo_pago()
-
-            # B3 — Entrega inmediata: nace en 'entregado' (descuenta stock con la
-            # misma guarda estricta). Default false; solo aplica en con_stock.
-            entrega_inmediata = str(self.request.data.get('entrega_inmediata', '')).lower() in ('1', 'true', 'si', 'sí')
-            if entrega_inmediata and venta.empresa.modo_inventario == 'con_stock':
-                venta.cambiar_estado_operativo('entregado', usuario=self.request.user, nota='Entrega inmediata')
-
-            self._invalidate_ventas_cache()
-
-        except Exception:
-            raise
+        # feat/bot-ventas punto 1 — los pasos post-serializer (crédito, pago
+        # placeholder, sync pagado, entrega inmediata, cachés) viven en el
+        # servicio de dominio, COMPARTIDO con el bot: una sola ruta de creación.
+        from apps.ventas.services.creacion_venta import completar_creacion_venta
+        venta = serializer.save()
+        entrega_inmediata = str(self.request.data.get('entrega_inmediata', '')).lower() in ('1', 'true', 'si', 'sí')
+        completar_creacion_venta(self.request.user, venta, entrega_inmediata=entrega_inmediata)
 
     def perform_update(self, serializer):
         serializer.save()
