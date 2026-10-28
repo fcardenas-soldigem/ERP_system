@@ -4,7 +4,8 @@ import {
   useColorModeValue,
 } from '@chakra-ui/react';
 import { FiArrowUpRight, FiArrowDownRight, FiInfo } from 'react-icons/fi';
-import Sparkline from './Sparkline';
+// 0.6 — recharts diferido: la tarjeta pinta sin esperar el gráfico
+const Sparkline = React.lazy(() => import('./Sparkline'));
 
 /**
  * Single stat card with sparkline.
@@ -35,7 +36,7 @@ const StatCard = ({
 }) => {
   const bg     = useColorModeValue('white', 'gray.800');
   const border = useColorModeValue('gray.100', 'gray.700');
-  const subCol = useColorModeValue('gray.400', 'gray.500');
+  const subCol = useColorModeValue('gray.600', 'gray.400'); // QW10 — AA sobre blanco
 
   const trendUp      = trend > 0;
   const trendColor   = trend === undefined ? 'gray.400'
@@ -68,7 +69,7 @@ const StatCard = ({
       <Flex justify="space-between" align="center">
         <Flex align="center" gap={1}>
           <Text
-            fontSize="10px"
+            fontSize="xs"
             fontWeight="semibold"
             color={subCol}
             textTransform="uppercase"
@@ -128,7 +129,9 @@ const StatCard = ({
       {/* Sparkline */}
       {!compacto && sparkData.length > 1 && (
         <Box h="30px" mx={-1}>
-          <Sparkline data={sparkData} color={sparkColor} height={30} />
+          <React.Suspense fallback={null}>
+            <Sparkline data={sparkData} color={sparkColor} height={30} />
+          </React.Suspense>
         </Box>
       )}
 

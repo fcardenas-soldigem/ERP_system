@@ -23,19 +23,38 @@ _REFRESH_COOKIE_MAX_AGE = int(
 )
 
 
+# 0.3 — MISMO ORIGEN: el navegador llama a erp.soldigem.com.pe/api/… y Vercel
+# reenvía a Cloud Run (rewrite en frontend/vercel.json). La cookie la emite,
+# a ojos del navegador, erp.soldigem.com.pe → first-party: Safari iOS ya no la
+# descarta al reabrir la PWA (con None + Cloud Run cross-site la bloqueaba).
+# Sin Domain (host-only), SameSite=Lax, Secure, y solo viaja a /api/.
+REFRESH_COOKIE_PATH = '/api/'
+
+
+def _cookie_kwargs():
+    return dict(
+        httponly=True,
+        secure=not settings.DEBUG,
+        samesite='Lax',
+        path=REFRESH_COOKIE_PATH,
+    )
+
+
 def _set_refresh_cookie(response, refresh_token_str):
-    # SameSite=None requires Secure=True (browsers reject None+Secure=False since Chrome 80).
-    # In dev (DEBUG=True) we use Lax+Secure=False so localhost works without HTTPS.
-    # In prod (DEBUG=False) we use None+Secure=True for cross-domain Vercel→Cloud Run.
-    is_prod = not settings.DEBUG
     response.set_cookie(
         'refresh_token',
         refresh_token_str,
-        httponly=True,
-        secure=is_prod,
-        samesite='None' if is_prod else 'Lax',
         max_age=_REFRESH_COOKIE_MAX_AGE,
+        **_cookie_kwargs(),
     )
+
+
+def _delete_refresh_cookie(response):
+    # mismo path/samesite que al crearla; si difieren, el navegador no la borra
+    kw = _cookie_kwargs()
+    response.delete_cookie('refresh_token', path=kw['path'], samesite=kw['samesite'])
+    # (la cookie de la sesión anterior vivía en el host *.run.app: el
+    # navegador nunca la envía a erp.soldigem.com.pe, no hay que borrarla)
 
 
 class CookieTokenObtainPairView(TokenObtainPairView):
@@ -82,14 +101,14 @@ class CookieTokenRefreshView(APIView):
                 {'error': 'Token inválido o expirado'},
                 status=status.HTTP_401_UNAUTHORIZED,
             )
-            response.delete_cookie('refresh_token')
+            _delete_refresh_cookie(response)
             return response
         except User.DoesNotExist:
             response = Response(
                 {'error': 'Usuario no encontrado'},
                 status=status.HTTP_401_UNAUTHORIZED,
             )
-            response.delete_cookie('refresh_token')
+            _delete_refresh_cookie(response)
             return response
 
 
@@ -149,7 +168,7 @@ class LogoutView(APIView):
         refresh_token_str = request.data.get('refresh') or request.COOKIES.get('refresh_token')
 
         response = Response({'message': 'Sesión cerrada correctamente'})
-        response.delete_cookie('refresh_token')
+        _delete_refresh_cookie(response)
 
         if not refresh_token_str:
             return response

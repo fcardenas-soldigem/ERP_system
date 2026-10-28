@@ -10,7 +10,6 @@ import {
   FaPlus, FaTrash, FaFilePdf, FaArrowLeft, FaSave, FaSearch,
   FaFileExcel, FaDownload, FaUpload, FaTools, FaChevronDown, FaChevronUp,
 } from 'react-icons/fa';
-import * as XLSX from 'xlsx';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import useConsultaDocumentos from '../../hooks/useConsultaDocumentos';
@@ -411,11 +410,13 @@ const CotizacionServiciosForm = () => {
       if (id) {
         await cotizacionesService.update(id, buildPayload());
         toast({ title: 'Cotización actualizada', status: 'success', duration: 3000 });
+        navigate(`/app/cotizaciones/${id}`);
       } else {
-        await cotizacionesService.create(buildPayload());
+        // QW6 — directo al detalle: ahí viven Exportar PDF y "Marcar como enviada"
+        const creada = await cotizacionesService.create(buildPayload());
         toast({ title: 'Cotización creada', status: 'success', duration: 3000 });
+        navigate(creada?.id ? `/app/cotizaciones/${creada.id}` : '/app/cotizaciones');
       }
-      navigate('/app/cotizaciones');
     } catch (e) {
       toast({ title: 'Error al guardar', description: parseErrorMsg(e), status: 'error', duration: 8000 });
     } finally { setLoading(false); }
@@ -466,7 +467,9 @@ const CotizacionServiciosForm = () => {
   };
 
   // ── Excel template ──
-  const handleDownloadTemplate = () => {
+  const handleDownloadTemplate = async () => {
+    // 0.6 — xlsx (425 KB) se carga solo al usarlo
+    const XLSX = await import('xlsx');
     const headers = [['numero_serie', 'modelo', 'trabajo', 'cantidad', 'valor_unitario']];
     const example = [
       ['5CD208KGPM', 'LAPTOP HP 640-G8', 'Mantenimiento de hardware', 1, 95],
@@ -490,7 +493,9 @@ const CotizacionServiciosForm = () => {
     e.target.value = '';
 
     const reader = new FileReader();
-    reader.onload = (evt) => {
+    reader.onload = async (evt) => {
+      // 0.6 — xlsx (425 KB) se carga solo al usarlo
+      const XLSX = await import('xlsx');
       try {
         const wb = XLSX.read(evt.target.result, { type: 'array' });
         const ws = wb.Sheets[wb.SheetNames[0]];

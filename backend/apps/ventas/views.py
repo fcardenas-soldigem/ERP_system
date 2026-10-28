@@ -18,7 +18,7 @@ from django.http import HttpResponse
 from django.shortcuts import render
 from rest_framework import viewsets, permissions
 from rest_framework.permissions import IsAuthenticated
-from apps.core.permissions import HasEmpresaPermission
+from apps.core.permissions import HasEmpresaPermission, RolEscritura
 from django.db import transaction
 from apps.inventario.models import Stock
 from apps.inventario.models.producto import Producto
@@ -42,17 +42,8 @@ class VentaPagination(PageNumberPagination):
     page_size_query_param = 'page_size'
     max_page_size = 100
 
-class VentaListCreateView(generics.ListCreateAPIView):
-    queryset = Venta.objects.all()
-    serializer_class = VentaSerializer
-    pagination_class = VentaPagination
-
-class VentaRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
-    queryset = Venta.objects.all()
-    serializer_class = VentaSerializer
-
 class ResumenVentasMensual(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, RolEscritura]
 
     def get(self, request):
         # Lógica para el resumen mensual
@@ -70,7 +61,7 @@ def resumen_mensual(request):
 
 class ClienteViewSet(viewsets.ModelViewSet):
     serializer_class = ClienteSerializer
-    permission_classes = [IsAuthenticated, HasEmpresaPermission]
+    permission_classes = [IsAuthenticated, HasEmpresaPermission, RolEscritura]
 
     def get_queryset(self):
         if not self.request.user.empresa:
@@ -411,7 +402,7 @@ class ClienteViewSet(viewsets.ModelViewSet):
 
 class FacturaViewSet(viewsets.ModelViewSet):
     serializer_class = FacturaSerializer
-    permission_classes = [IsAuthenticated, HasEmpresaPermission]
+    permission_classes = [IsAuthenticated, HasEmpresaPermission, RolEscritura]
 
     def get_queryset(self):
         return Factura.objects.filter(
@@ -420,7 +411,7 @@ class FacturaViewSet(viewsets.ModelViewSet):
 
 class OrdenVentaViewSet(viewsets.ModelViewSet):
     serializer_class = OrdenVentaSerializer
-    permission_classes = [IsAuthenticated, HasEmpresaPermission]
+    permission_classes = [IsAuthenticated, HasEmpresaPermission, RolEscritura]
 
     def get_queryset(self):
         if not self.request.user.empresa:
@@ -433,7 +424,7 @@ class OrdenVentaViewSet(viewsets.ModelViewSet):
 class VentaViewSet(viewsets.ModelViewSet):
     queryset = Venta.objects.all()
     serializer_class = VentaSerializer
-    permission_classes = [IsAuthenticated, HasEmpresaPermission]
+    permission_classes = [IsAuthenticated, HasEmpresaPermission, RolEscritura]
     pagination_class = VentaPagination
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
@@ -1203,7 +1194,7 @@ class VentaViewSet(viewsets.ModelViewSet):
 class PagoVentaViewSet(viewsets.ModelViewSet):
     queryset = PagoVenta.objects.all()
     serializer_class = PagoVentaSerializer
-    permission_classes = [IsAuthenticated, HasEmpresaPermission]
+    permission_classes = [IsAuthenticated, HasEmpresaPermission, RolEscritura]
 
     def get_queryset(self):
         queryset = PagoVenta.objects.filter(venta__empresa=self.request.user.empresa)

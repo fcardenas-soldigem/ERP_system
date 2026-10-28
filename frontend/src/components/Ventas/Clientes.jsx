@@ -37,8 +37,10 @@ import { AddIcon, EditIcon, DeleteIcon, SearchIcon, AttachmentIcon } from '@chak
 import { clientesService } from '../../services/clientes.service';
 import useConsultaDocumentos from '../../hooks/useConsultaDocumentos';
 import ImportarClientes from './ImportarClientes';
+import { usePuedeEscribir } from '../../hooks/usePuedeEscribir';
 
 const Clientes = () => {
+  const puedeEscribir = usePuedeEscribir();
   const [clientes, setClientes] = useState([]);
   const [show, setShow] = useState(false);
   const [showImportar, setShowImportar] = useState(false);
@@ -273,12 +275,15 @@ const Clientes = () => {
             colorScheme="blue" 
             variant="outline"
             onClick={() => setShowImportar(true)}
+            display={puedeEscribir ? undefined : 'none'}
           >
             Importar Clientes
           </Button>
+          {puedeEscribir && (
           <Button leftIcon={<AddIcon />} colorScheme="teal" onClick={handleShow}>
             Agregar Cliente
           </Button>
+          )}
         </HStack>
       </Flex>
 

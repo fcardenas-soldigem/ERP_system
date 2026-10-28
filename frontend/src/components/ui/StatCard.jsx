@@ -12,7 +12,7 @@ const StatCard = ({ label, value, valueNode, sublabel, tooltip, accent, ...rest 
   return (
     <Box bg="white" border="1px solid" borderColor="neutral.200" borderRadius="lg" p={5} {...rest}>
       <HStack spacing={1} mb={2}>
-        <Text fontSize="10px" fontWeight="semibold" color="neutral.400"
+        <Text fontSize="xs" fontWeight="semibold" color="neutral.600"
               textTransform="uppercase" letterSpacing="wider">
           {label}
         </Text>

@@ -8,8 +8,17 @@ export const setAccessToken = (token) => { _accessToken = token; };
 export const getAccessToken = () => _accessToken;
 export const clearAccessToken = () => { _accessToken = null; };
 
+// 0.3 — MISMO ORIGEN. En prod VITE_API_URL va VACÍO: el navegador llama a
+// /api/… en erp.soldigem.com.pe y Vercel reenvía a Cloud Run (vercel.json).
+// OJO: no poner "/api" — las rutas ya empiezan con /api/ y quedaría /api/api/.
+// En local sigue apuntando a http://127.0.0.1:8000 (o vacío + proxy de Vite).
+const API_BASE_URL = import.meta.env.VITE_API_URL || '';
+// Binarios (subidas multipart y descargas blob): URL directa de Cloud Run.
+// Vacío = mismo destino que el resto (local).
+const UPLOAD_BASE_URL = import.meta.env.VITE_API_UPLOAD_URL || '';
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || '',
+  baseURL: API_BASE_URL,
   timeout: 30000,
   headers: {
     'Content-Type': 'application/json',
@@ -32,6 +41,17 @@ api.interceptors.request.use(
   (config) => {
     if (_accessToken) {
       config.headers.Authorization = `Bearer ${_accessToken}`;
+    }
+
+    // 0.3 — binarios DIRECTO a Cloud Run: subidas (hasta 10 MB) y descargas
+    // (PDF ~1,3 MB con logo, Excel sin tope). El rewrite de Vercel no documenta
+    // límite de body/respuesta; no dependemos de eso. Se autentican con el
+    // Bearer; no necesitan la cookie de refresh (que sigue yendo por /api/).
+    const esBinario = config.data instanceof FormData
+      || config.responseType === 'blob' || config.responseType === 'arraybuffer';
+    if (esBinario && UPLOAD_BASE_URL) {
+      config.baseURL = UPLOAD_BASE_URL;
+      config.withCredentials = false;
     }
 
     if (config.data instanceof FormData) {

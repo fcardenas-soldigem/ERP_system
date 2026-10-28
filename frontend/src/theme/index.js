@@ -287,7 +287,7 @@ const components = {
         th: {
           fontSize: 'xs',
           fontWeight: 'semibold',
-          color: 'neutral.500',
+          color: 'neutral.600',   // QW10 — AA (neutral.500 daba ~4.0:1 sobre neutral.50)
           textTransform: 'uppercase',
           letterSpacing: 'wide',
           bg: 'neutral.50',          // header gris claro

@@ -26,7 +26,6 @@ import {
 } from '@chakra-ui/react';
 import { DownloadIcon, ChevronDownIcon, SearchIcon } from '@chakra-ui/icons';
 import { Line } from 'react-chartjs-2';
-import * as XLSX from 'xlsx';
 import { inventarioService } from '../../services/inventario.service';
 
 const ValorInventario = () => {
@@ -94,7 +93,9 @@ const ValorInventario = () => {
     });
   };
 
-  const exportarExcel = () => {
+  const exportarExcel = async () => {
+  // 0.6 — xlsx (425 KB) se carga solo al usarlo
+  const XLSX = await import('xlsx');
     const dataToExport = items.map(item => ({
       'Ítem': item.producto__nombre,
       'Referencia': item.producto__codigo,

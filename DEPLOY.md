@@ -75,21 +75,22 @@ DIGEST=$(gcloud artifacts docker images describe $IMAGE:$TAG --format='value(ima
 echo "$IMAGE@$DIGEST"      # ← desplegar SIEMPRE por digest, no por tag
 ```
 
-Secretos (una sola vez; después solo `versions add`). Nombres en Secret Manager:
+Secretos (una sola vez; después solo `versions add`). En Secret Manager cada secreto
+se llama **igual que su variable, en mayúsculas** (convención de prod):
 
 | Secreto | Variable en el contenedor |
 |---|---|
-| `django-secret-key` | `DJANGO_SECRET_KEY` |
-| `jwt-signing-key` | `JWT_SIGNING_KEY` |
-| `apis-net-pe-token` | `APIS_NET_PE_TOKEN` |
-| `db-password` | `DB_PASSWORD` |
-| `redis-url` (opcional) | `REDIS_URL` |
+| `DJANGO_SECRET_KEY` | `DJANGO_SECRET_KEY` |
+| `JWT_SIGNING_KEY` | `JWT_SIGNING_KEY` |
+| `APIS_NET_PE_TOKEN` | `APIS_NET_PE_TOKEN` |
+| `DB_PASSWORD` | `DB_PASSWORD` |
+| `REDIS_URL` (opcional) | `REDIS_URL` |
 
 ```bash
 # Crear/rotar (lee de stdin; nunca del historial):
-read -s -p "valor: " V && echo -n "$V" | gcloud secrets versions add django-secret-key --data-file=- ; unset V
+read -s -p "valor: " V && echo -n "$V" | gcloud secrets versions add DJANGO_SECRET_KEY --data-file=- ; unset V
 # Permiso de lectura para la SA del servicio (una vez por secreto):
-gcloud secrets add-iam-policy-binding django-secret-key \
+gcloud secrets add-iam-policy-binding DJANGO_SECRET_KEY \
   --member="serviceAccount:25656632090-compute@developer.gserviceaccount.com" --role=roles/secretmanager.secretAccessor
 ```
 
@@ -99,8 +100,8 @@ Variables **no secretas** (van con `--set-env-vars` o un archivo YAML fuera del 
 defecto con `DJANGO_DEBUG=False`; se deja explícito).
 
 ```bash
-export SECRETS="DJANGO_SECRET_KEY=django-secret-key:latest,JWT_SIGNING_KEY=jwt-signing-key:latest,APIS_NET_PE_TOKEN=apis-net-pe-token:latest,DB_PASSWORD=db-password:latest"
-# Si hay Redis:  SECRETS="$SECRETS,REDIS_URL=redis-url:latest"
+export SECRETS="DJANGO_SECRET_KEY=DJANGO_SECRET_KEY:latest,JWT_SIGNING_KEY=JWT_SIGNING_KEY:latest,APIS_NET_PE_TOKEN=APIS_NET_PE_TOKEN:latest,DB_PASSWORD=DB_PASSWORD:latest"
+# Si hay Redis:  SECRETS="$SECRETS,REDIS_URL=REDIS_URL:latest"
 # El asistente IA (Jorge, ventas, compras) NO usa secretos: ver §3.1 (Vertex AI + ADC).
 ```
 
@@ -130,7 +131,7 @@ Archivo `/tmp/erp-env-vars.yaml` completo (valores no secretos; sustituir solo `
 
 ```yaml
 DJANGO_DEBUG: "False"
-DJANGO_ALLOWED_HOSTS: "erp-backend-25656632090.southamerica-west1.run.app,api.soldigem.com.pe"
+DJANGO_ALLOWED_HOSTS: "erp-backend-25656632090.southamerica-west1.run.app,erp.soldigem.com.pe"
 CORS_ALLOWED_ORIGINS: "https://erp.soldigem.com.pe"
 DB_NAME: "postgres"
 DB_USER: "<usuario de Supabase>"
@@ -152,8 +153,8 @@ LLM_WRITE_TOOLS: "false"
 Secretos (Secret Manager → variable), sin ninguna clave de IA:
 
 ```bash
-export SECRETS="DJANGO_SECRET_KEY=django-secret-key:latest,JWT_SIGNING_KEY=jwt-signing-key:latest,APIS_NET_PE_TOKEN=apis-net-pe-token:latest,DB_PASSWORD=db-password:latest"
-# Si hay Redis:  SECRETS="$SECRETS,REDIS_URL=redis-url:latest"
+export SECRETS="DJANGO_SECRET_KEY=DJANGO_SECRET_KEY:latest,JWT_SIGNING_KEY=JWT_SIGNING_KEY:latest,APIS_NET_PE_TOKEN=APIS_NET_PE_TOKEN:latest,DB_PASSWORD=DB_PASSWORD:latest"
+# Si hay Redis:  SECRETS="$SECRETS,REDIS_URL=REDIS_URL:latest"
 ```
 
 Variables que **dejan de existir** y hay que quitar del servicio y de Secret Manager
@@ -319,3 +320,182 @@ filas existentes: ninguno (el login ya no asigna empresa a usuarios huérfanos; 
 prod existiera un usuario con `empresa=NULL`, dejará de poder entrar hasta asignarle
 empresa en el admin — revisar con `SELECT id FROM authentication_customuser WHERE empresa_id IS NULL;`
 antes del deploy).
+
+## 10. Sesión en iPhone — MISMO ORIGEN vía rewrite de Vercel (0.3, revisado)
+
+> Reemplaza el esquema anterior con un subdominio propio para la API:
+> verificado en prod que ese subdominio responde `DEPLOYMENT_NOT_FOUND` de
+> Vercel y **no llega al backend**. No crear dominios aparte para la API.
+
+### Esquema
+
+```
+navegador ──► https://erp.soldigem.com.pe/api/…   (mismo origen que el SPA)
+                 │  rewrite de Vercel (frontend/vercel.json)
+                 ▼
+              https://erp-backend-25656632090.southamerica-west1.run.app/api/…
+
+navegador ──► Cloud Run DIRECTO solo para binarios (subidas y descargas PDF/Excel),
+              autenticados con Bearer, sin cookie.
+
+Telegram  ──► Cloud Run DIRECTO (/api/canales/telegram/)
+```
+
+La cookie `refresh_token` la emite, a ojos del navegador, `erp.soldigem.com.pe`:
+es **first-party**, y Safari iOS deja de descartarla al reabrir la PWA.
+
+### Qué cambia en Vercel (proyecto del ERP)
+
+| Variable | Valor | Nota |
+|---|---|---|
+| `VITE_API_URL` | **vacío** (borrar la variable o dejarla en blanco) | NO `"/api"`: las rutas ya empiezan con `/api/` y quedaría `/api/api/` |
+| `VITE_API_UPLOAD_URL` | `https://erp-backend-25656632090.southamerica-west1.run.app` | nueva: subidas y descargas binarias directo |
+
+Las dos se inyectan en build: **requieren redeploy del frontend**.
+
+`frontend/vercel.json` (ya en la rama):
+- rewrite `/api/(.*)` → `https://erp-backend-…run.app/api/$1` **antes** del
+  catch-all del SPA. Se usa `(.*)`→`$1` y no `/api/:path*`: `:path*` no captura la
+  barra final y Django (`APPEND_SLASH`) respondería 301 a los POST sin barra.
+- cabecera `x-vercel-enable-rewrite-caching: 0` en `/api/(.*)`: las respuestas
+  de la API son por usuario y empresa; la CDN **nunca** debe cachearlas (los
+  proyectos de Vercel creados desde abril de 2026 cachean rewrites externos por
+  defecto según las cabeceras del origen).
+
+### Qué cambia en Cloud Run (backend)
+
+| Variable | Valor | Por qué |
+|---|---|---|
+| `DJANGO_ALLOWED_HOSTS` | `erp-backend-25656632090.southamerica-west1.run.app,erp.soldigem.com.pe` | Vercel reenvía `X-Forwarded-Host: erp.soldigem.com.pe` y `USE_X_FORWARDED_HOST=True` hace que Django valide **ese** host: sin él, todo `/api/` por el rewrite da 400 (`DisallowedHost`). Probado en `tests/test_mismo_origen.py` |
+| `REFRESH_COOKIE_DOMAIN` | **eliminar** si quedó de una versión anterior | ya no existe: la cookie es host-only por diseño |
+| `API_BASE_URL` | `https://erp.soldigem.com.pe` (es el default) | base de los links firmados al PDF que comparte el bot |
+
+Sin cambios, verificados: `CORS_ALLOWED_ORIGINS=https://erp.soldigem.com.pe`
+(lo usan los binarios directos; se añadió `CORS_EXPOSE_HEADERS=content-disposition`
+para que el Excel conserve su nombre) y `CSRF_TRUSTED_ORIGINS` (ya lista
+`https://erp.soldigem.com.pe`, settings.py).
+
+### Cookie `refresh_token`
+
+`HttpOnly; Secure; SameSite=Lax; Path=/api/` y **sin `Domain`** (host-only de
+erp.soldigem.com.pe). `apps/authentication/views.py::_cookie_kwargs`.
+Login, refresh y logout usan los mismos atributos (si el path difiere, el
+navegador no la borra).
+
+### Límites de Vercel para el rewrite (docs oficiales, verificado 2026-10-27)
+
+| Límite | Valor | Fuente | Impacto |
+|---|---|---|---|
+| Timeout del proxy | **120 s** (todos los planes) | vercel.com/docs/limits → «Proxied request timeout» | Holgado para el JSON de la API. Error si se excede: `ROUTER_EXTERNAL_TARGET_ERROR` |
+| Body de request / respuesta en rewrites externos | **No documentado** | vercel.com/docs/rewrites no lo menciona; el 4,5 MB conocido es de Vercel Functions | Por eso los binarios **no** pasan por el rewrite |
+
+Medido en local: PDF de cotización ≈ 3 KB sin logo y ≈ 1,3 MB con logo. Las
+subidas admiten hasta 10 MB y las exportaciones Excel no tienen tope →
+`frontend/src/lib/api.js` manda **todo** request con `FormData` o
+`responseType: 'blob'|'arraybuffer'` a `VITE_API_UPLOAD_URL`. Excepción: el link
+firmado al PDF que comparte el bot se abre en el navegador vía
+`erp.soldigem.com.pe` (≈ 1,3 MB, GET simple).
+
+### Webhook de Telegram
+
+Se registra contra **Cloud Run directo**, nunca contra erp.soldigem.com.pe:
+
+```
+python manage.py telegram_set_webhook \
+    --url https://erp-backend-25656632090.southamerica-west1.run.app
+```
+
+El comando rechaza cualquier host que no sea `*.run.app` (salvo `--forzar`).
+
+### Prueba manual post-deploy
+1. iPhone real: login → cerrar la PWA → reabrir → sigue dentro.
+2. DevTools en erp.soldigem.com.pe: `refresh_token` con `Path=/api/; Secure;
+   HttpOnly; SameSite=Lax`, sin `Domain`. Las llamadas JSON salen a
+   `erp.soldigem.com.pe/api/…`.
+3. Subir un comprobante de ~9 MB y exportar el Excel de ventas: salen a
+   `…run.app` y el Excel conserva su nombre.
+4. `curl -sI https://erp.soldigem.com.pe/api/core/tipo-cambio/` → responde
+   Django (no el `index.html` del SPA).
+5. Ver que ninguna respuesta de `/api/` trae `x-vercel-cache: HIT`.
+
+**Efecto en sesiones activas:** la cookie vieja vivía en el host `*.run.app`;
+todos los usuarios hacen **un** login extra tras este deploy.
+
+## 11. Pre-deploy de `feat/agente-canales` (incluye `fix/review-movil`)
+
+**Supuesto:** prod = `main` (cuadra con la última migración de `ai_assistant` en
+prod, `0005`, que es la de `main`). Confirmarlo antes con el plan:
+`gcloud run jobs update erp-migrate ... --args manage.py,migrate,--plan` → execute.
+
+### Migraciones que corren en prod
+
+Plan verificado contra un clon **de solo lectura** del esquema y de
+`django_migrations` de prod (`pg_dump`, cargado en una BD local aparte):
+
+| Migración | Qué hace | Reversible |
+|---|---|---|
+| `authentication.0003_simplificar_roles` | **Datos**: `readonly`→`solo_lectura`; `comercial`/`produccion`/`almacen`/`contador`/`personalizado`→`operador`; `admin` igual. Salvaguardas: superusuarios e `is_staff` → `admin`; toda empresa sin admin activo asciende a su usuario activo más antiguo. Default nuevo: `operador` | Sí, **con pérdida** (vuelve como `readonly`/`comercial`; los ascendidos quedan `admin`) |
+| `canales.0001_initial` | 3 tablas nuevas: `VinculacionTelegram`, `UpdateProcesado`, `BorradorAgente` | Sí (`migrate canales zero`) |
+| `empresas.0009_uuid_default_en_bd` | `DEFAULT gen_random_uuid()` en `empresas_empresa.uuid`. En prod ya existe: no cambia nada | No-op atrás |
+| `compras.0026_proveedor_telefono_como_el_modelo` | **Bug de prod**: `compras_proveedor.telefono` es `varchar(9) NOT NULL`; el modelo dice `max_length=15, null=True`. Hoy crear un proveedor sin teléfono da 500. Ensancha y quita NOT NULL, sin tocar filas | No-op atrás |
+
+`compras.0002_squashed_0009_reparacion_bd_limpia` **no corre en prod**: tiene
+`replaces` de 0002…0009, que prod ya tiene aplicadas, así que Django la da por
+aplicada. Solo se usa al crear una BD desde cero. Las migraciones 0002, 0003,
+0007 y 0009 están **idénticas a `main`** (ninguna migración aplicada en prod se
+edita). Esquema BD limpia vs. prod tras migrar: idéntico (columnas, tipos,
+nulabilidad, defaults, restricciones e índices).
+
+**Antes de migrar:** `SELECT rol, is_superuser, count(*) FROM authentication_customuser GROUP BY 1,2;`
+**Después:** `SELECT e.id, e.nombre FROM empresas_empresa e WHERE NOT EXISTS (SELECT 1 FROM authentication_customuser u WHERE u.empresa_id=e.id AND u.rol='admin' AND u.is_active) AND EXISTS (SELECT 1 FROM authentication_customuser u WHERE u.empresa_id=e.id);` → 0 filas.
+
+Derivas de prod que esta rama **no** corrige (necesitan revisar datos antes):
+- `compras_compra` sin `unique (empresa_id, numero)` (0008 figura aplicada pero no corrió): se admiten números de compra duplicados.
+- `compras_comprarecurrente` conserva columnas `NOT NULL` que el modelo ya no tiene (tabla sin uso, 0 filas).
+
+`feat/registro-piloto` **no está en prod ni en `main`** (prod no tiene ninguna
+migración de la app `registro`). No se mezcla en esta rama.
+
+### Cloud Run — variables y secretos
+
+| Tipo | Nombre | Valor |
+|---|---|---|
+| Secreto **nuevo** | `TG_BOT_TOKEN` | token de @BotFather → secreto `TG_BOT_TOKEN` |
+| Secreto **nuevo** | `TG_WEBHOOK_SECRET` | `openssl rand -hex 32` → secreto `TG_WEBHOOK_SECRET` |
+| Variable **nueva** | `TG_BOT_USERNAME` | usuario del bot, sin `@` |
+| Variable **cambia** | `DJANGO_ALLOWED_HOSTS` | `erp-backend-25656632090.southamerica-west1.run.app,erp.soldigem.com.pe` |
+| Variable opcional | `API_BASE_URL` | default `https://erp.soldigem.com.pe` (links al PDF) |
+| Variable opcional | `CANALES_LIMITE_MENSAJES_EMPRESA_DIA` / `CANALES_LIMITE_TOKENS_EMPRESA_DIA` | default `1000` / `300000` |
+| **Borrar** si existe | `REFRESH_COOKIE_DOMAIN` | ya no se usa |
+
+```bash
+printf '%s' '<token de BotFather>' | gcloud secrets create TG_BOT_TOKEN --data-file=-
+openssl rand -hex 32 | tr -d '\n' | gcloud secrets create TG_WEBHOOK_SECRET --data-file=-
+for S in TG_BOT_TOKEN TG_WEBHOOK_SECRET; do
+  gcloud secrets add-iam-policy-binding $S \
+    --member="serviceAccount:25656632090-compute@developer.gserviceaccount.com" \
+    --role=roles/secretmanager.secretAccessor
+done
+export SECRETS="$SECRETS,TG_BOT_TOKEN=TG_BOT_TOKEN:latest,TG_WEBHOOK_SECRET=TG_WEBHOOK_SECRET:latest"
+```
+
+### Vercel — ver §10
+`VITE_API_URL` = **vacío**; `VITE_API_UPLOAD_URL` =
+`https://erp-backend-25656632090.southamerica-west1.run.app`. Redeploy del frontend.
+
+### Registrar el webhook (Cloud Run Job, una vez; después de desplegar el backend)
+
+```bash
+gcloud run jobs create erp-telegram-webhook \
+  --image "$IMAGE@$DIGEST" --region $REGION \
+  --command python \
+  --args manage.py,telegram_set_webhook,--url,https://erp-backend-25656632090.southamerica-west1.run.app \
+  --env-vars-file /tmp/erp-env-vars.yaml --set-secrets "$SECRETS" \
+  --max-retries 0 --task-timeout 2m
+
+gcloud run jobs execute erp-telegram-webhook --region $REGION --wait
+```
+
+Contra la URL **directa de Cloud Run** (el comando rechaza cualquier host que no
+sea `*.run.app`). Comprobar: `curl -s "https://api.telegram.org/bot<TOKEN>/getWebhookInfo"`
+→ `url` termina en `/api/canales/telegram/` y `last_error_message` vacío.

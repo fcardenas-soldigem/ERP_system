@@ -3,6 +3,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
+from apps.core.permissions import RolEscritura
 from django.db.models import Q, Sum, Count, Avg, F, ExpressionWrapper, FloatField
 from django.utils import timezone
 from datetime import timedelta
@@ -29,7 +30,7 @@ class RecetaProductoViewSet(viewsets.ModelViewSet):
     """
     ViewSet para gestionar recetas de producción (BOM).
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, RolEscritura]
     
     def get_queryset(self):
         """Filtrar recetas por empresa del usuario"""
@@ -131,7 +132,7 @@ class OrdenProduccionViewSet(viewsets.ModelViewSet):
     """
     ViewSet para gestionar órdenes de producción.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, RolEscritura]
     
     def get_queryset(self):
         """Filtrar órdenes por empresa del usuario"""
@@ -321,7 +322,7 @@ class DashboardProduccionView(APIView):
     """
     Vista para el dashboard de producción con métricas operativas y de eficiencia.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, RolEscritura]
     
     def get(self, request):
         empresa = request.user.empresa

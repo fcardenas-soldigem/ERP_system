@@ -47,10 +47,12 @@ import CrearProductosCotizacionModal from './CrearProductosCotizacionModal';
 import ConversionResultModal from './ConversionResultModal';
 import RechazoModal from './RechazoModal';
 import { useSearchParams } from 'react-router-dom';
+import { usePuedeEscribir } from '../../hooks/usePuedeEscribir';
 
 const PAGE_SIZE = 20;
 
 const CotizacionList = () => {
+  const puedeEscribir = usePuedeEscribir();
   const [cotizaciones, setCotizaciones] = useState([]);
   const [loading, setLoading] = useState(true);
   const [paginacion, setPaginacion] = useState({
@@ -251,6 +253,7 @@ const CotizacionList = () => {
     <Box p={6}>
       <Flex justify="space-between" align="center" mb={6}>
         <Heading size="lg">Cotizaciones</Heading>
+        {puedeEscribir && (
         <HStack spacing={2}>
           <Button
             leftIcon={<FaTools />}
@@ -267,6 +270,7 @@ const CotizacionList = () => {
             Nueva Cotización
           </Button>
         </HStack>
+        )}
       </Flex>
 
       {/* Filtros */}
@@ -323,7 +327,12 @@ const CotizacionList = () => {
             </Thead>
             <Tbody>
               {cotizaciones.map((cotizacion) => (
-                <Tr key={cotizacion.id} _hover={{ bg: 'gray.50' }}>
+                <Tr
+                  key={cotizacion.id}
+                  _hover={{ bg: 'gray.50' }}
+                  cursor="pointer"
+                  onClick={() => navigate(`/app/cotizaciones/${cotizacion.id}`)}
+                >
                   <Td fontWeight="bold">{cotizacion.numero}</Td>
                   <Td>{cotizacion.cliente_nombre}</Td>
                   <Td maxW="300px" isTruncated>{cotizacion.asunto}</Td>
@@ -340,7 +349,8 @@ const CotizacionList = () => {
                   <Td isNumeric fontWeight="bold">
                     {cotizacion.moneda === 'PEN' ? 'S/' : '$'} {parseFloat(cotizacion.total || 0).toFixed(2)}
                   </Td>
-                  <Td>
+                  {/* stopPropagation: las acciones no deben abrir el detalle (CLAUDE.md) */}
+                  <Td onClick={(e) => e.stopPropagation()} cursor="default">
                     <HStack spacing={1}>
                       <Tooltip label="Exportar PDF" hasArrow>
                         <IconButton

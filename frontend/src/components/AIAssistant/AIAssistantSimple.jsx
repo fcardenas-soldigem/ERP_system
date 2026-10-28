@@ -3,6 +3,13 @@ import { Box, VStack, Input, Button, Text, Flex, useToast, HStack, Badge, IconBu
 import { AddIcon, RepeatIcon } from '@chakra-ui/icons';
 import { aiService } from '../../services/ai.service';
 
+// QW8 — mismas preguntas que ofrece el saludo de Jorge, ahora tocables
+const EJEMPLOS = [
+    '¿Cómo van las ventas este mes?',
+    '¿Qué productos tienen stock bajo?',
+    '¿Quiénes son mis mejores clientes?',
+];
+
 const AIAssistantSimple = () => {
     const [messages, setMessages] = useState([]);
     const [input, setInput] = useState('');
@@ -64,15 +71,6 @@ const AIAssistantSimple = () => {
                 setMessages(formattedMessages);
                 console.log('✅ Mensajes cargados:', formattedMessages.length);
                 
-                if (result.isExisting) {
-                    toast({
-                        title: '📖 Conversación Cargada',
-                        description: `Se cargaron ${formattedMessages.length} mensajes de tu conversación anterior`,
-                        status: 'info',
-                        duration: 3000,
-                        isClosable: true,
-                    });
-                }
             }
             
         } catch (error) {
@@ -140,13 +138,13 @@ const AIAssistantSimple = () => {
         }
     };
 
-    const sendMessage = async () => {
-        if (!input.trim() || !threadId || isLoading) {
-            console.log('❌ Validación falló:', { input: input.trim(), threadId, isLoading });
+    const sendMessage = async (texto) => {
+        const userMessage = (typeof texto === 'string' ? texto : input).trim();
+        if (!userMessage || !threadId || isLoading) {
+            console.log('❌ Validación falló:', { userMessage, threadId, isLoading });
             return;
         }
 
-        const userMessage = input;
         console.log('📤 Enviando CON TOOLS:', userMessage);
         
         // Limpiar input y mostrar mensaje del usuario
@@ -165,13 +163,12 @@ const AIAssistantSimple = () => {
             }
         } catch (error) {
             console.error('❌ Error enviando mensaje:', error);
-            toast({
-                title: 'Error',
-                description: 'No se pudo enviar el mensaje',
-                status: 'error',
-                duration: 3000,
-                isClosable: true,
-            });
+            const detalle = error?.response?.data?.detail
+                || (error?.response?.status >= 500
+                    ? 'Jorge tuvo un problema en el servidor. Inténtalo de nuevo en un momento.'
+                    : (!error?.response ? 'Sin conexión con el servidor.' : 'No se pudo enviar el mensaje.'));
+            // burbuja de error en el chat: un toast de 3 s se pierde
+            setMessages(prev => [...prev, { role: 'error', content: detalle }]);
         } finally {
             setIsLoading(false);
         }
@@ -189,6 +186,11 @@ const AIAssistantSimple = () => {
         console.log('🖱️ Botón clickeado');
         sendMessage();
     };
+
+    // **texto** → <strong>, sin librerías (el modelo responde markdown simple)
+    const renderNegritas = (texto) => String(texto).split('**').map((parte, i) => (
+        i % 2 === 1 ? <Text as="strong" key={i}>{parte}</Text> : <React.Fragment key={i}>{parte}</React.Fragment>
+    ));
 
     console.log('🎨 Render - messages:', messages.length, 'threadId:', !!threadId);
 
@@ -268,15 +270,15 @@ const AIAssistantSimple = () => {
                                 >
                                     <Box
                                         maxW="80%"
-                                        bg={message.role === 'user' ? 'blue.500' : 'white'}
-                                        color={message.role === 'user' ? 'white' : 'black'}
+                                        bg={message.role === 'user' ? 'blue.500' : message.role === 'error' ? 'red.50' : 'white'}
+                                        color={message.role === 'user' ? 'white' : message.role === 'error' ? 'red.700' : 'black'}
                                         p={3}
                                         borderRadius="lg"
                                         boxShadow="md"
-                                        borderWidth={message.role === 'assistant' ? 1 : 0}
-                                        borderColor="gray.200"
+                                        borderWidth={message.role === 'user' ? 0 : 1}
+                                        borderColor={message.role === 'error' ? 'red.200' : 'gray.200'}
                                     >
-                                        <Text whiteSpace="pre-wrap">{message.content}</Text>
+                                        <Text whiteSpace="pre-wrap">{renderNegritas(message.content)}</Text>
                                     </Box>
                                 </Flex>
                             ))}
@@ -298,6 +300,25 @@ const AIAssistantSimple = () => {
                         </Flex>
                     )}
                 </Box>
+
+                {/* QW8 — ejemplos tocables mientras no hay conversación */}
+                {messages.length <= 1 && !isLoading && !isLoadingMessages && (
+                    <HStack w="full" spacing={2} flexWrap="wrap" rowGap={2}>
+                        {EJEMPLOS.map((ej) => (
+                            <Button
+                                key={ej}
+                                size="sm"
+                                variant="outline"
+                                colorScheme="blue"
+                                borderRadius="full"
+                                minH="40px"
+                                onClick={() => sendMessage(ej)}
+                            >
+                                {ej}
+                            </Button>
+                        ))}
+                    </HStack>
+                )}
 
                 {/* Input area */}
                 <HStack w="full" spacing={2}>

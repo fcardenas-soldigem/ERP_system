@@ -19,20 +19,18 @@ class CustomUser(AbstractUser):
         related_name='usuarios'
     )
 
+    # Tres roles, sin matices: la defensa real vive en el backend
+    # (core.permissions.RolEscritura). solo_lectura no puede escribir nada.
     ROL_CHOICES = [
         ('admin', 'Administrador'),
-        ('comercial', 'Staff Comercial'),
-        ('produccion', 'Staff Producción'),
-        ('almacen', 'Almacén'),
-        ('contador', 'Contador'),
-        ('readonly', 'Solo Lectura'),
-        ('personalizado', 'Personalizado'),
+        ('operador', 'Operador'),
+        ('solo_lectura', 'Solo lectura'),
     ]
     rol = models.CharField(
         max_length=20,
         choices=ROL_CHOICES,
-        default='readonly',
-        help_text='Rol principal del usuario. Usa "personalizado" para permisos granulares.',
+        default='operador',
+        help_text='admin: todo; operador: trabaja con documentos; solo_lectura: solo consulta.',
     )
 
     USERNAME_FIELD = 'email'

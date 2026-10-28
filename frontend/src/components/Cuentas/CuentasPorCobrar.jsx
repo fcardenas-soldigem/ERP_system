@@ -36,8 +36,10 @@ import { ventasService } from '../../services/ventas.service';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useNavigate } from 'react-router-dom';
+import { usePuedeEscribir } from '../../hooks/usePuedeEscribir';
 
 const CuentasPorCobrar = () => {
+  const puedeEscribir = usePuedeEscribir();
   const [page, setPage] = useState(1);
   const pageSize = 10;
   const navigate = useNavigate();
@@ -48,7 +50,12 @@ const CuentasPorCobrar = () => {
   const { data: ventasResponse, isLoading, error } = useQuery({
     queryKey: ['ventas-pendientes', page],
     queryFn: () => ventasService.getVentasPendientes(),
-    refetchInterval: 5000 // Refrescar cada 5 segundos
+    // 0.4 — sin polling: se refresca al entrar, al volver a primer plano y
+    // tras registrar un cobro (invalidación por key). 5 s de intervalo eran
+    // ~720 peticiones/hora con la pantalla abierta (datos móviles y batería).
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true
   });
 
   // Extraer ventas del response
@@ -213,6 +220,7 @@ const CuentasPorCobrar = () => {
                             onClick={() => navigate(`/app/ventas/${venta.id}`)}
                           />
                         </Tooltip>
+                        {puedeEscribir && (
                         <Button
                           size="sm"
                           colorScheme="green"
@@ -221,6 +229,7 @@ const CuentasPorCobrar = () => {
                         >
                           Registrar Pago
                         </Button>
+                        )}
                       </HStack>
                     </Td>
                   </Tr>

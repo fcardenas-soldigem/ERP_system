@@ -1,0 +1,492 @@
+"""
+Servicios del núcleo (B5): entrada pydantic, salida dict compacta (va directa
+al mensaje del bot). TODOS acotados a `usuario.empresa` por el servidor.
+
+Los que ESCRIBEN no escriben: devuelven la propuesta con la que el orquestador
+crea un BorradorAgente. El documento real solo nace en confirmar_borrador().
+"""
+import logging
+import re
+from decimal import Decimal
+from types import SimpleNamespace
+
+from django.db.models import Q
+from django.utils import timezone
+from django.utils.html import escape
+import datetime as _dt
+
+from apps.ventas.models import Cliente, Venta
+from apps.inventario.models.producto import Producto
+
+from . import busqueda
+from . import esquemas as E
+
+logger = logging.getLogger(__name__)
+
+
+def _num(n):
+    return f'{Decimal(n):,.2f}'
+
+
+def _simbolo(moneda):
+    return 'S/' if (moneda or 'PEN') == 'PEN' else '$'
+
+
+# ── búsquedas ─────────────────────────────────────────────────────────────────
+
+def buscar_cliente(usuario, entrada: E.BuscarCliente):
+    q = entrada.query.strip()
+    qs = Cliente.objects.filter(empresa=usuario.empresa).filter(
+        Q(nombre__icontains=q) | Q(documento__icontains=q)
+    )[:5]
+    return {
+        'clientes': [
+            {'id': c.id, 'nombre': c.nombre, 'documento': c.documento, 'telefono': c.telefono or ''}
+            for c in qs
+        ],
+    }
+
+
+def _ultimas_compras(empresa, ids):
+    """{producto_id: (costo, proveedor)} de la última compra NO borrador ni
+    anulada; una sola consulta para todos los ids."""
+    from apps.compras.models import CompraDetalle
+    out = {}
+    filas = (CompraDetalle.objects
+             .filter(producto_id__in=ids, compra__empresa=empresa)
+             .exclude(compra__estado__in=('borrador', 'anulada'))
+             .order_by('producto_id', '-compra__fecha_emision', '-id')
+             .values_list('producto_id', 'precio_unitario', 'compra__proveedor__razon_social'))
+    for pid, costo, proveedor in filas:
+        out.setdefault(pid, (costo, proveedor or ''))
+    return out
+
+
+def buscar_producto(usuario, entrada: E.BuscarProducto):
+    """Una tool por intención: TODO lo que se pregunta de un producto (precio,
+    stock, último costo, proveedor). Reemplaza a consultar_stock, que se
+    solapaba con esta y confundía al modelo (#11 del eval)."""
+    estado, encontrados = busqueda.resolver_producto(usuario.empresa, entrada.query)
+    if not encontrados:
+        return {'productos': []}
+    ids = [pid for pid, _, _ in encontrados]
+    productos = {p.id: p for p in Producto.objects.filter(empresa=usuario.empresa, pk__in=ids)}
+    compras = _ultimas_compras(usuario.empresa, ids)
+    salida = []
+    for pid in ids:
+        p = productos.get(pid)
+        if not p:
+            continue
+        costo, proveedor = compras.get(pid, (p.precio_compra, ''))
+        salida.append({
+            'id': p.id, 'sku': p.sku, 'nombre': p.nombre,
+            'precio_venta': str(p.precio_venta), 'moneda': p.moneda,
+            'stock': str(p.stock_total), 'ultimo_costo': str(costo or ''),
+            'proveedor': proveedor,
+        })
+    # sin coincidencia completa: son sugerencias, se dice
+    return {'productos': salida, 'aproximado': estado == 'no_encontrado'}
+
+
+def _resolver_venta(usuario, venta_id=None, venta_numero=None, cliente_query=None, extra_filtro=None):
+    qs = Venta.objects.filter(empresa=usuario.empresa).exclude(estado='anulado')
+    if extra_filtro:
+        qs = qs.filter(**extra_filtro)
+    if venta_id:
+        return qs.filter(pk=venta_id).first(), None
+    if venta_numero:
+        return qs.filter(numero__iexact=venta_numero.strip()).first(), None
+    if cliente_query:
+        # misma búsqueda difusa que al cotizar («ferreteria union», «andino»);
+        # si no hay coincidencia completa del cliente, no se adivina la venta
+        estado, encontrados = busqueda.resolver_cliente(usuario.empresa, cliente_query)
+        ids = [cid for cid, _, _ in encontrados] if estado in ('ok', 'ambiguo') else []
+        candidatas = list(qs.filter(cliente_id__in=ids).order_by('-fecha_emision')[:3])
+        if len(candidatas) == 1:
+            return candidatas[0], None
+        if candidatas:
+            return None, [{'id': v.id, 'numero': v.numero, 'cliente': v.cliente.nombre, 'total': str(v.total)} for v in candidatas]
+    return None, None
+
+
+# ── consultas ────────────────────────────────────────────────────────────────
+
+def consultar_venta(usuario, entrada: E.ConsultarVenta):
+    venta, candidatas = _resolver_venta(
+        usuario, venta_numero=entrada.venta_numero, cliente_query=entrada.cliente_query,
+    )
+    if candidatas:
+        return {'ambiguo': True, 'candidatas': candidatas}
+    if not venta:
+        return {'error': 'No encontré esa venta.'}
+    saldo = venta.get_saldo_pendiente() if hasattr(venta, 'get_saldo_pendiente') else venta.total - venta.pagos_total
+    return {
+        'numero': venta.numero,
+        'cliente': venta.cliente.nombre,
+        'total': str(venta.total),
+        'moneda': venta.moneda,
+        'estado_pago': venta.estado,
+        'cobrado': str(venta.pagos_total),
+        'saldo': str(saldo),
+        'estado_operativo': venta.get_estado_operativo_display(),
+    }
+
+
+def ventas_detenidas(usuario, entrada: E.VentasDetenidas):
+    """Ventas con SLA operativo vencido, CON motivo (lo que la review móvil
+    encontró imposible de responder en el teléfono)."""
+    detenidas = []
+    qs = Venta.objects.filter(empresa=usuario.empresa).exclude(
+        estado='anulado').exclude(estado_operativo='cobrado').order_by('-fecha_emision')[:100]
+    for v in qs:
+        if v.estado_sla_operativo == 'vencido':
+            detenidas.append({
+                'numero': v.numero,
+                'cliente': v.cliente.nombre,
+                'total': f'{_simbolo(v.moneda)} {_num(v.total)}',
+                'motivo': f'{v.get_estado_operativo_display()} hace {v.dias_en_estado_operativo} días '
+                          f'(límite {Venta.SLA_OPERATIVO_DIAS.get(v.estado_operativo, "?")})',
+            })
+    return {'detenidas': detenidas[:10], 'total': len(detenidas)}
+
+
+# ── preparaciones (generan borrador; NUNCA escriben) ─────────────────────────
+
+def _opcion(cid, extra, clave):
+    return {'id': cid, 'nombre': extra['nombre'], clave: extra.get(clave, '')}
+
+
+def _resolver_cliente_payload(usuario, entrada):
+    """→ dict con cliente / cliente_estado / cliente_opciones / cliente_texto."""
+    if entrada.cliente_id:
+        c = Cliente.objects.filter(empresa=usuario.empresa, pk=entrada.cliente_id).first()
+        if c:
+            return {'cliente': c.id, 'cliente_nombre': c.nombre, 'cliente_estado': 'ok',
+                    'cliente_texto': c.nombre, 'cliente_opciones': []}
+    texto = (entrada.cliente or '').strip()
+    estado, encontrados = busqueda.resolver_cliente(usuario.empresa, texto)
+    if estado == 'ok':
+        cid, _, extra = encontrados[0]
+        return {'cliente': cid, 'cliente_nombre': extra['nombre'], 'cliente_estado': 'ok',
+                'cliente_texto': texto, 'cliente_opciones': []}
+    return {'cliente': None, 'cliente_nombre': '', 'cliente_estado': estado, 'cliente_texto': texto,
+            'cliente_opciones': [_opcion(cid, extra, 'documento') for cid, _, extra in encontrados]}
+
+
+def _precio_de(producto, item, moneda):
+    if item.precio_unitario is not None:
+        return str(item.precio_unitario), ''
+    aviso = ''
+    if getattr(producto, 'moneda', moneda) and producto.moneda != moneda:
+        aviso = f'precio de catálogo en {producto.moneda}'
+    return str(producto.precio_venta), aviso
+
+
+def _resolver_item(usuario, it, moneda):
+    base = {'texto': it.producto or '', 'cantidad': str(it.cantidad),
+            'precio_unitario': str(it.precio_unitario) if it.precio_unitario is not None else None,
+            'opciones': [], 'aviso': ''}
+    if it.producto_id:
+        p = Producto.objects.filter(empresa=usuario.empresa, pk=it.producto_id).first()
+        if p:
+            precio, aviso = _precio_de(p, it, moneda)
+            return {**base, 'estado': 'ok', 'producto': p.id, 'descripcion': p.nombre,
+                    'precio_unitario': precio, 'aviso': aviso}
+    estado, encontrados = busqueda.resolver_producto(usuario.empresa, it.producto or '')
+    if estado == 'ok':
+        p = Producto.objects.get(pk=encontrados[0][0], empresa=usuario.empresa)
+        precio, aviso = _precio_de(p, it, moneda)
+        return {**base, 'estado': 'ok', 'producto': p.id, 'descripcion': p.nombre,
+                'precio_unitario': precio, 'aviso': aviso}
+    return {**base, 'estado': estado, 'producto': None, 'descripcion': it.producto or '',
+            'opciones': [_opcion(pid, extra, 'sku') for pid, _, extra in encontrados]}
+
+
+def preparar_cotizacion(usuario, entrada: E.PrepararCotizacion):
+    """UNA llamada del modelo basta: cliente e ítems llegan en texto y el
+    SERVIDOR los resuelve con búsqueda difusa. Lo que no resuelve queda
+    marcado en el borrador como pendiente; la respuesta ofrece botones."""
+    payload = {
+        **_resolver_cliente_payload(usuario, entrada),
+        'cliente_nuevo': None,
+        'asunto': entrada.asunto or '',
+        'moneda': entrada.moneda,
+        # 15 días de vigencia: el valor por defecto del negocio
+        'fecha_vencimiento': (timezone.localdate() + _dt.timedelta(days=15)).isoformat(),
+        'detalles': [_resolver_item(usuario, it, entrada.moneda) for it in entrada.items],
+    }
+    return {'borrador': {'tipo': 'cotizacion', 'payload': payload,
+                         'resumen': resumen_cotizacion(payload)}}
+
+
+# ── pendientes de una cotización (resolución por botones) ────────────────────
+
+def pendientes_cotizacion(payload):
+    """[('cliente', None) | ('item', idx)] en el orden en que se preguntan."""
+    out = []
+    if not payload.get('cliente'):
+        nuevo = payload.get('cliente_nuevo') or {}
+        if not nuevo.get('documento'):
+            out.append(('cliente', None))
+    for idx, d in enumerate(payload.get('detalles', [])):
+        if d.get('estado') in ('ambiguo', 'no_encontrado'):
+            out.append(('item', idx))
+    return out
+
+
+def resumen_cotizacion(payload):
+    s = _simbolo(payload.get('moneda'))
+    if payload.get('cliente'):
+        cliente = f'<b>{escape(payload.get("cliente_nombre", ""))}</b>'
+    elif (payload.get('cliente_nuevo') or {}).get('documento'):
+        n = payload['cliente_nuevo']
+        cliente = f'<b>{escape(n["nombre"])}</b> (cliente nuevo, {n["tipo_documento"].upper()} {escape(n["documento"])})'
+    else:
+        cliente = f'❓ «{escape(payload.get("cliente_texto", ""))}»'
+    lineas, total = [], Decimal('0')
+    for d in payload.get('detalles', []):
+        cant = Decimal(d['cantidad'])
+        if d.get('estado') in ('ambiguo', 'no_encontrado'):
+            lineas.append(f'  • ❓ «{escape(d["texto"])}» ×{cant:g}')
+            continue
+        if d.get('precio_unitario') is None:
+            lineas.append(f'  • {escape(d["descripcion"])} ×{cant:g} — ⚠ precio por definir')
+            continue
+        precio = Decimal(d['precio_unitario'])
+        total += precio * cant
+        aviso = f' ⚠ {escape(d["aviso"])}' if d.get('aviso') else ''
+        lineas.append(f'  • {escape(d["descripcion"])} ×{cant:g} a {s} {_num(precio)}{aviso}')
+    return (f'📝 <b>Cotización</b> para {cliente}\n' + '\n'.join(lineas)
+            + f'\nSubtotal aprox.: {s} {_num(total)} + IGV')
+
+
+def pregunta_pendiente(payload, borrador_id):
+    """→ (texto, [(texto_boton, accion)]) para el PRIMER pendiente, o None.
+    Máximo 3 opciones + la salida («cliente nuevo» / «texto libre»)."""
+    pend = pendientes_cotizacion(payload)
+    if not pend:
+        return None
+    tipo, idx = pend[0]
+    if tipo == 'cliente':
+        if payload.get('cliente_nuevo'):
+            return (f'Envíame el RUC (11 dígitos) o DNI (8) de «{escape(payload["cliente_nuevo"]["nombre"])}».', [])
+        texto = escape(payload.get('cliente_texto', ''))
+        botones = [(f'👤 {o["nombre"]}', f'r:{borrador_id}:c:{o["id"]}')
+                   for o in payload.get('cliente_opciones', [])[:busqueda.MAX_OPCIONES]]
+        botones.append((f'➕ Crear cliente nuevo «{payload.get("cliente_texto", "")[:30]}»', f'r:{borrador_id}:cn'))
+        pregunta = (f'¿Cuál es el cliente «{texto}»?' if payload.get('cliente_estado') == 'ambiguo'
+                    else f'No encontré al cliente «{texto}».')
+        return pregunta, botones
+    d = payload['detalles'][idx]
+    botones = [(f'📦 {o["nombre"]}', f'r:{borrador_id}:i{idx}:{o["id"]}')
+               for o in d.get('opciones', [])[:busqueda.MAX_OPCIONES]]
+    botones.append((f'✍️ Usar «{d["texto"][:30]}» como texto libre', f'r:{borrador_id}:i{idx}:libre'))
+    pregunta = (f'¿Cuál producto es «{escape(d["texto"])}»?' if d['estado'] == 'ambiguo'
+                else f'No encontré el producto «{escape(d["texto"])}».')
+    return pregunta, botones
+
+
+def aplicar_resolucion(usuario, payload, objetivo, valor):
+    """Aplica la opción elegida por botón. Solo acepta ids que el SERVIDOR
+    ofreció (callback_data es forjable). → (payload, error|None)."""
+    if objetivo == 'c':
+        validas = {str(o['id']) for o in payload.get('cliente_opciones', [])}
+        if valor not in validas:
+            return payload, 'Esa opción no es válida.'
+        c = Cliente.objects.filter(empresa=usuario.empresa, pk=int(valor)).first()
+        if not c:
+            return payload, 'Ese cliente ya no existe.'
+        payload.update(cliente=c.id, cliente_nombre=c.nombre, cliente_estado='ok', cliente_nuevo=None)
+        return payload, None
+    if objetivo == 'cn':
+        nombre = ' '.join(w.capitalize() for w in payload.get('cliente_texto', '').split()) or 'Cliente nuevo'
+        payload['cliente_nuevo'] = {'nombre': nombre[:200], 'documento': None, 'tipo_documento': None}
+        payload['cliente_estado'] = 'nuevo'
+        return payload, None
+    if objetivo.startswith('i') and objetivo[1:].isdigit():
+        idx = int(objetivo[1:])
+        detalles = payload.get('detalles', [])
+        if idx >= len(detalles):
+            return payload, 'Esa opción no es válida.'
+        d = detalles[idx]
+        if valor == 'libre':
+            d.update(estado='libre', producto=None, descripcion=d['texto'])
+            return payload, None
+        if valor not in {str(o['id']) for o in d.get('opciones', [])}:
+            return payload, 'Esa opción no es válida.'
+        p = Producto.objects.filter(empresa=usuario.empresa, pk=int(valor)).first()
+        if not p:
+            return payload, 'Ese producto ya no existe.'
+        precio = d['precio_unitario'] if d.get('precio_unitario') is not None else str(p.precio_venta)
+        aviso = f'precio de catálogo en {p.moneda}' if (d.get('precio_unitario') is None
+                                                        and p.moneda != payload.get('moneda')) else ''
+        d.update(estado='ok', producto=p.id, descripcion=p.nombre, precio_unitario=precio, aviso=aviso)
+        return payload, None
+    return payload, 'Esa opción no es válida.'
+
+
+def aplicar_documento(usuario, payload, texto):
+    """RUC/DNI para «cliente nuevo». Si ya existe en la empresa, se usa ese
+    cliente (no se duplica). → (payload, mensaje)."""
+    doc = re.sub(r'\D', '', texto or '')
+    if len(doc) not in (8, 11):
+        return payload, 'Necesito un RUC de 11 dígitos o un DNI de 8. Inténtalo de nuevo.'
+    existente = Cliente.objects.filter(empresa=usuario.empresa, documento=doc).first()
+    if existente:
+        payload.update(cliente=existente.id, cliente_nombre=existente.nombre,
+                       cliente_estado='ok', cliente_nuevo=None)
+        return payload, f'Ese documento ya es de «{escape(existente.nombre)}»: lo uso.'
+    payload['cliente_nuevo'].update(documento=doc, tipo_documento='ruc' if len(doc) == 11 else 'dni')
+    return payload, None
+
+
+def preparar_cobro(usuario, entrada: E.PrepararCobro):
+    venta, candidatas = _resolver_venta(
+        usuario, venta_id=entrada.venta_id, venta_numero=entrada.venta_numero,
+        cliente_query=entrada.cliente_query, extra_filtro={'estado': 'pendiente'},
+    )
+    if candidatas:
+        return {'ambiguo': True, 'candidatas': candidatas}
+    if not venta:
+        return {'error': 'No encontré una venta pendiente que coincida.'}
+    saldo = venta.get_saldo_pendiente() if hasattr(venta, 'get_saldo_pendiente') else venta.total - venta.pagos_total
+    saldo = Decimal(saldo)
+    # hereda la moneda de la venta y precarga el saldo (QW4, ahora en el bot)
+    monto = entrada.monto if entrada.monto is not None else saldo
+    if monto > saldo:
+        return {'error': f'El monto supera el saldo pendiente ({_simbolo(venta.moneda)} {_num(saldo)}).'}
+    return {
+        'borrador': {
+            'tipo': 'cobro',
+            'payload': {
+                'venta': venta.id,
+                'venta_numero': venta.numero,
+                'monto': str(monto),
+                'metodo_pago': entrada.metodo_pago,
+                'fecha': timezone.localdate().isoformat(),
+            },
+            'resumen': (
+                f'💰 <b>Cobro</b> de <b>{_simbolo(venta.moneda)} {_num(monto)}</b> '
+                f'({entrada.metodo_pago}) a {escape(venta.cliente.nombre)}\n'
+                f'Venta {escape(venta.numero)} · saldo actual {_simbolo(venta.moneda)} {_num(saldo)}'
+            ),
+        },
+    }
+
+
+def cambiar_estado_operativo(usuario, entrada: E.CambiarEstadoOperativo):
+    venta, candidatas = _resolver_venta(
+        usuario, venta_id=entrada.venta_id, venta_numero=entrada.venta_numero,
+        cliente_query=entrada.cliente_query,
+    )
+    if candidatas:
+        return {'ambiguo': True, 'candidatas': candidatas}
+    if not venta:
+        return {'error': 'No encontré esa venta.'}
+    if venta.estado_operativo == entrada.nuevo_estado:
+        return {'error': f'La venta {venta.numero} ya está en {venta.get_estado_operativo_display()}.'}
+    # el modelo permite saltar estados (p. ej. directo a 'entregado'); solo
+    # 'cobrado' está vetado como destino manual
+    if entrada.nuevo_estado == 'cobrado':
+        return {'error': 'El estado "cobrado" lo pone el sistema al registrar el cobro.'}
+    return {
+        'borrador': {
+            'tipo': 'estado_operativo',
+            'payload': {
+                'venta': venta.id,
+                'venta_numero': venta.numero,
+                'desde': venta.estado_operativo,
+                'nuevo_estado': entrada.nuevo_estado,
+            },
+            'resumen': (
+                f'🚚 Venta <b>{escape(venta.numero)}</b> ({escape(venta.cliente.nombre)}): '
+                f'{venta.get_estado_operativo_display()} → '
+                f'<b>{dict(Venta.ESTADO_OPERATIVO_CHOICES)[entrada.nuevo_estado]}</b>'
+            ),
+        },
+    }
+
+
+# ── confirmación: el ÚNICO lugar donde el bot escribe en el ERP ──────────────
+
+def confirmar_borrador(borrador):
+    """Crea el documento real usando los serializers/modelos existentes.
+    Devuelve dict con lo necesario para el mensaje de éxito."""
+    usuario = borrador.usuario
+    contexto = {'request': SimpleNamespace(user=usuario)}
+
+    if borrador.tipo == 'cotizacion':
+        from apps.cotizaciones.serializers import CotizacionSerializer
+        payload = borrador.payload
+        # el botón Confirmar no se ofrece con pendientes, pero callback_data es
+        # forjable: el servidor lo vuelve a exigir aquí
+        if pendientes_cotizacion(payload):
+            raise ValueError('Faltan datos por resolver (cliente o productos).')
+
+        if payload.get('cliente'):
+            cliente = Cliente.objects.filter(pk=payload['cliente'], empresa=usuario.empresa).first()
+            # REVIEW_BOT #4 — CotizacionSerializer no es scoped
+            if not cliente:
+                raise ValueError('El cliente no pertenece a tu empresa.')
+        else:
+            n = payload['cliente_nuevo']
+            # único por (empresa, documento): si alguien lo creó mientras tanto, se reutiliza
+            cliente, _ = Cliente.objects.get_or_create(
+                empresa=usuario.empresa, documento=n['documento'],
+                defaults={'nombre': n['nombre'], 'tipo_documento': n['tipo_documento'], 'usuario': usuario},
+            )
+
+        detalles = payload.get('detalles', [])
+        ids_producto = [d['producto'] for d in detalles if d.get('producto')]
+        if ids_producto and Producto.objects.filter(
+                pk__in=ids_producto, empresa=usuario.empresa).count() != len(set(ids_producto)):
+            raise ValueError('Hay productos que no pertenecen a tu empresa.')
+
+        # datos LIMPIOS para el serializer: nada de las claves de trabajo del
+        # borrador (texto, opciones, estado, aviso)
+        data = {
+            'cliente': cliente.id,
+            'asunto': payload.get('asunto') or f'Cotización para {cliente.nombre}',
+            'moneda': payload.get('moneda', 'PEN'),
+            'fecha_vencimiento': payload['fecha_vencimiento'],
+            'detalles': [
+                {'producto': d.get('producto'), 'descripcion': d['descripcion'],
+                 'cantidad': d['cantidad'], 'precio_unitario': d.get('precio_unitario') or '0'}
+                for d in detalles
+            ],
+            # empresa y usuario_creador los fija el SERVIDOR (nunca el payload del chat)
+            'empresa': usuario.empresa_id, 'usuario_creador': usuario.id,
+        }
+        ser = CotizacionSerializer(data=data, context=contexto)
+        ser.is_valid(raise_exception=True)
+        cot = ser.save(empresa=usuario.empresa, usuario_creador=usuario)
+        return {'documento_id': cot.id, 'numero': cot.numero, 'tipo': 'cotizacion'}
+
+    if borrador.tipo == 'cobro':
+        from apps.ventas.models import PagoVenta
+        venta = Venta.objects.get(pk=borrador.payload['venta'], empresa=usuario.empresa)
+        saldo = Decimal(venta.get_saldo_pendiente() if hasattr(venta, 'get_saldo_pendiente') else venta.total - venta.pagos_total)
+        monto = Decimal(borrador.payload['monto'])
+        if monto > saldo:
+            raise ValueError(f'El saldo cambió: ahora es {saldo}.')
+        pago = PagoVenta.objects.create(
+            venta=venta, monto=monto,
+            metodo_pago=borrador.payload['metodo_pago'],
+            # el payload viaja como JSON: la fecha vuelve a date para clean()
+            fecha=_dt.date.fromisoformat(borrador.payload['fecha']),
+            notas=f'Registrado por {borrador.canal} (agente)',
+        )
+        venta.refresh_from_db()
+        return {'documento_id': pago.id, 'numero': venta.numero, 'tipo': 'cobro',
+                'saldo_restante': str(venta.total - venta.pagos_total)}
+
+    if borrador.tipo == 'estado_operativo':
+        venta = Venta.objects.get(pk=borrador.payload['venta'], empresa=usuario.empresa)
+        venta.cambiar_estado_operativo(
+            borrador.payload['nuevo_estado'], usuario=usuario,
+            nota=f'Vía {borrador.canal} (agente)',
+        )
+        return {'documento_id': venta.id, 'numero': venta.numero, 'tipo': 'estado_operativo',
+                'estado': venta.get_estado_operativo_display()}
+
+    raise ValueError(f'Tipo de borrador desconocido: {borrador.tipo}')

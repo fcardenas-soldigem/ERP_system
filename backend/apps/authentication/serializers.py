@@ -34,11 +34,12 @@ class UserSerializer(serializers.ModelSerializer):
             'empresa_data', 
             'is_active',
             'is_staff',
+            'rol',
             'last_login'
         )
         # SEGURIDAD multi-tenant: 'empresa' NUNCA editable por el usuario. Sin esto,
         # un PATCH a /api/auth/profile/ con {"empresa": N} saltaba de empresa (CRÍTICO).
-        read_only_fields = ('id', 'is_active', 'empresa', 'empresa_data', 'is_staff', 'last_login')
+        read_only_fields = ('id', 'is_active', 'empresa', 'empresa_data', 'is_staff', 'rol', 'last_login')
 
     def get_nombre_completo(self, obj):
         return f"{obj.nombre} {obj.apellido}".strip()

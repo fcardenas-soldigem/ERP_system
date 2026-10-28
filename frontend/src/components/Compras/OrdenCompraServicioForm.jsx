@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import * as XLSX from 'xlsx';
 import {
   Box,
   Button,
@@ -139,7 +138,9 @@ const parseFilasImportacion = (rawRows) => {
 
 const parseExcel = (file) => new Promise((resolve) => {
   const reader = new FileReader();
-  reader.onload = (e) => {
+  reader.onload = async (e) => {
+      // 0.6 — xlsx (425 KB) se carga solo al usarlo
+      const XLSX = await import('xlsx');
     try {
       const wb = XLSX.read(e.target.result, { type: 'array' });
       const ws = wb.Sheets[wb.SheetNames[0]];
@@ -182,7 +183,9 @@ const parseTSV = (text) => {
   return parseFilasImportacion(rawRows);
 };
 
-const descargarPlantilla = () => {
+const descargarPlantilla = async () => {
+  // 0.6 — xlsx (425 KB) se carga solo al usarlo
+  const XLSX = await import('xlsx');
   const header = [['numero_serie', 'modelo', 'trabajo', 'cantidad', 'valor_unitario']];
   const ejemplo = [
     ['5CD208KGPB', 'LAPTOP HP 640-G8', 'Mantenimiento de hardware', 1, 95],

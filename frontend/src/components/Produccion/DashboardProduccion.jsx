@@ -75,7 +75,7 @@ const DashboardProduccion = () => {
       const response = await produccionService.getDashboard(params);
       return response.data || response;
     },
-    refetchInterval: 30000,
+    refetchOnWindowFocus: true, // 0.4 — sin polling
     refetchOnWindowFocus: true
   });
 

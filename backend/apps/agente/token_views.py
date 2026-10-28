@@ -8,7 +8,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from apps.core.permissions import HasEmpresaPermission
+from apps.core.permissions import HasEmpresaPermission, RolEscritura
 
 from .models import ApiToken
 from .serializers import ApiTokenSerializer
@@ -16,7 +16,7 @@ from .serializers import ApiTokenSerializer
 
 class ApiTokenViewSet(viewsets.ModelViewSet):
     serializer_class = ApiTokenSerializer
-    permission_classes = [IsAuthenticated, HasEmpresaPermission]
+    permission_classes = [IsAuthenticated, HasEmpresaPermission, RolEscritura]
     http_method_names = ['get', 'post']  # list, retrieve, create, revocar (no hard-delete)
 
     def get_queryset(self):

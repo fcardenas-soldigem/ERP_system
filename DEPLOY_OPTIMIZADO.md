@@ -1,12 +1,17 @@
 # Deploy Optimizado — erp.soldigem.com.pe
 
+> ⚠️ **Esquema de dominios vigente: DEPLOY.md §10 (mismo origen).** No hay
+> subdominio propio para la API: el navegador llama a `erp.soldigem.com.pe/api/…`
+> y Vercel reenvía a Cloud Run. Este documento conserva la parte de caché y
+> Gunicorn; las variables de dominio de abajo ya están actualizadas.
+
 ## Arquitectura
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                     INTERNET / DNS                          │
-│         erp.soldigem.com.pe → Vercel (CDN global)          │
-│         api.soldigem.com.pe → Cloud Run (southamerica-w1)  │
+│  erp.soldigem.com.pe → Vercel (SPA + rewrite /api/*)        │
+│  /api/* → Cloud Run *.run.app (mismo origen, DEPLOY.md §10) │
 └───────────────────┬─────────────────────┬───────────────────┘
                     │                     │
          ┌──────────▼──────────┐ ┌────────▼────────────────────┐
@@ -51,7 +56,7 @@
 ```bash
 REDIS_URL=rediss://:<password>@<host>.upstash.io:6379
 CORS_ALLOWED_ORIGINS=https://erp.soldigem.com.pe
-DJANGO_ALLOWED_HOSTS=api.soldigem.com.pe,erp-backend-25656632090.southamerica-west1.run.app
+DJANGO_ALLOWED_HOSTS=erp-backend-25656632090.southamerica-west1.run.app,erp.soldigem.com.pe
 DATABASE_URL=postgresql://...
 DJANGO_SECRET_KEY=...
 DJANGO_DEBUG=False
@@ -60,7 +65,8 @@ DJANGO_DEBUG=False
 ### Vercel (frontend)
 
 ```bash
-VITE_API_URL=https://api.soldigem.com.pe
+VITE_API_URL=                     # VACÍO: rutas relativas /api/… (mismo origen)
+VITE_API_UPLOAD_URL=https://erp-backend-25656632090.southamerica-west1.run.app
 ```
 
 ## Pasos para Deploy en Vercel
@@ -78,7 +84,8 @@ vercel link   # conectar al proyecto
 
 ### 2. Configurar variables de entorno en Vercel Dashboard
 Settings → Environment Variables:
-- `VITE_API_URL` = `https://api.soldigem.com.pe`
+- `VITE_API_URL` = vacío (no `"/api"`: quedaría `/api/api/`)
+- `VITE_API_UPLOAD_URL` = `https://erp-backend-25656632090.southamerica-west1.run.app`
 
 ### 3. Configurar dominio custom
 Vercel Dashboard → Domains → Add `erp.soldigem.com.pe`
@@ -118,8 +125,9 @@ gcloud run deploy erp-backend \
   --max-instances 3
 ```
 
-### 3. Configurar dominio custom
-Cloud Run → Custom domains → Map `api.soldigem.com.pe`
+### 3. Dominio
+Cloud Run NO necesita dominio custom: la API se sirve en el mismo origen del
+ERP vía el rewrite de `frontend/vercel.json` (DEPLOY.md §10).
 
 ## Invalidación de Cache — Referencia
 
@@ -158,10 +166,10 @@ cache.delete('dashboard_mes_1')        # dashboard de empresa id=1
 
 - [ ] `REDIS_URL` configurada en Cloud Run secrets
 - [ ] `CORS_ALLOWED_ORIGINS=https://erp.soldigem.com.pe` en Cloud Run
-- [ ] `VITE_API_URL=https://api.soldigem.com.pe` en Vercel
+- [ ] `VITE_API_URL` vacío y `VITE_API_UPLOAD_URL` = URL de Cloud Run en Vercel
 - [ ] Dominio `erp.soldigem.com.pe` apuntando a Vercel (CNAME)
-- [ ] Dominio `api.soldigem.com.pe` apuntando a Cloud Run
-- [ ] Login cross-domain probado con httpOnly cookies
+- [ ] `erp.soldigem.com.pe` en `DJANGO_ALLOWED_HOSTS` de Cloud Run
+- [ ] Login probado en iPhone: cerrar y reabrir la PWA sigue con sesión
 - [ ] Dashboard segunda carga < 1s verificado en Network tab
 - [ ] `npm run build` pasa sin warnings de chunk > 1000KB
 - [ ] `curl -I https://erp.soldigem.com.pe/ventas` retorna 200

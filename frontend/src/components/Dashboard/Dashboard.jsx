@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { Suspense, lazy } from 'react';
 import {
-  Box, Flex, Text, SimpleGrid, useColorModeValue,
+  Box, Button, Flex, Text, SimpleGrid, useColorModeValue,
 } from '@chakra-ui/react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../lib/api';
@@ -9,7 +9,8 @@ import { PageHeader } from '../ui';
 
 // Dashboard sub-components
 import QuickActions       from './QuickActions';
-import HeroChart          from './HeroChart';
+// 0.6 — recharts (330 KB) se difiere: el Inicio pinta KPI y alertas primero
+const HeroChart = lazy(() => import('./HeroChart'));
 import StatCardsCarousel  from './StatCardsCarousel';
 import RecentSales        from './RecentSales';
 import TopProducts        from './TopProducts';
@@ -92,7 +93,7 @@ const Dashboard = () => {
   const bg = useColorModeValue('gray.50', 'gray.900');
   const esMovil = useEsMovil();
 
-  const { data: resumen, isLoading } = useQuery({
+  const { data: resumen, isLoading, isError, refetch } = useQuery({
     queryKey: ['dashboard-resumen'],
     queryFn: () => api.get('/api/dashboard/resumen/').then(r => r.data),
     staleTime: 2 * 60 * 1000,
@@ -122,6 +123,20 @@ const Dashboard = () => {
   });
 
   if (isLoading) return <DashboardSkeleton />;
+
+  // QW9 — un fallo de la API se dice, no se disfraza de "S/ 0.00": un dueño
+  // puede creer que no vendió nada este mes.
+  if (isError) {
+    return (
+      <Flex direction="column" align="center" justify="center" minH="50vh" gap={3} px={6}>
+        <Text fontSize="lg" fontWeight="semibold">No se pudieron cargar los datos</Text>
+        <Text fontSize="sm" color="gray.500" textAlign="center">
+          Revisa tu conexión e inténtalo de nuevo.
+        </Text>
+        <Button colorScheme="blue" onClick={() => refetch()}>Reintentar</Button>
+      </Flex>
+    );
+  }
 
   const v      = resumen?.ventas    ?? {};
   const cobros = resumen?.cobros    ?? {};
@@ -223,7 +238,9 @@ const Dashboard = () => {
           <StatCardsCarousel cards={statCards} cuadriculaMovil />
         </Box>
         <Box mb={5}>
-          <HeroChart resumen={resumen} />
+          <Suspense fallback={<Box h="260px" bg="white" borderRadius="xl" border="1px solid" borderColor="gray.100" />}>
+            <HeroChart resumen={resumen} />
+          </Suspense>
         </Box>
         <Box mb={5}>
           <RecentSales />
@@ -256,7 +273,9 @@ const Dashboard = () => {
 
       {/* ── Sección 1: Hero Chart (ventas del mes) ── */}
       <Box mb={6}>
-        <HeroChart resumen={resumen} />
+        <Suspense fallback={<Box h="260px" bg="white" borderRadius="xl" border="1px solid" borderColor="gray.100" />}>
+            <HeroChart resumen={resumen} />
+          </Suspense>
       </Box>
 
       {/* ── Sección 2: Stat Cards (4 métricas clave) ── */}

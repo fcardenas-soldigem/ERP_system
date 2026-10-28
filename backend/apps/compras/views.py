@@ -13,7 +13,7 @@ import pandas as pd
 from django.http import HttpResponse
 from openpyxl import Workbook
 from openpyxl.utils import get_column_letter
-from apps.core.permissions import HasEmpresaPermission
+from apps.core.permissions import HasEmpresaPermission, RolEscritura
 from .models import Compra, CompraDetalle, Proveedor, OrdenCompra, RecepcionCompra, PagoCompra, OrdenServicioCompra
 from apps.inventario.models import Producto, Almacen
 
@@ -56,7 +56,7 @@ class CompraPagination(PageNumberPagination):
 class CompraViewSet(viewsets.ModelViewSet):
     queryset = Compra.objects.all()
     serializer_class = CompraSerializer
-    permission_classes = [IsAuthenticated, HasEmpresaPermission]
+    permission_classes = [IsAuthenticated, HasEmpresaPermission, RolEscritura]
     pagination_class = CompraPagination
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
@@ -761,7 +761,7 @@ class CompraViewSet(viewsets.ModelViewSet):
 class ProveedorViewSet(viewsets.ModelViewSet):
     queryset = Proveedor.objects.all()
     serializer_class = ProveedorSerializer
-    permission_classes = [IsAuthenticated, HasEmpresaPermission]
+    permission_classes = [IsAuthenticated, HasEmpresaPermission, RolEscritura]
 
     def get_queryset(self):
         return self.queryset.filter(empresa=self.request.user.empresa)
@@ -911,7 +911,7 @@ class ProveedorViewSet(viewsets.ModelViewSet):
 class OrdenCompraViewSet(viewsets.ModelViewSet):
     queryset = OrdenCompra.objects.all()
     serializer_class = OrdenCompraSerializer
-    permission_classes = [IsAuthenticated, HasEmpresaPermission]
+    permission_classes = [IsAuthenticated, HasEmpresaPermission, RolEscritura]
 
     def get_queryset(self):
         qs = self.queryset.filter(empresa=self.request.user.empresa)
@@ -996,7 +996,7 @@ class OrdenServicioCompraViewSet(viewsets.ModelViewSet):
     """Órdenes de Compra de Servicio (reparaciones) emitidas al proveedor."""
     queryset = OrdenServicioCompra.objects.all()
     serializer_class = OrdenServicioCompraSerializer
-    permission_classes = [IsAuthenticated, HasEmpresaPermission]
+    permission_classes = [IsAuthenticated, HasEmpresaPermission, RolEscritura]
     pagination_class = CompraPagination
 
     def get_serializer_class(self):
@@ -1056,7 +1056,7 @@ class OrdenServicioCompraViewSet(viewsets.ModelViewSet):
 class RecepcionCompraViewSet(viewsets.ModelViewSet):
     queryset = RecepcionCompra.objects.all()
     serializer_class = RecepcionCompraSerializer
-    permission_classes = [IsAuthenticated, HasEmpresaPermission]
+    permission_classes = [IsAuthenticated, HasEmpresaPermission, RolEscritura]
 
     def get_queryset(self):
         # RecepcionCompra NO tiene campo empresa; el tenant se resuelve vía orden.
@@ -1070,7 +1070,7 @@ class RecepcionCompraViewSet(viewsets.ModelViewSet):
         serializer.save()
 
 class ResumenComprasMensual(viewsets.ViewSet):
-    permission_classes = [IsAuthenticated, HasEmpresaPermission]
+    permission_classes = [IsAuthenticated, HasEmpresaPermission, RolEscritura]
 
     def list(self, request):
         # Obtener el primer día del mes actual
@@ -1168,7 +1168,7 @@ def descargar_template_compras(request):
 class PagoCompraViewSet(viewsets.ModelViewSet):
     queryset = PagoCompra.objects.all()
     serializer_class = PagoCompraSerializer
-    permission_classes = [IsAuthenticated, HasEmpresaPermission]
+    permission_classes = [IsAuthenticated, HasEmpresaPermission, RolEscritura]
 
     def get_queryset(self):
         return self.queryset.filter(compra__empresa=self.request.user.empresa)

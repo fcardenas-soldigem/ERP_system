@@ -95,12 +95,12 @@ gcloud run services update erp-backend \
 **O usa Secret Manager (recomendado):**
 ```bash
 # Crear secretos
-echo -n "tu-clave-secreta" | gcloud secrets create django-secret-key --data-file=-
-echo -n "tu-jwt-key" | gcloud secrets create jwt-signing-key --data-file=-
+echo -n "tu-clave-secreta" | gcloud secrets create DJANGO_SECRET_KEY --data-file=-
+echo -n "tu-jwt-key" | gcloud secrets create JWT_SIGNING_KEY --data-file=-
 
 # Asociar al servicio
 gcloud run services update erp-backend \
-  --set-secrets "DJANGO_SECRET_KEY=django-secret-key:latest,JWT_SIGNING_KEY=jwt-signing-key:latest"
+  --set-secrets "DJANGO_SECRET_KEY=DJANGO_SECRET_KEY:latest,JWT_SIGNING_KEY=JWT_SIGNING_KEY:latest"
 ```
 
 ### 4. Actualizar Dominios

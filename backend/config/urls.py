@@ -33,7 +33,8 @@ urlpatterns = [
     path('api/servicios/', include('apps.servicios.urls')),  # Órdenes de Servicio
     path('api/leads/', include('apps.leads.urls')),          # Landing: captura de leads
     path('api/mcp/', MCPView.as_view(), name='mcp'),         # MCP remoto (agente Fase 2)
-    path('api/agente/', include('apps.agente.urls')),        # Tokens de API (UI "Conectar Claude")
+    path('api/agente/', include('apps.agente.urls')),
+    path('api/canales/', include('apps.canales.urls')),        # Tokens de API (UI "Conectar Claude")
 ]
 
 

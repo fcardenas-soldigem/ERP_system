@@ -50,9 +50,13 @@ class Command(BaseCommand):
             empresa.save(update_fields=['modo_inventario', 'nombre'])
 
         user = CustomUser.objects.filter(email=email_usuario).first()
+        if user and user.rol != 'admin':
+            user.rol = 'admin'
+            user.save(update_fields=['rol'])
         if not user:
+            # admin explícito: sin esto quedaban con el default y no podían operar
             user = CustomUser(email=email_usuario, nombre='Demo', apellido=nombre,
-                              empresa=empresa, is_staff=True)
+                              empresa=empresa, rol='admin', is_staff=True)
             user.set_password(DEMO_PASSWORD)
             user.save()
 

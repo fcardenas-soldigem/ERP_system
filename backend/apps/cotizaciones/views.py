@@ -14,7 +14,7 @@ from .serializers import (
     CotizacionCreateSerializer,
     DetalleCotizacionSerializer
 )
-from apps.core.permissions import HasEmpresaPermission
+from apps.core.permissions import HasEmpresaPermission, RolEscritura
 # CotizacionPDFGenerator se importa de forma perezosa dentro de exportar_pdf
 # (depende de reportlab, que puede no estar instalado en el entorno de dev/test).
 from .services.conversion_service import (
@@ -40,7 +40,7 @@ class CotizacionViewSet(viewsets.ModelViewSet):
     """
     ViewSet para gestionar cotizaciones
     """
-    permission_classes = [IsAuthenticated, HasEmpresaPermission]
+    permission_classes = [IsAuthenticated, HasEmpresaPermission, RolEscritura]
     pagination_class = CotizacionPagination
     
     def get_queryset(self):

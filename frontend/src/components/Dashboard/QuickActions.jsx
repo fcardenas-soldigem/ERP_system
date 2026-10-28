@@ -5,6 +5,7 @@ import {
   Plus, ShoppingCart, Package, FileText, Banknote, Warehouse, Truck,
 } from 'lucide-react';
 import { useModoInventario } from '../../hooks/useModoInventario';
+import { usePuedeEscribir } from '../../hooks/usePuedeEscribir';
 
 // requiereStock: acciones de inventario, ocultas para empresas sin_stock.
 // UN solo estilo (secondary) e íconos neutros: las quick actions son un grupo,
@@ -22,7 +23,11 @@ const ACTIONS = [
 const QuickActions = () => {
   const navigate = useNavigate();
   const { conStock } = useModoInventario();
-  const acciones = ACTIONS.filter(a => !a.requiereStock || conStock);
+  const puedeEscribir = usePuedeEscribir();
+  // solo_lectura: quedan solo los accesos de consulta (Ver Inventario, Registrar
+  // Cobro navega a una lista). Los "Nueva/Nuevo" crean documentos.
+  const acciones = ACTIONS.filter(a => (!a.requiereStock || conStock)
+    && (puedeEscribir || !/^Nuev/.test(a.label)));
 
   return (
     <Box position="relative">
