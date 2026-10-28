@@ -37,6 +37,8 @@ LIMITE_TOKENS_EMPRESA_DIA = int(getattr(settings, 'CANALES_LIMITE_TOKENS_EMPRESA
 
 SERVICIOS_PREPARACION = {
     'preparar_cotizacion': servicios.preparar_cotizacion,
+    'preparar_venta': servicios.preparar_venta,
+    'convertir_cotizacion_en_venta': servicios.convertir_cotizacion_en_venta,
     'preparar_cobro': servicios.preparar_cobro,
     'cambiar_estado_operativo': servicios.cambiar_estado_operativo,
 }
@@ -197,8 +199,9 @@ def _responder_borrador(canal, id_externo, borrador, resumen=None, prefijo=''):
     """B7 — SIEMPRE un solo mensaje. Cotización con pendientes: resumen +
     la primera pregunta con sus opciones (máx. 3) + Cancelar. Sin pendientes:
     resumen + Confirmar/Editar/Cancelar."""
-    if borrador.tipo == 'cotizacion':
-        resumen = servicios.resumen_cotizacion(borrador.payload)
+    if borrador.tipo in ('cotizacion', 'venta'):
+        resumen = (servicios.resumen_cotizacion(borrador.payload) if borrador.tipo == 'cotizacion'
+                   else servicios.resumen_venta(borrador.payload))
         pregunta = servicios.pregunta_pendiente(borrador.payload, borrador.id)
         if pregunta:
             texto, opciones = pregunta
@@ -217,7 +220,8 @@ def _responder_borrador(canal, id_externo, borrador, resumen=None, prefijo=''):
 
 def _borrador_esperando_documento(usuario, id_externo):
     return BorradorAgente.objects.filter(
-        usuario=usuario, empresa=usuario.empresa, estado='pendiente', tipo='cotizacion',
+        usuario=usuario, empresa=usuario.empresa, estado='pendiente',
+        tipo__in=('cotizacion', 'venta'),
         id_externo=id_externo, payload__cliente_estado='nuevo',
         payload__cliente_nuevo__documento=None,  # null en el JSON (no «clave ausente»)
     ).order_by('-created_at').first()
@@ -277,9 +281,10 @@ def _crear_borrador(canal, usuario, mensaje, tipo, payload):
     return nuevo
 
 
-def _link_pdf_firmado(cotizacion_id):
-    """Link temporal (72 h) al PDF, sin sesión: se comparte por el chat."""
-    firma = TimestampSigner(salt='canales.pdf').sign(str(cotizacion_id))
+def _link_pdf_firmado(cotizacion_id, empresa_id):
+    """Link temporal (7 días) al PDF, sin sesión: se comparte por el chat.
+    El token firma documento+empresa: manipular cualquiera de los dos → 403."""
+    firma = TimestampSigner(salt='canales.pdf').sign(f'{cotizacion_id}:{empresa_id}')
     base = getattr(settings, 'API_BASE_URL', '') or 'https://erp.soldigem.com.pe'
     return f'{base}{reverse("canales:pdf_cotizacion")}?t={firma}'
 
@@ -440,8 +445,11 @@ def procesar(canal: Canal, mensaje: MensajeEntrante):
             canal.responder(mensaje.id_externo, MSG_SOLO_LECTURA)
             return
         payload, aviso = servicios.aplicar_documento(usuario, esperando.payload, texto)
-        if aviso and payload.get('cliente_estado') == 'nuevo':
-            canal.responder(mensaje.id_externo, aviso)  # documento inválido: lo pide de nuevo
+        # documento inválido (no quedó registrado): se pide de nuevo. Un aviso
+        # CON documento (verificación APIS, nombre oficial) sigue al borrador.
+        if (aviso and payload.get('cliente_estado') == 'nuevo'
+                and not (payload.get('cliente_nuevo') or {}).get('documento')):
+            canal.responder(mensaje.id_externo, aviso)
             return
         esperando.payload = payload
         esperando.save(update_fields=['payload'])
@@ -668,9 +676,17 @@ def _manejar_callback(canal, mensaje, usuario):
             canal.responder(
                 mensaje.id_externo,
                 f'✅ Cotización <b>{resultado["numero"]}</b> creada.\n'
-                f'📄 PDF: {_link_pdf_firmado(resultado["documento_id"])}',
+                f'📄 PDF: {_link_pdf_firmado(resultado["documento_id"], usuario.empresa_id)}',
                 botones=[Boton(texto='📨 Marcar como enviada', accion=f'cot:{resultado["documento_id"]}:enviada')],
             )
+        elif borrador.tipo == 'venta':
+            canal.responder(mensaje.id_externo,
+                            f'✅ Venta <b>{resultado["numero"]}</b> creada '
+                            f'(total {resultado["total"]}).')
+        elif borrador.tipo == 'conversion_venta':
+            canal.responder(mensaje.id_externo,
+                            f'✅ {resultado["cotizacion"]} convertida: venta '
+                            f'<b>{resultado["numero"]}</b> (total {resultado["total"]}).')
         elif borrador.tipo == 'cobro':
             canal.responder(mensaje.id_externo,
                             f'✅ Cobro registrado en {resultado["numero"]}. '
@@ -691,7 +707,8 @@ def _manejar_resolucion(canal, mensaje, usuario, partes):
         return
     with transaction.atomic():
         borrador = BorradorAgente.objects.select_for_update().filter(
-            pk=partes[1], usuario=usuario, empresa=usuario.empresa, tipo='cotizacion').first()
+            pk=partes[1], usuario=usuario, empresa=usuario.empresa,
+            tipo__in=('cotizacion', 'venta')).first()
         if not borrador:
             canal.responder(mensaje.id_externo, 'Ese borrador ya no existe.')
             return

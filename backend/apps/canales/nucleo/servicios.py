@@ -310,15 +310,13 @@ def _normalizar_igv(payload):
     return payload
 
 
-def preparar_cotizacion(usuario, entrada: E.PrepararCotizacion):
-    """UNA llamada del modelo basta: cliente e ítems llegan en texto y el
-    SERVIDOR los resuelve con búsqueda difusa. Lo que no resuelve queda
-    marcado en el borrador como pendiente; la respuesta ofrece botones.
-    Sin cliente, el borrador se crea igual y se pregunta solo por él."""
+def _payload_documento(usuario, entrada, extra=None):
+    """Núcleo COMPARTIDO de cotización y venta: filtro de meta-frases, cliente
+    difuso (o «falta»), ítems de catálogo/libres e IGV. → (payload, error)."""
     items = [it for it in entrada.items if it.producto_id or not _es_meta_frase(it.texto)]
     if not items:
-        return {'error': 'No me quedó claro qué productos cotizar. '
-                         'Dímelos de nuevo, uno por línea, con cantidad y precio si lo tienes.'}
+        return None, {'error': 'No me quedó claro qué productos incluir. '
+                               'Dímelos de nuevo, uno por línea, con cantidad y precio si lo tienes.'}
     if entrada.cliente_id or (entrada.cliente or '').strip():
         cliente_payload = _resolver_cliente_payload(usuario, entrada)
     else:
@@ -328,15 +326,88 @@ def preparar_cotizacion(usuario, entrada: E.PrepararCotizacion):
     payload = {
         **cliente_payload,
         'cliente_nuevo': None,
-        'asunto': entrada.asunto or '',
         'moneda': entrada.moneda,
-        # 15 días de vigencia: el valor por defecto del negocio
-        'fecha_vencimiento': (timezone.localdate() + _dt.timedelta(days=15)).isoformat(),
         'detalles': [_resolver_item(usuario, it, entrada.moneda) for it in items],
+        **(extra or {}),
     }
     _normalizar_igv(payload)
+    return payload, None
+
+
+def preparar_cotizacion(usuario, entrada: E.PrepararCotizacion):
+    """UNA llamada del modelo basta: cliente e ítems llegan en texto y el
+    SERVIDOR los resuelve con búsqueda difusa. Lo que no resuelve queda
+    marcado en el borrador como pendiente; la respuesta ofrece botones.
+    Sin cliente, el borrador se crea igual y se pregunta solo por él."""
+    payload, error = _payload_documento(usuario, entrada, extra={
+        'asunto': entrada.asunto or '',
+        # 15 días de vigencia: el valor por defecto del negocio
+        'fecha_vencimiento': (timezone.localdate() + _dt.timedelta(days=15)).isoformat(),
+    })
+    if error:
+        return error
     return {'borrador': {'tipo': 'cotizacion', 'payload': payload,
                          'resumen': resumen_cotizacion(payload)}}
+
+
+def preparar_venta(usuario, entrada: E.PrepararVenta):
+    """Borrador de VENTA (feat/bot-ventas): mismo patrón que la cotización.
+    Al confirmar se crea con el MISMO servicio de la web (crear_venta)."""
+    payload, error = _payload_documento(usuario, entrada, extra={
+        'tipo_venta': entrada.tipo_venta,
+        'metodo_pago': entrada.metodo_pago,
+    })
+    if error:
+        return error
+    return {'borrador': {'tipo': 'venta', 'payload': payload,
+                         'resumen': resumen_venta(payload)}}
+
+
+def convertir_cotizacion_en_venta(usuario, entrada: E.ConvertirCotizacionEnVenta):
+    """Borrador de CONVERSIÓN: al confirmar usa convertir_cotizacion_a_venta,
+    el mismo servicio que el botón «Convertir a venta» de la web."""
+    from apps.cotizaciones.models import Cotizacion
+
+    qs = Cotizacion.objects.filter(empresa=usuario.empresa).select_related('cliente', 'venta')
+    cot = None
+    txt = (entrada.cotizacion_numero or '').strip()
+    if txt:
+        cot = qs.filter(numero__iexact=txt).first()
+        if cot is None:
+            # «COT-107», «cot 107» o «107» → COT-00000107
+            digitos = re.sub(r'\D', '', txt)
+            if digitos:
+                cot = qs.filter(numero__iexact=f'COT-{int(digitos):08d}').first()
+        if cot is None:
+            return {'error': f'No encontré la cotización «{escape(txt)}».'}
+    elif (entrada.cliente_query or '').strip():
+        estado, encontrados = busqueda.resolver_cliente(usuario.empresa, entrada.cliente_query)
+        ids = [cid for cid, _, _ in encontrados] if estado in ('ok', 'ambiguo') else []
+        cot = (qs.filter(cliente_id__in=ids)
+               .exclude(estado__in=('convertida', 'rechazada', 'vencida'))
+               .order_by('-fecha_emision', '-id').first())
+        if cot is None:
+            return {'error': 'No encontré una cotización abierta de ese cliente.'}
+    else:
+        return {'error': 'Dime el número de la cotización (p. ej. COT-00000107) o el cliente.'}
+
+    if cot.venta_id or cot.estado == 'convertida':
+        venta = cot.venta.numero if cot.venta_id else ''
+        return {'error': f'La {cot.numero} ya fue convertida{f" (venta {venta})" if venta else ""}.'}
+    if cot.estado in ('rechazada', 'vencida'):
+        return {'error': f'La {cot.numero} está {cot.get_estado_display().lower()}; no se puede convertir.'}
+    if not cot.detalles.exists():
+        return {'error': f'La {cot.numero} no tiene líneas.'}
+
+    s = _simbolo(cot.moneda)
+    return {'borrador': {
+        'tipo': 'conversion_venta',
+        'payload': {'cotizacion': cot.id, 'numero': cot.numero,
+                    'cliente_nombre': cot.cliente.nombre,
+                    'total': str(cot.total), 'moneda': cot.moneda},
+        'resumen': (f'🔁 Convertir <b>{escape(cot.numero)}</b> en VENTA\n'
+                    f'Cliente {escape(cot.cliente.nombre)} · total {s} {_num(cot.total)}'),
+    }}
 
 
 # ── pendientes de una cotización (resolución por botones) ────────────────────
@@ -368,7 +439,16 @@ def totales_cotizacion(payload):
     return suma, igv, suma + igv
 
 
+def resumen_venta(payload):
+    extra = f'\n{payload.get("tipo_venta", "contado")} · {payload.get("metodo_pago", "efectivo")}'
+    return _resumen_documento(payload, '🧾 <b>Venta</b>', extra)
+
+
 def resumen_cotizacion(payload):
+    return _resumen_documento(payload, '📝 <b>Cotización</b>')
+
+
+def _resumen_documento(payload, titulo, extra=''):
     s = _simbolo(payload.get('moneda'))
     if payload.get('cliente'):
         cliente = f'<b>{escape(payload.get("cliente_nombre", ""))}</b>'
@@ -393,7 +473,7 @@ def resumen_cotizacion(payload):
         lineas.append(f'  • {escape(d["descripcion"])} ×{cant:g} a {s} {_num(precio)}{aviso}')
     subtotal, igv, total = totales_cotizacion(payload)
     # sin «+ IGV» ambiguo: subtotal, IGV y total, siempre los tres
-    return (f'📝 <b>Cotización</b> para {cliente}\n' + '\n'.join(lineas)
+    return (f'{titulo} para {cliente}{extra}\n' + '\n'.join(lineas)
             + f'\nSubtotal: {s} {_num(subtotal)} · IGV (18%): {s} {_num(igv)}'
             + f'\n<b>Total: {s} {_num(total)}</b>')
 
@@ -468,7 +548,10 @@ def aplicar_resolucion(usuario, payload, objetivo, valor):
 
 def aplicar_documento(usuario, payload, texto):
     """RUC/DNI para «cliente nuevo». Si ya existe en la empresa, se usa ese
-    cliente (no se duplica). → (payload, mensaje)."""
+    cliente (no se duplica). Punto 5 (bot-ventas): consulta APIS.NET.PE con el
+    MISMO servicio de la web (DocumentoService) y usa el nombre oficial; el
+    borrador muestra «DNI xxxx → NOMBRE OFICIAL» para que el usuario confirme.
+    → (payload, mensaje)."""
     doc = re.sub(r'\D', '', texto or '')
     if len(doc) not in (8, 11):
         return payload, 'Necesito un RUC de 11 dígitos o un DNI de 8. Inténtalo de nuevo.'
@@ -477,8 +560,34 @@ def aplicar_documento(usuario, payload, texto):
         payload.update(cliente=existente.id, cliente_nombre=existente.nombre,
                        cliente_estado='ok', cliente_nuevo=None)
         return payload, f'Ese documento ya es de «{escape(existente.nombre)}»: lo uso.'
-    payload['cliente_nuevo'].update(documento=doc, tipo_documento='ruc' if len(doc) == 11 else 'dni')
-    return payload, None
+
+    tipo = 'ruc' if len(doc) == 11 else 'dni'
+    payload['cliente_nuevo'].update(documento=doc, tipo_documento=tipo)
+
+    from apps.core.services.documento_service import DocumentoService
+    try:
+        res = DocumentoService.consultar_documento(doc, tipo)
+    except Exception as e:  # red, credencial, proveedor caído
+        res = {'success': False, 'error': f'{type(e).__name__}: {e}'}
+    if res.get('success') and res.get('data'):
+        data = res['data']
+        oficial = (data.get('nombre_completo') or data.get('razon_social')
+                   or data.get('nombre_comercial') or '').strip()
+        if oficial:
+            escrito = payload['cliente_nuevo'].get('nombre') or ''
+            payload['cliente_nuevo']['nombre'] = oficial[:200]
+            # el usuario SIEMPRE ve lo que devolvió RENIEC/SUNAT antes de confirmar
+            aviso = f'✅ {tipo.upper()} {doc} → <b>{escape(oficial)}</b>'
+            if escrito and busqueda.normalizar(escrito) != busqueda.normalizar(oficial):
+                aviso += f' (escribiste «{escape(escrito)}»)'
+            return payload, aviso
+    # APIS falló: se avisa, queda registrado con ERROR y se usa el nombre tal
+    # como lo escribió el usuario — igual que la web, que permite el ingreso
+    # manual cuando la consulta no responde (no existe un flag «sin verificar»).
+    logger.error('APIS.NET.PE no verificó %s %s: %s', tipo, doc,
+                 str(res.get('error') or 'sin datos')[:200])
+    return payload, ('⚠ No pude verificar el documento en RENIEC/SUNAT; '
+                     'uso el nombre tal como lo escribiste.')
 
 
 def preparar_cobro(usuario, entrada: E.PrepararCobro):
@@ -550,11 +659,73 @@ def cambiar_estado_operativo(usuario, entrada: E.CambiarEstadoOperativo):
 
 # ── confirmación: el ÚNICO lugar donde el bot escribe en el ERP ──────────────
 
+def _resolver_cliente_confirmacion(usuario, payload):
+    """Cliente definitivo al confirmar (compartido cotización/venta): el id ya
+    resuelto, o el cliente nuevo por documento (reutiliza si ya existe)."""
+    if payload.get('cliente'):
+        cliente = Cliente.objects.filter(pk=payload['cliente'], empresa=usuario.empresa).first()
+        # REVIEW_BOT #4 — los serializers no siempre son scoped
+        if not cliente:
+            raise ValueError('El cliente no pertenece a tu empresa.')
+        return cliente
+    n = payload['cliente_nuevo']
+    cliente, _ = Cliente.objects.get_or_create(
+        empresa=usuario.empresa, documento=n['documento'],
+        defaults={'nombre': n['nombre'], 'tipo_documento': n['tipo_documento'], 'usuario': usuario},
+    )
+    return cliente
+
+
 def confirmar_borrador(borrador):
-    """Crea el documento real usando los serializers/modelos existentes.
-    Devuelve dict con lo necesario para el mensaje de éxito."""
+    """Crea el documento real usando los serializers/servicios existentes de la
+    web (nunca una ruta paralela). Devuelve dict para el mensaje de éxito."""
     usuario = borrador.usuario
     contexto = {'request': SimpleNamespace(user=usuario)}
+
+    # el rol también se exige AQUÍ (no solo al preparar): callback_data es
+    # forjable y el rol pudo cambiar entre preparar y confirmar
+    if getattr(usuario, 'rol', '') == 'solo_lectura':
+        raise ValueError('Tu rol es de solo lectura: no puedo crear documentos.')
+
+    if borrador.tipo == 'venta':
+        from apps.ventas.services.creacion_venta import crear_venta
+        payload = borrador.payload
+        if pendientes_cotizacion(payload):
+            raise ValueError('Faltan datos por resolver (cliente o productos).')
+        detalles = payload.get('detalles', [])
+        if any(d.get('precio_unitario') in (None, '', '0') for d in detalles):
+            raise ValueError('Toda línea de una VENTA necesita precio. Dímelo y la rehago.')
+        cliente = _resolver_cliente_confirmacion(usuario, payload)
+        tipo_venta = payload.get('tipo_venta', 'contado')
+        venta = crear_venta(usuario, {
+            'cliente_id': cliente.id,
+            'fecha_emision': timezone.localdate().isoformat(),
+            # como la web: contado nace 'pagado'; el crédito lo fuerza a
+            # 'pendiente' el propio servicio (con placeholder de pago)
+            'estado': 'pagado' if tipo_venta == 'contado' else 'pendiente',
+            'tipo_venta': tipo_venta,
+            'metodo_pago': payload.get('metodo_pago', 'efectivo'),
+            'moneda': payload.get('moneda', 'PEN'),
+            'igv_incluido': bool(payload.get('precios_incluyen_igv')),
+            'detalles': [
+                {'producto': d.get('producto'), 'descripcion': d.get('descripcion') or d.get('texto'),
+                 'cantidad': d['cantidad'], 'precio_unitario': d['precio_unitario']}
+                for d in detalles
+            ],
+        })
+        return {'documento_id': venta.id, 'numero': venta.numero, 'tipo': 'venta',
+                'total': f'{_simbolo(venta.moneda)} {_num(venta.total)}'}
+
+    if borrador.tipo == 'conversion_venta':
+        from apps.cotizaciones.models import Cotizacion
+        from apps.cotizaciones.services.conversion_service import convertir_cotizacion_a_venta
+        from apps.ventas.services.creacion_venta import invalidar_caches_venta
+        cot = Cotizacion.objects.get(pk=borrador.payload['cotizacion'], empresa=usuario.empresa)
+        venta = convertir_cotizacion_a_venta(cot)   # el MISMO servicio de la web
+        invalidar_caches_venta(usuario.empresa_id)
+        return {'documento_id': venta.id, 'numero': venta.numero, 'tipo': 'conversion_venta',
+                'cotizacion': cot.numero,
+                'total': f'{_simbolo(venta.moneda)} {_num(venta.total)}'}
 
     if borrador.tipo == 'cotizacion':
         from apps.cotizaciones.serializers import CotizacionSerializer
@@ -564,18 +735,7 @@ def confirmar_borrador(borrador):
         if pendientes_cotizacion(payload):
             raise ValueError('Faltan datos por resolver (cliente o productos).')
 
-        if payload.get('cliente'):
-            cliente = Cliente.objects.filter(pk=payload['cliente'], empresa=usuario.empresa).first()
-            # REVIEW_BOT #4 — CotizacionSerializer no es scoped
-            if not cliente:
-                raise ValueError('El cliente no pertenece a tu empresa.')
-        else:
-            n = payload['cliente_nuevo']
-            # único por (empresa, documento): si alguien lo creó mientras tanto, se reutiliza
-            cliente, _ = Cliente.objects.get_or_create(
-                empresa=usuario.empresa, documento=n['documento'],
-                defaults={'nombre': n['nombre'], 'tipo_documento': n['tipo_documento'], 'usuario': usuario},
-            )
+        cliente = _resolver_cliente_confirmacion(usuario, payload)
 
         detalles = payload.get('detalles', [])
         ids_producto = [d['producto'] for d in detalles if d.get('producto')]

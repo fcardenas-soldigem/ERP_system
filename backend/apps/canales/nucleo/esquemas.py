@@ -62,6 +62,31 @@ class PrepararCotizacion(BaseModel):
         default='PEN', description='"soles"/"lucas" → PEN; "dólares" → USD')
 
 
+class PrepararVenta(BaseModel):
+    """«Crea/registra una venta»: mismo patrón que la cotización (líneas libres,
+    IGV, cliente difuso), pero el documento es una VENTA."""
+    cliente: Optional[str] = Field(
+        default=None, max_length=200,
+        description='cliente en texto, como lo dijo el usuario. Si aún no lo dijo, OMÍTELO.')
+    cliente_id: Optional[int] = Field(default=None, description='solo si ya conoces el id exacto')
+    items: list[ItemCotizacion] = Field(min_length=1, max_length=50)
+    moneda: Literal['PEN', 'USD'] = Field(
+        default='PEN', description='"soles"/"lucas" → PEN; "dólares"/"$" → USD')
+    tipo_venta: Literal['contado', 'credito_30', 'credito_60'] = Field(
+        default='contado', description='"al crédito (30/60)" → credito_30/credito_60')
+    metodo_pago: Literal['efectivo', 'transferencia', 'tarjeta', 'cheque'] = Field(
+        default='efectivo', description='yape/plin = transferencia')
+
+
+class ConvertirCotizacionEnVenta(BaseModel):
+    """«Convierte la COT-107 en venta» / «la última cotización de Bruno hazla venta»."""
+    cotizacion_numero: Optional[str] = Field(
+        default=None, max_length=40, description='número de la cotización: "COT-00000107" o "107"')
+    cliente_query: Optional[str] = Field(
+        default=None, max_length=120,
+        description='cliente en texto si no dieron número (se usa su última cotización abierta)')
+
+
 class PrepararCobro(BaseModel):
     venta_numero: Optional[str] = Field(default=None, max_length=40)
     venta_id: Optional[int] = None

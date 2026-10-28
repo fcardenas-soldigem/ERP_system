@@ -24,6 +24,8 @@ logger = logging.getLogger(__name__)
 CATALOGO = {
     # una tool por intención; cada descripción dice cuándo NO usarla
     'preparar_cotizacion': (E.PrepararCotizacion, 'Cotizar / hacer una proforma. Pasa el cliente y cada producto en TEXTO COMPLETO, tal como los dijo el usuario («3 jabra 750 a transportes lima» → cliente "transportes lima", descripcion "jabra 750", cantidad 3): el servidor los busca y acepta productos fuera de catálogo. NO busques clientes ni productos antes. Cantidades en palabras a número («una docena» = 12). Si dan precio por unidad, ponlo en precio_unitario; si dicen «incluido IGV»/«con IGV», marca precio_incluye_igv. Sin cliente, llámala IGUAL solo con los ítems. Si hay un borrador pendiente y el mensaje lo corrige o completa (cliente, cantidades, quitar o sumar ítems), vuelve a llamarla con TODOS los datos ya corregidos.'),
+    'preparar_venta': (E.PrepararVenta, 'Crear/registrar una VENTA ya cerrada («crea una venta», «registra la venta», «véndele a X»). Mismo formato que cotizar: cliente e ítems en TEXTO tal como los dijo el usuario; acepta productos fuera de catálogo. Contado por defecto; «al crédito 30/60» → credito_30/credito_60. Si piden VENTA usa esta, NUNCA preparar_cotizacion.'),
+    'convertir_cotizacion_en_venta': (E.ConvertirCotizacionEnVenta, 'Convertir una cotización EXISTENTE en venta («convierte la COT-107 en venta», «la última cotización de Bruno hazla venta»). Por número o por cliente.'),
     'preparar_cobro': (E.PrepararCobro, 'Registrar un pago o cobro RECIBIDO de un cliente («me pagaron», «depositó», «me yapearon»). Yape/Plin = transferencia. Sin monto → se cobra el saldo completo.'),
     'cambiar_estado_operativo': (E.CambiarEstadoOperativo, 'Marcar el avance de una venta: comprado, recibido (llegó al almacén), entregado, facturado. Por número de venta o por cliente.'),
     'consultar_venta': (E.ConsultarVenta, 'Saber si un cliente ya pagó una venta: estado de pago, cobrado y saldo pendiente.'),
@@ -42,13 +44,21 @@ SYSTEM = (
     '«que sean 5», «quita el gabinete») suele completar o corregir el borrador '
     'pendiente — vuelve a llamar la MISMA herramienta con todos los datos, los de '
     'antes más lo nuevo; nunca inventes un ítem con frases como «los productos que '
-    'te dije». Si el pedido no corresponde a ninguna herramienta, no llames ninguna.'
+    'te dije». NUNCA cambies el tipo de documento pedido: si piden una VENTA usa '
+    'preparar_venta; una COTIZACIÓN, preparar_cotizacion; convertir una cotización, '
+    'convertir_cotizacion_en_venta. Si piden algo que NINGUNA herramienta cubre '
+    '(anular o editar facturas/ventas, compras, notas de crédito, etc.), NO llames '
+    'ninguna herramienta: el bot le dirá honestamente que no puede y qué sí puede.'
 )
 
+# Punto 4 (bot-ventas) — honestidad: si piden algo que el bot no cubre, lo dice
+# explícito y ofrece lo que SÍ puede, en vez de cambiar el tipo de documento o
+# responder genérico.
 FUERA_DE_ALCANCE = (
-    'Puedo ayudarte con: cotizar, registrar cobros, cambiar el estado de una venta, '
-    'consultar ventas, stock o ventas detenidas. Por ejemplo: '
-    '«cotízale 3 jabra 750 a Transportes Lima» o «¿ya pagó Acme?».'
+    'Eso no puedo hacerlo desde el chat. Sí puedo: cotizar, registrar VENTAS, '
+    'convertir una cotización en venta, registrar cobros, cambiar el estado de una '
+    'venta y consultar ventas, stock o resumen del mes. Por ejemplo: '
+    '«crea una venta para Acme: 2 teclados a 35 soles» o «convierte la COT-107 en venta».'
 )
 
 
@@ -68,7 +78,8 @@ MAX_RONDAS = 3
 
 # Preparan un borrador: cortan el bucle y NO se ejecutan aquí (el orquestador
 # exige rol de escritura antes; el eval las ejecuta sin persistir nada).
-PREPARACIONES = ('preparar_cotizacion', 'preparar_cobro', 'cambiar_estado_operativo')
+PREPARACIONES = ('preparar_cotizacion', 'preparar_venta', 'convertir_cotizacion_en_venta',
+                 'preparar_cobro', 'cambiar_estado_operativo')
 # Toda lectura ES la respuesta: se ejecuta y corta el bucle en esa misma ronda.
 # Antes buscar_* devolvía su resultado al modelo «por si quería cotizar después»
 # y el modelo repetía la búsqueda hasta el tope (eval #5, #7, #11: 5 rondas,

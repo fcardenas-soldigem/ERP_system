@@ -51,7 +51,7 @@ def historial_chat(usuario, id_externo):
 def payload_compacto(tipo, payload):
     """Versión del payload para el prompt: sin opciones, avisos ni claves de
     trabajo; solo lo que el modelo necesita para reconstruirlo completo."""
-    if tipo != 'cotizacion':
+    if tipo not in ('cotizacion', 'venta'):
         return {k: v for k, v in payload.items() if k != 'en_edicion'}
     return {
         'cliente': payload.get('cliente_nombre') or payload.get('cliente_texto') or '(por definir)',

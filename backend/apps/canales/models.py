@@ -79,6 +79,8 @@ class BorradorAgente(models.Model):
 
     TIPOS = [
         ('cotizacion', 'Cotización'),
+        ('venta', 'Venta'),
+        ('conversion_venta', 'Conversión de cotización a venta'),
         ('cobro', 'Cobro'),
         ('estado_operativo', 'Cambio de estado operativo'),
     ]
