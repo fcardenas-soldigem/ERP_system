@@ -28,6 +28,8 @@ MAX_RONDAS_CONSULTA = 2
 
 PREPARACIONES = {
     'preparar_cotizacion': servicios.preparar_cotizacion,
+    'preparar_venta': servicios.preparar_venta,
+    'convertir_cotizacion_en_venta': servicios.convertir_cotizacion_en_venta,
     'preparar_cobro': servicios.preparar_cobro,
     'cambiar_estado_operativo': servicios.cambiar_estado_operativo,
 }
@@ -86,6 +88,19 @@ def preparar_datos(empresa):
         # stock_total lo recalcula save(); se fija directo para el eval
         Producto.objects.filter(pk=p.pk).update(stock_total=Decimal(stock))
     hoy = timezone.localdate()
+    # cotización abierta para el caso de conversión («convierte la COT-107»)
+    from django.contrib.auth import get_user_model
+    from apps.cotizaciones.models import Cotizacion
+    from apps.inventario.models.producto import Producto as _P
+    Cotizacion.objects.filter(empresa=empresa, numero='COT-00000107').delete()
+    cot = Cotizacion.objects.create(
+        empresa=empresa, cliente=clientes['Acme Peru SAC'],
+        usuario_creador=get_user_model().objects.filter(empresa=empresa).first(),
+        asunto='Eval conversión', fecha_vencimiento=hoy)
+    cot.detalles.create(producto=_P.objects.get(empresa=empresa, sku='K120'),
+                        descripcion='Teclado Logitech K120', cantidad=2,
+                        precio_unitario=Decimal('35'))
+    Cotizacion.objects.filter(pk=cot.pk).update(numero='COT-00000107', estado='enviada')
     for numero, cliente, total, estado_op, dias in VENTAS:
         Venta.objects.filter(empresa=empresa, numero=numero).delete()
         v = Venta.objects.create(empresa=empresa, cliente=clientes[cliente], tipo_venta='credito_30',
@@ -176,8 +191,10 @@ def chequear(usuario, final, resultado, checks):
         if 'borrador' not in resultado:
             return [f'sin borrador: {resultado.get("error") or resultado}']
         payload = resultado['borrador']['payload']
-        if final == 'preparar_cotizacion':
-            _chequear_cotizacion(payload, checks, fallos)
+        if final in ('preparar_cotizacion', 'preparar_venta'):
+            _chequear_cotizacion(payload, checks, fallos)   # mismo shape de payload
+        elif final == 'convertir_cotizacion_en_venta':
+            pass   # se valida con checks['contiene'] sobre el resultado plano
         else:
             _chequear_venta(usuario, payload, checks, fallos)
     plano = json.dumps(resultado, ensure_ascii=False, default=str)

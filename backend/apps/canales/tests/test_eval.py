@@ -16,6 +16,7 @@ from django.core.management import call_command
 from django.test import SimpleTestCase, TestCase
 
 from apps.canales.eval.mensajes import (CASOS, EDITA_CANTIDAD, MENSAJE_PILOTO,
+                                        MENSAJE_VENTA_BRUNO, SEGUIMIENTO_BRUNO,
                                         SEGUIMIENTO_CLIENTE, umbral)
 from apps.canales.eval.runner import evaluar, preparar_datos
 from apps.canales.nucleo.interprete import CATALOGO
@@ -64,12 +65,21 @@ _ARGS_CON_CLIENTE = {**_ARGS_PILOTO, 'cliente': 'Uhman Perú sac'}
 _ARGS_CANTIDAD_6 = {**_ARGS_CON_CLIENTE,
                     'items': [{**_ITEM_PEDESTAL, 'cantidad': 6}, _ITEM_GABINETE]}
 
+_ARGS_VENTA_BRUNO = {'cliente': 'bruno perez', 'moneda': 'USD',
+                     'items': [{'descripcion': 'headsets jabra evolve 20', 'cantidad': 10,
+                                'precio_unitario': '39', 'precio_incluye_igv': False}]}
+
 ORACULO.update({
     21: ('preparar_cotizacion', _ARGS_PILOTO),
     23: (None, None),                                   # pide aclaración, sin tool
     24: ('resumen_ventas', {'periodo': 'mes'}),
     26: ('preparar_cotizacion', {'cliente': 'acme', 'items': [
         {'descripcion': 'teclado logitech k120', 'cantidad': 2, 'precio_unitario': 35}]}),
+    27: ('preparar_venta', _ARGS_VENTA_BRUNO),
+    29: ('convertir_cotizacion_en_venta', {'cotizacion_numero': 'COT-107'}),
+    30: (None, None),                                   # honesto: sin tool
+    31: ('preparar_venta', {'cliente': 'cliente nuevo DNI 70771234', 'items': [
+        {'descripcion': 'teclado k120', 'cantidad': 1, 'precio_unitario': 35}]}),
 })
 
 # casos multi-turno: el guion se indexa por el TEXTO de cada turno
@@ -78,6 +88,8 @@ ORACULO_TURNOS = {
     SEGUIMIENTO_CLIENTE: ('preparar_cotizacion', _ARGS_CON_CLIENTE),
     'Cliente Uhman Perú sac': ('preparar_cotizacion', _ARGS_CON_CLIENTE),
     EDITA_CANTIDAD: ('preparar_cotizacion', _ARGS_CANTIDAD_6),
+    MENSAJE_VENTA_BRUNO: ('preparar_venta', _ARGS_VENTA_BRUNO),
+    SEGUIMIENTO_BRUNO: ('preparar_venta', {**_ARGS_VENTA_BRUNO, 'cliente': 'Bruno Perez Quispe'}),
 }
 
 
@@ -112,14 +124,14 @@ class DatasetTests(SimpleTestCase):
 
     def test_umbral_90_por_ciento(self):
         self.assertEqual(umbral(20), 18)
-        self.assertEqual(umbral(26), 24)   # con los 6 casos del fix V2
+        self.assertEqual(umbral(31), 28)   # con fix V2 + bot-ventas
 
-    def test_son_26_casos_con_los_del_fix_v2(self):
-        self.assertEqual(len(CASOS), 26)
+    def test_son_31_casos_con_ventas(self):
+        self.assertEqual(len(CASOS), 31)
         self.assertIsNone(next(c for c in CASOS if c['id'] == 20)['final'])
         # los casos que crearían datos incorrectos están marcados como críticos
         criticos = {c['id'] for c in CASOS if c.get('critico')}
-        self.assertEqual(criticos, {21, 22, 23, 25, 26})
+        self.assertEqual(criticos, {21, 22, 23, 25, 26, 27, 28, 29, 30})
 
 
 class EvalPuntaAPuntaTests(TestCase):

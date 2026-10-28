@@ -140,6 +140,41 @@ CASOS += [
 ]
 
 
+# ── feat/bot-ventas: ventas, conversión y honestidad ──────────────────────────
+# El caso REAL: pidió una VENTA y el bot creó la cotización COT-00000107 sin
+# avisar. El bot nunca cambia en silencio el tipo de documento pedido.
+MENSAJE_VENTA_BRUNO = ('crea venta para bruno perez 10 headsets jabra evolve 20 '
+                       '$39 la unidad mas igv')
+SEGUIMIENTO_BRUNO = 'Cliente Bruno Perez Quispe'
+
+CASOS += [
+    # el caso real: VENTA (no cotización), USD, precio base («mas igv»), línea libre
+    {'id': 27, 'critico': True, 'texto': MENSAJE_VENTA_BRUNO,
+     'final': 'preparar_venta',
+     'checks': {'cliente_texto': 'bruno', 'moneda': 'USD', 'precios_incluyen_igv': False,
+                'items': [{'producto': 'jabra evolve 20', 'cantidad': 10,
+                           'precio': 39, 'estado': 'libre'}]}},
+    # multi-turno de venta: el seguimiento completa el MISMO borrador de venta
+    {'id': 28, 'critico': True, 'turnos': [MENSAJE_VENTA_BRUNO, SEGUIMIENTO_BRUNO],
+     'final': 'preparar_venta',
+     'checks': {'cliente_texto': 'bruno',
+                'items': [{'producto': 'jabra evolve 20', 'cantidad': 10, 'precio': 39}]}},
+    # conversión de una cotización existente (COT-00000107 del fixture)
+    {'id': 29, 'critico': True, 'texto': 'convierte la COT-107 en venta',
+     'final': 'convertir_cotizacion_en_venta',
+     'checks': {'contiene': ['COT-00000107']}},
+    # honestidad: operación no soportada → ninguna tool, respuesta honesta fija
+    {'id': 30, 'critico': True, 'texto': 'anula la factura 5',
+     'final': None,
+     'checks': {}},
+    # cliente nuevo por DNI: queda pendiente (el flujo pide/verifica el documento)
+    {'id': 31, 'texto': 'crea una venta de 1 teclado k120 a 35 soles para el cliente nuevo con DNI 70771234',
+     'final': 'preparar_venta',
+     'checks': {'cliente_pendiente': True,
+                'items': [{'producto': 'Teclado', 'cantidad': 1, 'estado': 'ok'}]}},
+]
+
+
 def umbral(n_casos):
     """Fix V2: al menos 90 % de los casos correctos (techo), y además ningún
     caso `critico` puede fallar (lo exige eval_agente aparte)."""
