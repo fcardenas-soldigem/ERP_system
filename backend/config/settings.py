@@ -94,6 +94,10 @@ API_BASE_URL = os.getenv('API_BASE_URL', 'https://erp.soldigem.com.pe')
 # Límites del asistente (B9); el de usuario es fijo: 60 mensajes/hora
 CANALES_LIMITE_MENSAJES_EMPRESA_DIA = int(os.getenv('CANALES_LIMITE_MENSAJES_EMPRESA_DIA', '1000'))
 CANALES_LIMITE_TOKENS_EMPRESA_DIA = int(os.getenv('CANALES_LIMITE_TOKENS_EMPRESA_DIA', '300000'))
+# Memoria corta del bot (fix V2 punto 3): cuántos mensajes recientes del chat ve
+# el agente y tope de caracteres total (proxy de tokens) para no inflar el prompt.
+CANALES_HISTORIAL_MENSAJES = int(os.getenv('CANALES_HISTORIAL_MENSAJES', '10'))
+CANALES_HISTORIAL_MAX_CHARS = int(os.getenv('CANALES_HISTORIAL_MAX_CHARS', '4000'))
 
 # HSTS (HTTP Strict Transport Security) - fuerza HTTPS en el navegador
 SECURE_HSTS_SECONDS = 31536000 if not DEBUG else 0  # 1 año en producción

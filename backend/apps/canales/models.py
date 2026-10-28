@@ -87,6 +87,8 @@ class BorradorAgente(models.Model):
         ('confirmado', 'Confirmado'),
         ('cancelado', 'Cancelado'),
         ('expirado', 'Expirado'),
+        # un borrador nuevo del mismo chat lo desplaza: solo hay UNO pendiente
+        ('reemplazado', 'Reemplazado'),
     ]
     VIGENCIA = timedelta(minutes=30)
 
@@ -119,3 +121,29 @@ class BorradorAgente(models.Model):
 
     def __str__(self):
         return f'{self.get_tipo_display()} · {self.estado} · {self.usuario}'
+
+
+class MensajeConversacion(models.Model):
+    """Memoria corta del chat (fix V2 punto 3): el agente recibe los últimos N
+    mensajes para que «Cliente Uhman» complete el borrador en vez de perderse.
+    Solo texto plano acotado; nada de payloads ni datos del ERP."""
+
+    ROLES = [('user', 'Usuario'), ('assistant', 'Bot')]
+
+    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE, related_name='mensajes_canal')
+    usuario = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                                related_name='mensajes_canal')
+    canal = models.CharField(max_length=20, default='telegram')
+    id_externo = models.CharField(max_length=64, help_text='chat_id u otro id del canal')
+    rol = models.CharField(max_length=10, choices=ROLES)
+    texto = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [models.Index(fields=['usuario', 'id_externo', '-created_at'])]
+        verbose_name = 'Mensaje de conversación'
+        verbose_name_plural = 'Mensajes de conversación'
+
+    def __str__(self):
+        return f'{self.rol} · {self.id_externo} · {self.texto[:40]}'
