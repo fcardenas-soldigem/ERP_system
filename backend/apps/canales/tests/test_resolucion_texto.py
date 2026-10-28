@@ -78,16 +78,26 @@ class CotizacionPorTextoTests(CanalTestCase):
         self.assertIn('Faltan datos', self.ultima_respuesta()[1])
         self.assertEqual(Cotizacion.objects.count(), 0)
 
-    def test_texto_libre(self):
+    def test_texto_libre_con_precio_es_directo(self):
+        """V2: sin match en catálogo y CON precio → línea libre automática,
+        sin botón intermedio."""
         b = self._cotizar({'cliente': 'transportes lima',
                            'items': [{'producto': 'servicio de instalacion', 'cantidad': 1, 'precio_unitario': 80}]})
-        self.assertEqual(b.payload['detalles'][0]['estado'], 'no_encontrado')
-        self.post_update(self.update_callback(self.CHAT_A, f'r:{b.id}:i0:libre'))
+        self.assertEqual(b.payload['detalles'][0]['estado'], 'libre')
         self.post_update(self.update_callback(self.CHAT_A, f'b:{b.id}:ok'))
         cot = Cotizacion.objects.get()
         det = cot.detalles.get()
         self.assertIsNone(det.producto)
         self.assertEqual((det.descripcion, det.precio_unitario), ('servicio de instalacion', Decimal('80')))
+
+    def test_texto_libre_sin_precio_usa_el_boton(self):
+        """Sin precio el botón «usar como texto libre» sigue siendo la salida."""
+        b = self._cotizar({'cliente': 'transportes lima',
+                           'items': [{'producto': 'servicio de instalacion', 'cantidad': 1}]})
+        self.assertEqual(b.payload['detalles'][0]['estado'], 'no_encontrado')
+        self.post_update(self.update_callback(self.CHAT_A, f'r:{b.id}:i0:libre'))
+        b.refresh_from_db()
+        self.assertEqual(b.payload['detalles'][0]['estado'], 'libre')
 
     def test_cliente_nuevo_pide_ruc_y_se_crea_al_confirmar(self):
         b = self._cotizar({'cliente': 'ferreteria el porvenir', 'items': [{'producto': 'jabra 750', 'cantidad': 1}]})

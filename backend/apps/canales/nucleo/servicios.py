@@ -7,10 +7,10 @@ crea un BorradorAgente. El documento real solo nace en confirmar_borrador().
 """
 import logging
 import re
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from types import SimpleNamespace
 
-from django.db.models import Q
+from django.db.models import F, Q
 from django.utils import timezone
 from django.utils.html import escape
 import datetime as _dt
@@ -22,6 +22,8 @@ from . import busqueda
 from . import esquemas as E
 
 logger = logging.getLogger(__name__)
+
+IGV = Decimal('1.18')
 
 
 def _num(n):
@@ -150,6 +152,49 @@ def ventas_detenidas(usuario, entrada: E.VentasDetenidas):
     return {'detenidas': detenidas[:10], 'total': len(detenidas)}
 
 
+def resumen_ventas(usuario, entrada: E.ResumenVentas):
+    """«¿Cuánto voy en ventas este mes?» — total del mes vs el anterior, número
+    de ventas, top 3 clientes y por cobrar. Todo consolidado a S/ con el TC
+    guardado por documento (desglose_pen). Solo lectura, scoped a la empresa."""
+    from apps.core.services.tipo_cambio import desglose_pen, get_tc_actual
+
+    hoy = timezone.localdate()
+    inicio_mes = hoy.replace(day=1)
+    if entrada.periodo == 'mes_anterior':
+        inicio_mes = (inicio_mes - _dt.timedelta(days=1)).replace(day=1)
+    fin_mes = (inicio_mes + _dt.timedelta(days=32)).replace(day=1) - _dt.timedelta(days=1)
+    inicio_prev = (inicio_mes - _dt.timedelta(days=1)).replace(day=1)
+
+    qs = Venta.objects.filter(empresa=usuario.empresa).exclude(estado__in=('borrador', 'anulado'))
+    mes = qs.filter(fecha_emision__gte=inicio_mes, fecha_emision__lte=fin_mes)
+    prev = qs.filter(fecha_emision__gte=inicio_prev, fecha_emision__lt=inicio_mes)
+
+    # un solo lookup del TC de fallback (solo pesa si hay USD sin TC guardado)
+    tc = get_tc_actual(usuario.empresa)
+    total_mes = Decimal(str(desglose_pen(mes, 'total', fallback_tc=tc)['total_pen'] or 0))
+    total_prev = Decimal(str(desglose_pen(prev, 'total', fallback_tc=tc)['total_pen'] or 0))
+    por_cobrar = Decimal(str(desglose_pen(
+        qs.filter(estado='pendiente').annotate(saldo=F('total') - F('pagos_total')), 'saldo',
+        fallback_tc=tc,
+    )['total_pen'] or 0))
+
+    # top 3 clientes del mes en PEN (escala pyme: decenas de filas)
+    por_cliente = {}
+    for v in mes.select_related('cliente'):
+        por_cliente.setdefault(v.cliente.nombre, Decimal('0'))
+        por_cliente[v.cliente.nombre] += v.total_pen or Decimal('0')
+    top = sorted(por_cliente.items(), key=lambda kv: -kv[1])[:3]
+
+    return {
+        'mes': inicio_mes.strftime('%Y-%m'),
+        'total_mes': str(total_mes.quantize(Decimal('0.01'))),
+        'n_ventas': mes.count(),
+        'total_mes_anterior': str(total_prev.quantize(Decimal('0.01'))),
+        'top_clientes': [{'nombre': n, 'total': str(t.quantize(Decimal("0.01")))} for n, t in top],
+        'por_cobrar': str(por_cobrar.quantize(Decimal('0.01'))),
+    }
+
+
 # ── preparaciones (generan borrador; NUNCA escriben) ─────────────────────────
 
 def _opcion(cid, extra, clave):
@@ -173,6 +218,23 @@ def _resolver_cliente_payload(usuario, entrada):
             'cliente_opciones': [_opcion(cid, extra, 'documento') for cid, _, extra in encontrados]}
 
 
+# El caso real que motivó esto: «Ya te di los productos y cantidades» terminó
+# como ítem de la cotización. Una referencia a la conversación no es un producto.
+_META_FRASES = [
+    r'^(el |los |la |las )?(producto|item|detalle)s?( y( las?)? cantidad(es)?)?$',
+    r'^(la |las )?cantidad(es)?$',
+    r'\b(ya )?te (lo|los|la|las )?(di|dije|pase|mande|envie|puse)\b',
+    r'\blo (que te (dije|pase|mande)|de (antes|arriba))\b',
+    r'^(los |las )?mism(o|a)s?( de antes)?$',
+    r'^(lo|eso) (de arriba|anterior|mismo)$',
+]
+
+
+def _es_meta_frase(texto):
+    t = busqueda.normalizar(texto)
+    return any(re.search(p, t) for p in _META_FRASES)
+
+
 def _precio_de(producto, item, moneda):
     if item.precio_unitario is not None:
         return str(item.precio_unitario), ''
@@ -183,8 +245,9 @@ def _precio_de(producto, item, moneda):
 
 
 def _resolver_item(usuario, it, moneda):
-    base = {'texto': it.producto or '', 'cantidad': str(it.cantidad),
+    base = {'texto': it.texto, 'cantidad': str(it.cantidad),
             'precio_unitario': str(it.precio_unitario) if it.precio_unitario is not None else None,
+            'precio_incluye_igv': bool(it.precio_incluye_igv and it.precio_unitario is not None),
             'opciones': [], 'aviso': ''}
     if it.producto_id:
         p = Producto.objects.filter(empresa=usuario.empresa, pk=it.producto_id).first()
@@ -192,29 +255,71 @@ def _resolver_item(usuario, it, moneda):
             precio, aviso = _precio_de(p, it, moneda)
             return {**base, 'estado': 'ok', 'producto': p.id, 'descripcion': p.nombre,
                     'precio_unitario': precio, 'aviso': aviso}
-    estado, encontrados = busqueda.resolver_producto(usuario.empresa, it.producto or '')
+    estado, encontrados = busqueda.resolver_producto(usuario.empresa, it.texto)
     if estado == 'ok':
+        # umbral ALTO: todas las palabras del usuario coinciden con el producto
         p = Producto.objects.get(pk=encontrados[0][0], empresa=usuario.empresa)
         precio, aviso = _precio_de(p, it, moneda)
         return {**base, 'estado': 'ok', 'producto': p.id, 'descripcion': p.nombre,
                 'precio_unitario': precio, 'aviso': aviso}
-    return {**base, 'estado': estado, 'producto': None, 'descripcion': it.producto or '',
+    if estado == 'no_encontrado' and it.precio_unitario is not None:
+        # sin match y CON precio → línea libre directa, sin botón intermedio
+        # (la empresa cotiza cosas que no maneja en catálogo ni en stock)
+        return {**base, 'estado': 'libre', 'producto': None, 'descripcion': it.texto}
+    # match dudoso (ambiguo) o sin precio: se pregunta con botones; «usar como
+    # texto libre» queda como salida manual
+    return {**base, 'estado': estado, 'producto': None, 'descripcion': it.texto,
             'opciones': [_opcion(pid, extra, 'sku') for pid, _, extra in encontrados]}
+
+
+def _normalizar_igv(payload):
+    """Deja los precios del payload consistentes con cómo guarda la web.
+
+    - Si TODOS los precios vienen del usuario con IGV incluido →
+      precios_incluyen_igv=True y se guardan tal cual (el total cuadra al
+      céntimo: 4×441 + 1750 = 3,514.00).
+    - Si se mezclan con precios base (catálogo o usuario sin IGV) → los que
+      incluían IGV se convierten a base (÷1.18, 2 decimales) y el flag queda
+      en False, con aviso en la línea.
+    """
+    con_precio = [d for d in payload['detalles'] if d.get('precio_unitario') is not None]
+    if con_precio and all(d.get('precio_incluye_igv') for d in con_precio):
+        payload['precios_incluyen_igv'] = True
+        return payload
+    payload['precios_incluyen_igv'] = False
+    for d in con_precio:
+        if d.pop('precio_incluye_igv', False):
+            base = (Decimal(d['precio_unitario']) / IGV).quantize(Decimal('0.01'), ROUND_HALF_UP)
+            d['precio_unitario'] = str(base)
+            d['aviso'] = (d.get('aviso') or 'precio convertido a base (dijiste IGV incluido)')
+    return payload
 
 
 def preparar_cotizacion(usuario, entrada: E.PrepararCotizacion):
     """UNA llamada del modelo basta: cliente e ítems llegan en texto y el
     SERVIDOR los resuelve con búsqueda difusa. Lo que no resuelve queda
-    marcado en el borrador como pendiente; la respuesta ofrece botones."""
+    marcado en el borrador como pendiente; la respuesta ofrece botones.
+    Sin cliente, el borrador se crea igual y se pregunta solo por él."""
+    items = [it for it in entrada.items if it.producto_id or not _es_meta_frase(it.texto)]
+    if not items:
+        return {'error': 'No me quedó claro qué productos cotizar. '
+                         'Dímelos de nuevo, uno por línea, con cantidad y precio si lo tienes.'}
+    if entrada.cliente_id or (entrada.cliente or '').strip():
+        cliente_payload = _resolver_cliente_payload(usuario, entrada)
+    else:
+        # el usuario aún no dijo el cliente: NUNCA se descartan los ítems
+        cliente_payload = {'cliente': None, 'cliente_nombre': '', 'cliente_estado': 'falta',
+                           'cliente_texto': '', 'cliente_opciones': []}
     payload = {
-        **_resolver_cliente_payload(usuario, entrada),
+        **cliente_payload,
         'cliente_nuevo': None,
         'asunto': entrada.asunto or '',
         'moneda': entrada.moneda,
         # 15 días de vigencia: el valor por defecto del negocio
         'fecha_vencimiento': (timezone.localdate() + _dt.timedelta(days=15)).isoformat(),
-        'detalles': [_resolver_item(usuario, it, entrada.moneda) for it in entrada.items],
+        'detalles': [_resolver_item(usuario, it, entrada.moneda) for it in items],
     }
+    _normalizar_igv(payload)
     return {'borrador': {'tipo': 'cotizacion', 'payload': payload,
                          'resumen': resumen_cotizacion(payload)}}
 
@@ -234,6 +339,20 @@ def pendientes_cotizacion(payload):
     return out
 
 
+def totales_cotizacion(payload):
+    """→ (subtotal, igv, total) con la misma aritmética que Cotizacion.calcular_totales."""
+    suma = Decimal('0')
+    for d in payload.get('detalles', []):
+        if d.get('estado') in ('ambiguo', 'no_encontrado') or d.get('precio_unitario') is None:
+            continue
+        suma += Decimal(d['precio_unitario']) * Decimal(d['cantidad'])
+    if payload.get('precios_incluyen_igv'):
+        igv = (suma * Decimal('18') / Decimal('118')).quantize(Decimal('0.01'))
+        return suma - igv, igv, suma
+    igv = (suma * Decimal('18') / Decimal('100')).quantize(Decimal('0.01'))
+    return suma, igv, suma + igv
+
+
 def resumen_cotizacion(payload):
     s = _simbolo(payload.get('moneda'))
     if payload.get('cliente'):
@@ -241,9 +360,11 @@ def resumen_cotizacion(payload):
     elif (payload.get('cliente_nuevo') or {}).get('documento'):
         n = payload['cliente_nuevo']
         cliente = f'<b>{escape(n["nombre"])}</b> (cliente nuevo, {n["tipo_documento"].upper()} {escape(n["documento"])})'
+    elif payload.get('cliente_estado') == 'falta':
+        cliente = '❓ (por definir)'
     else:
         cliente = f'❓ «{escape(payload.get("cliente_texto", ""))}»'
-    lineas, total = [], Decimal('0')
+    lineas = []
     for d in payload.get('detalles', []):
         cant = Decimal(d['cantidad'])
         if d.get('estado') in ('ambiguo', 'no_encontrado'):
@@ -253,11 +374,13 @@ def resumen_cotizacion(payload):
             lineas.append(f'  • {escape(d["descripcion"])} ×{cant:g} — ⚠ precio por definir')
             continue
         precio = Decimal(d['precio_unitario'])
-        total += precio * cant
         aviso = f' ⚠ {escape(d["aviso"])}' if d.get('aviso') else ''
         lineas.append(f'  • {escape(d["descripcion"])} ×{cant:g} a {s} {_num(precio)}{aviso}')
+    subtotal, igv, total = totales_cotizacion(payload)
+    # sin «+ IGV» ambiguo: subtotal, IGV y total, siempre los tres
     return (f'📝 <b>Cotización</b> para {cliente}\n' + '\n'.join(lineas)
-            + f'\nSubtotal aprox.: {s} {_num(total)} + IGV')
+            + f'\nSubtotal: {s} {_num(subtotal)} · IGV (18%): {s} {_num(igv)}'
+            + f'\n<b>Total: {s} {_num(total)}</b>')
 
 
 def pregunta_pendiente(payload, borrador_id):
@@ -270,6 +393,9 @@ def pregunta_pendiente(payload, borrador_id):
     if tipo == 'cliente':
         if payload.get('cliente_nuevo'):
             return (f'Envíame el RUC (11 dígitos) o DNI (8) de «{escape(payload["cliente_nuevo"]["nombre"])}».', [])
+        if payload.get('cliente_estado') == 'falta':
+            # el usuario aún no dijo cliente: pregunta abierta, sin botones
+            return '¿Para qué cliente es la cotización?', []
         texto = escape(payload.get('cliente_texto', ''))
         botones = [(f'👤 {o["nombre"]}', f'r:{borrador_id}:c:{o["id"]}')
                    for o in payload.get('cliente_opciones', [])[:busqueda.MAX_OPCIONES]]
@@ -448,6 +574,9 @@ def confirmar_borrador(borrador):
             'cliente': cliente.id,
             'asunto': payload.get('asunto') or f'Cotización para {cliente.nombre}',
             'moneda': payload.get('moneda', 'PEN'),
+            # igual que la web: si los precios ya incluyen IGV, se guardan tal
+            # cual y el modelo lo extrae (el total cuadra al céntimo)
+            'precios_incluyen_igv': bool(payload.get('precios_incluyen_igv')),
             'fecha_vencimiento': payload['fecha_vencimiento'],
             'detalles': [
                 {'producto': d.get('producto'), 'descripcion': d['descripcion'],

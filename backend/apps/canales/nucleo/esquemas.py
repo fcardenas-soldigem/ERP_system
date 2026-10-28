@@ -18,20 +18,33 @@ class BuscarProducto(BaseModel):
 
 
 class ItemCotizacion(BaseModel):
-    """Un ítem TAL COMO lo dijo el vendedor: el servidor busca el producto."""
-    producto: Optional[str] = Field(
-        default=None, max_length=200,
-        description='producto en texto, como lo dijo el usuario: "jabra 750", "mouse inalambrico"')
+    """Un ítem TAL COMO lo dijo el vendedor: el servidor busca el producto.
+    Si no está en el catálogo y trae precio, queda como línea libre."""
+    descripcion: Optional[str] = Field(
+        default=None, max_length=400,
+        description='el producto en texto COMPLETO, tal como lo dijo el usuario, aunque sea '
+                    'largo: "PEDESTAL CON INCLINACIÓN 90° TV 32 A 75 PULG / VESA 600X400MM"')
+    # compatibilidad: versiones previas del prompt usaban "producto"
+    producto: Optional[str] = Field(default=None, max_length=400,
+                                    description='alias de descripcion; usa descripcion')
     producto_id: Optional[int] = Field(default=None, description='solo si ya conoces el id exacto')
     cantidad: Decimal = Field(
         gt=0, le=Decimal('100000'),
         description='número; convierte palabras: "una docena" = 12, "un par" = 2')
     precio_unitario: Optional[Decimal] = Field(
         default=None, ge=0, description='solo si el usuario dio precio por unidad')
+    precio_incluye_igv: bool = Field(
+        default=False,
+        description='true si el usuario dijo que ese precio ya incluye IGV '
+                    '(«incluido IGV», «inc. IGV», «con IGV»)')
+
+    @property
+    def texto(self):
+        return (self.descripcion or self.producto or '').strip()
 
     @model_validator(mode='after')
     def _algo_que_cotizar(self):
-        if not (self.producto or '').strip() and not self.producto_id:
+        if not self.texto and not self.producto_id:
             raise ValueError('cada ítem necesita el producto (texto) o producto_id')
         return self
 
@@ -39,18 +52,14 @@ class ItemCotizacion(BaseModel):
 class PrepararCotizacion(BaseModel):
     cliente: Optional[str] = Field(
         default=None, max_length=200,
-        description='cliente en texto, como lo dijo el usuario: nombre, alias o RUC')
+        description='cliente en texto, como lo dijo el usuario: nombre, alias o RUC. '
+                    'Si aún no lo dijo, OMÍTELO: el borrador se crea igual y el bot lo pregunta. '
+                    'NUNCA descartes los ítems por falta de cliente.')
     cliente_id: Optional[int] = Field(default=None, description='solo si ya conoces el id exacto')
     items: list[ItemCotizacion] = Field(min_length=1, max_length=50)
     asunto: Optional[str] = Field(default=None, max_length=200)
     moneda: Literal['PEN', 'USD'] = Field(
         default='PEN', description='"soles"/"lucas" → PEN; "dólares" → USD')
-
-    @model_validator(mode='after')
-    def _con_cliente(self):
-        if not (self.cliente or '').strip() and not self.cliente_id:
-            raise ValueError('falta el cliente')
-        return self
 
 
 class PrepararCobro(BaseModel):
@@ -81,3 +90,9 @@ class ConsultarVenta(BaseModel):
 
 class VentasDetenidas(BaseModel):
     pass
+
+
+class ResumenVentas(BaseModel):
+    """«¿Cuánto voy en ventas este mes?»: cifras del período, no una venta puntual."""
+    periodo: Literal['mes', 'mes_anterior'] = Field(
+        default='mes', description='"este mes" → mes; "el mes pasado" → mes_anterior')
