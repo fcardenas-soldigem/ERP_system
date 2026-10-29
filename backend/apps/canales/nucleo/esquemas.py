@@ -58,8 +58,10 @@ class PrepararCotizacion(BaseModel):
     cliente_id: Optional[int] = Field(default=None, description='solo si ya conoces el id exacto')
     items: list[ItemCotizacion] = Field(min_length=1, max_length=50)
     asunto: Optional[str] = Field(default=None, max_length=200)
-    moneda: Literal['PEN', 'USD'] = Field(
-        default='PEN', description='"soles"/"lucas" → PEN; "dólares" → USD')
+    moneda: Optional[Literal['PEN', 'USD']] = Field(
+        default=None, description='SOLO si el usuario la dijo o dio precios con símbolo: '
+                                  '"soles"/"lucas" → PEN; "dólares"/"$" → USD. Si no, OMÍTELA '
+                                  '(el servidor la decide por el catálogo o la pregunta).')
 
 
 class PrepararVenta(BaseModel):
@@ -70,8 +72,10 @@ class PrepararVenta(BaseModel):
         description='cliente en texto, como lo dijo el usuario. Si aún no lo dijo, OMÍTELO.')
     cliente_id: Optional[int] = Field(default=None, description='solo si ya conoces el id exacto')
     items: list[ItemCotizacion] = Field(min_length=1, max_length=50)
-    moneda: Literal['PEN', 'USD'] = Field(
-        default='PEN', description='"soles"/"lucas" → PEN; "dólares"/"$" → USD')
+    moneda: Optional[Literal['PEN', 'USD']] = Field(
+        default=None, description='SOLO si el usuario la dijo o dio precios con símbolo: '
+                                  '"soles"/"lucas" → PEN; "dólares"/"$" → USD. Si no, OMÍTELA '
+                                  '(el servidor la decide por el catálogo o la pregunta).')
     # PROHIBIDO asumir contado: solo si el usuario lo dijo. Sin condición, el
     # borrador queda incompleto y el bot la pregunta con botones.
     condicion_pago: Optional[Literal['contado', 'credito']] = Field(

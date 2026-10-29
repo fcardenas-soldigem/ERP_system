@@ -250,33 +250,42 @@ def _es_meta_frase(texto):
     return bool(toks) and all(p in _GENERICAS for p in toks)
 
 
-def _precio_de(producto, item, moneda):
-    if item.precio_unitario is not None:
-        return str(item.precio_unitario), ''
-    aviso = ''
-    if getattr(producto, 'moneda', moneda) and producto.moneda != moneda:
-        aviso = f'precio de catálogo en {producto.moneda}'
-    return str(producto.precio_venta), aviso
+NO_VENDIBLES = ('RAW', 'SEMIFINISHED')   # materias primas/insumos
 
 
-def _resolver_item(usuario, it, moneda):
+def _item_de_producto(p, it, base):
+    """Ítem resuelto contra un producto del catálogo. Caso real 29/10: el
+    precio de catálogo lleva SU moneda (nunca se copia el número a otra), y un
+    insumo no bloquea la venta: entra como línea libre con nombre y precio."""
+    if it.precio_unitario is not None:
+        datos = {'precio_unitario': str(it.precio_unitario),
+                 'precio_catalogo': False, 'moneda_precio': None}
+    else:
+        datos = {'precio_unitario': str(p.precio_venta),
+                 'precio_catalogo': True,
+                 'moneda_precio': getattr(p, 'moneda', None) or 'PEN'}
+    if base.pop('_insumo_como_libre', False) and p.tipo_producto in NO_VENDIBLES:
+        return {**base, **datos, 'estado': 'libre', 'producto': None, 'descripcion': p.nombre,
+                'aviso': f'«{p.nombre}» está registrado como insumo; lo incluyo como línea libre'}
+    return {**base, **datos, 'estado': 'ok', 'producto': p.id, 'descripcion': p.nombre, 'aviso': ''}
+
+
+def _resolver_item(usuario, it, insumo_como_libre=False):
     base = {'texto': it.texto, 'cantidad': str(it.cantidad),
             'precio_unitario': str(it.precio_unitario) if it.precio_unitario is not None else None,
             'precio_incluye_igv': bool(it.precio_incluye_igv and it.precio_unitario is not None),
-            'opciones': [], 'aviso': ''}
+            'precio_catalogo': False, 'moneda_precio': None,
+            'opciones': [], 'aviso': '', '_insumo_como_libre': insumo_como_libre}
     if it.producto_id:
         p = Producto.objects.filter(empresa=usuario.empresa, pk=it.producto_id).first()
         if p:
-            precio, aviso = _precio_de(p, it, moneda)
-            return {**base, 'estado': 'ok', 'producto': p.id, 'descripcion': p.nombre,
-                    'precio_unitario': precio, 'aviso': aviso}
+            return _item_de_producto(p, it, base)
     estado, encontrados = busqueda.resolver_producto(usuario.empresa, it.texto)
     if estado == 'ok':
         # umbral ALTO: todas las palabras del usuario coinciden con el producto
         p = Producto.objects.get(pk=encontrados[0][0], empresa=usuario.empresa)
-        precio, aviso = _precio_de(p, it, moneda)
-        return {**base, 'estado': 'ok', 'producto': p.id, 'descripcion': p.nombre,
-                'precio_unitario': precio, 'aviso': aviso}
+        return _item_de_producto(p, it, base)
+    base.pop('_insumo_como_libre', None)
     if estado == 'no_encontrado' and it.precio_unitario is not None:
         # sin match y CON precio → línea libre directa, sin botón intermedio
         # (la empresa cotiza cosas que no maneja en catálogo ni en stock)
@@ -310,9 +319,24 @@ def _normalizar_igv(payload):
     return payload
 
 
-def _payload_documento(usuario, entrada, extra=None):
+def _moneda_documento(moneda_usuario, detalles):
+    """Caso real 29/10: el catálogo tenía el producto en USD 39 y el documento
+    salió en S/ 39. Regla: el número de un precio de catálogo NUNCA cambia de
+    moneda. Si todo el catálogo usado coincide, el documento la adopta; si el
+    usuario pidió otra (o el catálogo está mezclado), queda None → se pregunta."""
+    monedas_catalogo = {d['moneda_precio'] for d in detalles if d.get('precio_catalogo')}
+    if not monedas_catalogo:
+        return moneda_usuario or 'PEN'
+    if len(monedas_catalogo) == 1:
+        (m,) = monedas_catalogo
+        if moneda_usuario in (None, m):
+            return m
+    return None   # conflicto usuario↔catálogo o catálogo mezclado → preguntar
+
+
+def _payload_documento(usuario, entrada, extra=None, es_venta=False):
     """Núcleo COMPARTIDO de cotización y venta: filtro de meta-frases, cliente
-    difuso (o «falta»), ítems de catálogo/libres e IGV. → (payload, error)."""
+    difuso (o «falta»), ítems de catálogo/libres, moneda e IGV. → (payload, error)."""
     items = [it for it in entrada.items if it.producto_id or not _es_meta_frase(it.texto)]
     if not items:
         return None, {'error': 'No me quedó claro qué productos incluir. '
@@ -323,11 +347,13 @@ def _payload_documento(usuario, entrada, extra=None):
         # el usuario aún no dijo el cliente: NUNCA se descartan los ítems
         cliente_payload = {'cliente': None, 'cliente_nombre': '', 'cliente_estado': 'falta',
                            'cliente_texto': '', 'cliente_opciones': []}
+    detalles = [_resolver_item(usuario, it, insumo_como_libre=es_venta) for it in items]
     payload = {
         **cliente_payload,
         'cliente_nuevo': None,
-        'moneda': entrada.moneda,
-        'detalles': [_resolver_item(usuario, it, entrada.moneda) for it in items],
+        'moneda': _moneda_documento(entrada.moneda, detalles),
+        'moneda_usuario': entrada.moneda,
+        'detalles': detalles,
         **(extra or {}),
     }
     _normalizar_igv(payload)
@@ -360,7 +386,7 @@ def preparar_venta(usuario, entrada: E.PrepararVenta):
     plazo = entrada.plazo_dias if condicion == 'credito' else None
     if condicion == 'credito' and not plazo:
         plazo = 30
-    payload, error = _payload_documento(usuario, entrada, extra={
+    payload, error = _payload_documento(usuario, entrada, es_venta=True, extra={
         'condicion': condicion,
         'plazo_dias': plazo,
         'metodo_pago': entrada.metodo_pago,
@@ -448,6 +474,8 @@ def pendientes_cotizacion(payload):
     for idx, d in enumerate(payload.get('detalles', [])):
         if d.get('estado') in ('ambiguo', 'no_encontrado'):
             out.append(('item', idx))
+    if 'moneda' in payload and payload.get('moneda') is None:
+        out.append(('moneda', None))
     if 'condicion' in payload and payload.get('condicion') is None:
         out.append(('condicion', None))
     return out
@@ -524,6 +552,12 @@ def pregunta_pendiente(payload, borrador_id):
     if not pend:
         return None
     tipo, idx = pend[0]
+    if tipo == 'moneda':
+        return ('Los precios del catálogo no coinciden con la moneda pedida. '
+                '¿En qué moneda va el documento?', [
+                    ('S/ Soles', f'r:{borrador_id}:mon:PEN'),
+                    ('$ Dólares', f'r:{borrador_id}:mon:USD'),
+                ])
     if tipo == 'condicion':
         # la ficha del Cliente no guarda condición/plazo: no hay valor previo
         # que ofrecer, se pregunta siempre con las tres opciones
@@ -571,6 +605,19 @@ def aplicar_resolucion(usuario, payload, objetivo, valor):
         payload['cliente_nuevo'] = {'nombre': nombre[:200], 'documento': None, 'tipo_documento': None}
         payload['cliente_estado'] = 'nuevo'
         return payload, None
+    if objetivo == 'mon':
+        if valor not in ('PEN', 'USD') or 'moneda' not in payload:
+            return payload, 'Esa opción no es válida.'
+        payload['moneda'] = valor
+        for d in payload.get('detalles', []):
+            # NUNCA copiar el número a otra moneda: el precio de catálogo que
+            # no coincide se pide de nuevo en la moneda elegida
+            if d.get('precio_catalogo') and d.get('moneda_precio') != valor:
+                d['precio_unitario'] = None
+                d['precio_catalogo'] = False
+                d['aviso'] = (f'precio de catálogo en {d["moneda_precio"]}: '
+                              f'dime el precio en {valor}')
+        return payload, None
     if objetivo == 'cond':
         opciones = {'c30': ('credito', 30), 'c15': ('credito', 15), 'cont': ('contado', None)}
         if valor not in opciones or 'condicion' not in payload:
@@ -592,10 +639,23 @@ def aplicar_resolucion(usuario, payload, objetivo, valor):
         p = Producto.objects.filter(empresa=usuario.empresa, pk=int(valor)).first()
         if not p:
             return payload, 'Ese producto ya no existe.'
-        precio = d['precio_unitario'] if d.get('precio_unitario') is not None else str(p.precio_venta)
-        aviso = f'precio de catálogo en {p.moneda}' if (d.get('precio_unitario') is None
-                                                        and p.moneda != payload.get('moneda')) else ''
-        d.update(estado='ok', producto=p.id, descripcion=p.nombre, precio_unitario=precio, aviso=aviso)
+        es_venta = 'condicion' in payload
+        if d.get('precio_unitario') is not None:
+            datos = {'precio_unitario': d['precio_unitario'], 'precio_catalogo': False,
+                     'moneda_precio': None, 'aviso': ''}
+        elif (p.moneda or 'PEN') == payload.get('moneda'):
+            datos = {'precio_unitario': str(p.precio_venta), 'precio_catalogo': True,
+                     'moneda_precio': p.moneda or 'PEN', 'aviso': ''}
+        else:
+            # NUNCA copiar el número a otra moneda: se pide el precio
+            datos = {'precio_unitario': None, 'precio_catalogo': False, 'moneda_precio': None,
+                     'aviso': f'precio de catálogo en {p.moneda}: dime el precio en {payload.get("moneda")}'}
+        if es_venta and p.tipo_producto in NO_VENDIBLES:
+            d.update(estado='libre', producto=None, descripcion=p.nombre, **datos)
+            d['aviso'] = (f'«{p.nombre}» está registrado como insumo; lo incluyo como línea libre'
+                          + (f' · {datos["aviso"]}' if datos['aviso'] else ''))
+        else:
+            d.update(estado='ok', producto=p.id, descripcion=p.nombre, **datos)
         return payload, None
     return payload, 'Esa opción no es válida.'
 

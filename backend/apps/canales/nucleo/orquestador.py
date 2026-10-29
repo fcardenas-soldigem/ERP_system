@@ -549,6 +549,22 @@ def _manejar_start(canal, mensaje):
     )
 
 
+def _traducir_error_confirmacion(e):
+    """Errores de validación CONOCIDOS → frase en español con acción sugerida.
+    Desconocidos → None (el caller responde «error interno» y loguea ERROR)."""
+    texto = str(getattr(e, 'detail', None) or e).lower()
+    if 'materia prima' in texto or 'insumo' in texto:
+        return ('Uno de los productos está registrado como insumo y no se vende '
+                'directo. Pídeme la venta de nuevo: lo incluiré como línea libre.')
+    if 'cliente' in texto and ('válido' in texto or 'valido' in texto or 'empresa' in texto):
+        return 'El cliente del borrador ya no es válido para tu empresa. Pídeme el documento de nuevo.'
+    if 'stock' in texto:
+        return 'No hay stock suficiente para una de las líneas. Ajusta la cantidad y vuelve a pedírmelo.'
+    if 'producto' in texto and ('no existe' in texto or 'no pertenece' in texto):
+        return 'Un producto del borrador ya no existe o no es de tu empresa. Pídeme el documento de nuevo.'
+    return None
+
+
 def _manejar_callback(canal, mensaje, usuario):
     # fix V2 punto 4 — idempotencia también por callback_query.id: si el
     # proveedor reenvía el mismo callback (reintento), no se procesa dos veces.
@@ -666,10 +682,28 @@ def _manejar_callback(canal, mensaje, usuario):
         except _YaResuelto as ya:
             canal.responder(mensaje.id_externo, f'Ese borrador ya está {ya}.')
             return
-        except Exception as e:
-            logger.exception('confirmar_borrador falló')
+        except ValueError as e:
+            # nuestras validaciones: ya vienen como frase en español
             _log(usuario, f'confirmar_{borrador.tipo}', {'borrador': borrador.id}, str(e), ok=False)
             canal.responder(mensaje.id_externo, f'No pude crearlo: {esc(e)}')
+            return
+        except Exception as e:
+            # caso real 29/10: el detalle crudo del serializer ({'detalles':
+            # [ErrorDetail(...)]}) llegaba al chat. Se traduce lo conocido; lo
+            # desconocido va al log con ERROR y el usuario recibe una frase.
+            # La transacción revierte: el borrador SIGUE pendiente para reintentar.
+            _log(usuario, f'confirmar_{borrador.tipo}', {'borrador': borrador.id}, str(e)[:300], ok=False)
+            amable = _traducir_error_confirmacion(e)
+            if amable:
+                logger.warning('confirmar_%s rechazado (borrador %s): %s',
+                               borrador.tipo, borrador.id, str(e)[:300])
+            else:
+                logger.exception('confirmar_%s falló sin traducción (borrador %s)',
+                                 borrador.tipo, borrador.id)
+                amable = ('No pude crear la venta por un error interno; '
+                          'el equipo ya fue notificado. El borrador sigue pendiente: '
+                          'puedes volver a tocar Confirmar en un momento.')
+            canal.responder(mensaje.id_externo, amable)
             return
         borrador = bloqueado
         _log(usuario, f'confirmar_{borrador.tipo}', {'borrador': borrador.id}, resultado)
