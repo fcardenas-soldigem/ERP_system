@@ -522,6 +522,7 @@ class FinanzasService:
         clientes_con_venta_anterior = set(
             Venta.objects
             .filter(empresa=self.empresa, fecha_emision__lt=self.fecha_inicio)
+            .exclude(estado__in=ESTADOS_EXCLUIDOS_VENTA)   # una anulada no hace «cliente recurrente»
             .values_list('cliente_id', flat=True)
             .distinct()
         )

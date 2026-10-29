@@ -75,6 +75,7 @@ def _historial_precios_item(empresa, args):
 def _ventas_esperando_oc_nr(empresa, args):
     from apps.ventas.models import Venta
     qs = (Venta.objects.filter(empresa=empresa, estado_operativo='esperando_oc_nr')
+          .exclude(estado='anulado')
           .select_related('cliente')
           .prefetch_related('detalles', 'detalles__producto')
           .order_by('-fecha_emision')[:50])

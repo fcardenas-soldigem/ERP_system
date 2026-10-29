@@ -260,7 +260,7 @@ class AnalistaExecutor:
             total_ventas_mes = Venta.objects.filter(
                 empresa=self.empresa,
                 fecha_emision__gte=hace_30_dias
-            ).aggregate(
+            ).exclude(estado__in=('borrador', 'anulado')).aggregate(
                 count=Count('id'),
                 total=Sum('total')
             )

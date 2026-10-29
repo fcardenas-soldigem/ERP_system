@@ -193,7 +193,7 @@ class DashboardResumen(APIView):
             # positivos en ventas históricas sin timeline.
             ventas_con_historial = Venta.objects.filter(
                 empresa=empresa, historial_operativo__isnull=False,
-            ).distinct()
+            ).exclude(estado='anulado').distinct()   # una anulada no está «detenida»
             ventas_fuera_sla = sum(
                 1 for v in ventas_con_historial if v.estado_sla_operativo == 'vencido'
             )
