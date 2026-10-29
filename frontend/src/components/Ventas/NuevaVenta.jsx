@@ -30,7 +30,7 @@ import {
   ListItem
 } from '@chakra-ui/react';
 import { Checkbox } from '@chakra-ui/react';
-import { DeleteIcon, SearchIcon } from '@chakra-ui/icons';
+import { CloseIcon, DeleteIcon, SearchIcon } from '@chakra-ui/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../lib/api';
@@ -56,7 +56,7 @@ const NuevaVenta = () => {
     referencia: '',
     comprobante: null,
     entrega_inmediata: false,
-    detalles: [{ producto: '', cantidad: 1, precio_unitario: 0 }],
+    detalles: [{ producto: '', descripcion: '', libre: false, cantidad: 1, precio_unitario: 0 }],
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   // F3/B3 — "Entrega inmediata" solo tiene sentido en empresas con stock.
@@ -165,6 +165,11 @@ const NuevaVenta = () => {
     // Asegurarse de que el valor sea un número cuando corresponda
     if (field === 'cantidad' || field === 'precio_unitario') {
       value = value === '' ? '' : Number(value);
+    } else if (field === 'producto' && value === '') {
+      newDetalles[index] = { ...newDetalles[index], producto: '', libre: false, descripcion: '' };
+    } else if (field === 'producto' && value === '__libre__') {
+      // Línea libre (sin catálogo): descripción + cantidad + precio, como en cotizaciones
+      newDetalles[index] = { ...newDetalles[index], producto: '', libre: true, descripcion: '' };
     } else if (field === 'producto') {
       value = value === '' ? '' : String(value);
       // Actualizar el precio cuando se selecciona un producto
@@ -203,7 +208,7 @@ const NuevaVenta = () => {
       ...prev,
       detalles: [
         ...prev.detalles,
-        { producto: '', cantidad: 1, precio_unitario: 0 }
+        { producto: '', descripcion: '', libre: false, cantidad: 1, precio_unitario: 0 }
       ]
     }));
   };
@@ -295,7 +300,8 @@ const NuevaVenta = () => {
 
       // Validar que todos los detalles tengan producto y cantidad
       const detallesInvalidos = formData.detalles.some(
-        detalle => !detalle.producto || !detalle.cantidad || detalle.cantidad <= 0 || !detalle.precio_unitario || detalle.precio_unitario <= 0
+        detalle => (detalle.libre ? !(detalle.descripcion || '').trim() : !detalle.producto)
+          || !detalle.cantidad || detalle.cantidad <= 0 || !detalle.precio_unitario || detalle.precio_unitario <= 0
       );
 
       if (detallesInvalidos) {
@@ -514,6 +520,7 @@ const NuevaVenta = () => {
               </Select>
             </FormControl>
 
+            {formData.detalles.some(d => !d.libre && d.producto) && (
             <FormControl flex="1">
               <FormLabel>Modo de Venta</FormLabel>
               <Select
@@ -530,6 +537,7 @@ const NuevaVenta = () => {
                   : 'Se descontará del inventario de productos terminados'}
               </FormHelperText>
             </FormControl>
+            )}
 
             {/* F3/B3 — Entrega inmediata: nace en 'entregado' (descuenta stock). */}
             {empresaConStock && (
@@ -626,17 +634,34 @@ const NuevaVenta = () => {
                 {formData.detalles.map((detalle, index) => (
                   <Tr key={index}>
                     <Td>
-                      <Select
-                        value={detalle.producto}
-                        onChange={(e) => handleDetalleChange(index, 'producto', e.target.value)}
-                        placeholder="Seleccione un producto"
-                      >
-                        {Array.isArray(productos) ? productos.map(producto => (
-                          <option key={producto.id} value={producto.id}>
-                            {producto.nombre} - {producto.sku}
-                          </option>
-                       )) : null}
-                      </Select>
+                      {detalle.libre ? (
+                        <HStack spacing={1}>
+                          <Input
+                            value={detalle.descripcion}
+                            onChange={(e) => handleDetalleChange(index, 'descripcion', e.target.value)}
+                            placeholder="Descripción (línea libre, sin stock)"
+                          />
+                          <IconButton
+                            aria-label="Volver al catálogo"
+                            icon={<CloseIcon boxSize={2.5} />}
+                            size="sm" variant="ghost"
+                            onClick={() => handleDetalleChange(index, 'producto', '')}
+                          />
+                        </HStack>
+                      ) : (
+                        <Select
+                          value={detalle.producto}
+                          onChange={(e) => handleDetalleChange(index, 'producto', e.target.value)}
+                          placeholder="Seleccione un producto"
+                        >
+                          <option value="__libre__">✍️ Línea libre (sin catálogo)</option>
+                          {Array.isArray(productos) ? productos.map(producto => (
+                            <option key={producto.id} value={producto.id}>
+                              {producto.nombre} - {producto.sku}
+                            </option>
+                         )) : null}
+                        </Select>
+                      )}
                     </Td>
                     <Td>
                       <NumberInput

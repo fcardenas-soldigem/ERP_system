@@ -99,27 +99,35 @@ export const ventasService = {
           throw new Error('Debe incluir al menos un detalle de producto');
         }
         
-        // Procesar detalles para asegurar tipos correctos
+        // Procesar detalles para asegurar tipos correctos.
+        // Línea LIBRE (sin catálogo): producto null + descripción, igual que
+        // en cotizaciones; el backend ya lo soporta (DetalleVenta.producto
+        // nullable) y esas líneas nunca mueven stock ni kárdex.
         const detallesProcesados = ventaData.detalles.map((detalle, index) => {
-          const productoId = parseInt(detalle.producto);
           const cantidad = parseFloat(detalle.cantidad);
           const precio_unitario = parseFloat(detalle.precio_unitario);
-          
-          if (isNaN(productoId)) {
-            throw new Error(`Producto no válido en detalle ${index + 1}`);
-          }
+
           if (isNaN(cantidad) || cantidad <= 0) {
             throw new Error(`Cantidad no válida en detalle ${index + 1}`);
           }
           if (isNaN(precio_unitario) || precio_unitario <= 0) {
             throw new Error(`Precio no válido en detalle ${index + 1}`);
           }
-          
-          return {
-            producto: productoId,
-            cantidad: cantidad,
-            precio_unitario: precio_unitario
-          };
+
+          const esLibre = detalle.libre || detalle.producto === '' || detalle.producto == null;
+          if (esLibre) {
+            const descripcion = (detalle.descripcion || '').trim();
+            if (!descripcion) {
+              throw new Error(`La línea libre ${index + 1} necesita una descripción`);
+            }
+            return { producto: null, descripcion, cantidad, precio_unitario };
+          }
+
+          const productoId = parseInt(detalle.producto);
+          if (isNaN(productoId)) {
+            throw new Error(`Producto no válido en detalle ${index + 1}`);
+          }
+          return { producto: productoId, cantidad, precio_unitario };
         });
         
         formData.append('detalles', JSON.stringify(detallesProcesados));
