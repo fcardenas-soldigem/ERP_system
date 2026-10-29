@@ -123,6 +123,7 @@ class VentaSerializer(serializers.ModelSerializer):
     ordenes_compra = serializers.SerializerMethodField()
     # Costo/utilidad de la venta (prioridad factura > oc > cotizacion > catalogo)
     costo_info = serializers.SerializerMethodField()
+    anulado_por_email = serializers.CharField(source='anulado_por.email', read_only=True, default=None)
 
     class Meta:
         model = Venta
@@ -139,10 +140,13 @@ class VentaSerializer(serializers.ModelSerializer):
             'estado_operativo', 'estado_operativo_display', 'estado_sla_operativo',
             'dias_en_estado_operativo', 'historial_operativo', 'ordenes_compra',
             'costo_info',
+            # anulación (solo lectura: la escribe services/anulacion_venta.py)
+            'anulado_por_email', 'anulado_en', 'motivo_anulacion',
         ]
         read_only_fields = ['id', 'numero', 'estado_display', 'tipo_venta_display', 'metodo_pago_display', 'modo_venta_display', 'empresa',
                             'estado_operativo', 'estado_operativo_display', 'estado_sla_operativo',
-                            'dias_en_estado_operativo', 'historial_operativo', 'ordenes_compra']
+                            'dias_en_estado_operativo', 'historial_operativo', 'ordenes_compra',
+                            'anulado_en', 'motivo_anulacion']
 
     def get_historial_operativo(self, obj):
         return [

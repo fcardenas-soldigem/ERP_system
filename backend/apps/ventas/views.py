@@ -480,9 +480,30 @@ class VentaViewSet(viewsets.ModelViewSet):
         serializer.save()
         self._invalidate_ventas_cache()
 
-    def perform_destroy(self, instance):
-        instance.delete()
-        self._invalidate_ventas_cache()
+    def destroy(self, request, *args, **kwargs):
+        # ANULAR ≠ ELIMINAR (fix/anular-venta): borrar una venta rompe la
+        # correlatividad (el siguiente número reutilizaría el borrado) y la
+        # trazabilidad. Se anula con POST /api/ventas/{id}/anular/.
+        self.get_object()   # 404 si no es de la empresa (aislamiento)
+        return Response(
+            {'detail': 'Las ventas no se eliminan. Anúlala con su motivo.'},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED)
+
+    @action(detail=True, methods=['post'], url_path='anular')
+    def anular(self, request, pk=None):
+        """POST /api/ventas/{id}/anular/ {"motivo": "..."} — solo admin."""
+        from apps.ventas.services.anulacion_venta import AnulacionNoPermitida, anular_venta
+        venta = self.get_object()   # scoped por empresa → 404 para otra empresa
+        if not (request.user.is_superuser or getattr(request.user, 'rol', '') == 'admin'):
+            return Response({'detail': 'Solo un administrador puede anular ventas.'},
+                            status=status.HTTP_403_FORBIDDEN)
+        try:
+            venta, avisos = anular_venta(venta, request.user, request.data.get('motivo'))
+        except AnulacionNoPermitida as e:
+            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        data = self.get_serializer(venta).data
+        data['avisos'] = avisos
+        return Response(data)
 
     def list(self, request, *args, **kwargs):
         empresa_id = request.user.empresa_id
@@ -510,21 +531,21 @@ class VentaViewSet(viewsets.ModelViewSet):
         venta = self.get_object()
         nuevo_estado = request.data.get('estado')
         
-        if nuevo_estado not in ['borrador', 'pendiente', 'pagado', 'anulado']:
-            return Response(
-                {"detail": "Estado no válido"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
+        if nuevo_estado not in ['borrador', 'pendiente', 'pagado']:
+            # 'anulado' tiene su propio camino con motivo, rol admin y reversas
+            msg = ('Para anular usa POST /api/ventas/{id}/anular/ con el motivo.'
+                   if nuevo_estado == 'anulado' else 'Estado no válido')
+            return Response({"detail": msg}, status=status.HTTP_400_BAD_REQUEST)
+        if venta.estado == 'anulado':
+            return Response({"detail": "La venta está anulada: no cambia de estado."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
         try:
             with transaction.atomic():
-                if nuevo_estado == 'anulado':
-                    venta.anular_venta()
-                else:
-                    venta.estado = nuevo_estado
-                    venta.save()
-                    # §4.4 — sin descuento al pagar; solo sincronizar cobrado↔pago.
-                    venta._sincronizar_estado_operativo_pago()
+                venta.estado = nuevo_estado
+                venta.save()
+                # §4.4 — sin descuento al pagar; solo sincronizar cobrado↔pago.
+                venta._sincronizar_estado_operativo_pago()
             
             serializer = self.get_serializer(venta)
             return Response(serializer.data)
@@ -977,35 +998,6 @@ class VentaViewSet(viewsets.ModelViewSet):
             'ranking_recurrencia': list(base.order_by('-cantidad_compras')[:10]),
         })
 
-    @transaction.atomic
-    def destroy(self, request, *args, **kwargs):
-        try:
-            venta = self.get_object()
-            
-            # Verificar si la venta puede ser eliminada
-            if venta.estado == 'pagado':
-                return Response(
-                    {'error': 'No se puede eliminar una venta pagada'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            
-            # Si la venta tiene detalles, eliminarlos primero
-            venta.detalles.all().delete()
-            
-            # Si la venta tiene comprobante, eliminarlo
-            if hasattr(venta, 'comprobante_pago'):
-                venta.comprobante_pago.delete()
-            
-            # Eliminar la venta
-            venta.delete()
-            
-            return Response(
-                {'mensaje': 'Venta eliminada correctamente'},
-                status=status.HTTP_204_NO_CONTENT
-            )
-        except Exception as e:
-            logger.error("Error al eliminar venta: %s", e, exc_info=True)
-            return respuesta_error(e, 'Error al eliminar la venta')
 
     @action(detail=False, methods=['get'])
     def descargar_template(self, request):

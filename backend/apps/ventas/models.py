@@ -145,6 +145,14 @@ class Venta(TipoCambioMixin, models.Model):
     fecha_emision = models.DateField()
     fecha_vencimiento = models.DateField(null=True, blank=True)
     estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default='borrador')
+    # Anulación (fix/anular-venta): ANULAR ≠ ELIMINAR. La venta conserva su
+    # número y queda trazada; solo services/anulacion_venta.py escribe esto.
+    anulado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='ventas_anuladas',
+    )
+    anulado_en = models.DateTimeField(null=True, blank=True)
+    motivo_anulacion = models.TextField(blank=True, default='')
     tipo_venta = models.CharField(max_length=20, choices=TIPO_VENTA_CHOICES, default='contado')
     metodo_pago = models.CharField(max_length=20, choices=METODO_PAGO_CHOICES, null=True, blank=True)
     igv_incluido = models.BooleanField(default=True)
@@ -727,35 +735,15 @@ class Venta(TipoCambioMixin, models.Model):
             # Fuente única cobrado↔pago (F3, punto 3).
             self._sincronizar_estado_operativo_pago()
 
-    def anular_venta(self):
-        if self.estado == 'pagado':
-            for detalle in self.detalles.all():
-                # D1/D6: líneas de texto libre (producto None) o productos que no
-                # controlan stock no tienen inventario que revertir.
-                if detalle.producto is None or not detalle.producto.controla_stock:
-                    continue
-                almacen = self.empresa.almacenes.first() if hasattr(self.empresa, 'almacenes') else None
-                if almacen is None:
-                    raise ValidationError('No se encontró un almacén para la empresa.')
-                stock, created = Stock.objects.get_or_create(
-                    producto=detalle.producto,
-                    empresa=self.empresa,
-                    almacen=almacen,
-                    defaults={'cantidad': 0}
-                )
-                stock.cantidad += detalle.cantidad
-                stock.save()
-                detalle.producto.actualizar_stock_total()
-        
-        self.estado = 'anulado'
-        self.save()
+    def anular_venta(self, usuario=None, motivo=''):
+        """Compat: TODA anulación pasa por el servicio de dominio (reversas de
+        stock/kárdex, placeholder, cotización, guías, cachés). Antes esto
+        revertía stock con el criterio viejo (estado 'pagado') y sin kárdex."""
+        from apps.ventas.services.anulacion_venta import anular_venta
+        return anular_venta(self, usuario, motivo or 'Anulación sin motivo (camino legado)')
 
-    def cancelar_venta(self):
-        if self.estado == 'anulado':
-            raise ValueError('La venta ya está anulada')
-        
-        self.estado = 'anulado'
-        self.save()
+    def cancelar_venta(self, usuario=None, motivo=''):
+        return self.anular_venta(usuario=usuario, motivo=motivo)
 
     def actualizar_estado_pago(self):
         # Calcular el total pagado excluyendo los pagos pendientes
@@ -949,6 +937,9 @@ class PagoVenta(models.Model):
         blank=True,
         verbose_name='Notas'
     )
+    # El placeholder 'pendiente' de una venta a crédito ANULADA no se borra:
+    # se marca anulado (trazabilidad de la CxC que existió).
+    anulado = models.BooleanField(default=False)
 
     class Meta:
         verbose_name = 'Pago de Venta'

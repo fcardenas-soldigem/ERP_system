@@ -175,7 +175,9 @@ class VentaAdmin(admin.ModelAdmin):
     def anular_ventas(self, request, queryset):
         for venta in queryset:
             try:
-                venta.anular_venta()
+                # mismo servicio que la API (reversas, placeholder, cotización)
+                venta.anular_venta(usuario=request.user,
+                                   motivo=f'Anulada desde el admin por {request.user}')
                 self.message_user(request, f'Venta {venta.numero} anulada exitosamente.')
             except Exception as e:
                 self.message_user(request, f'Error al anular venta {venta.numero}: {str(e)}', level=messages.ERROR)
