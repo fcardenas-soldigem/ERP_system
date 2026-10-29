@@ -48,8 +48,9 @@ class BaseVentas(CanalTestCase):
 
 
 class PrepararVentaTests(BaseVentas):
-    def _hasta_borrador_confirmable(self):
-        """Mensaje real → borrador de VENTA con cliente nuevo verificado por DNI."""
+    def _hasta_borrador_confirmable(self, condicion='cont'):
+        """Mensaje real → borrador de VENTA: cliente nuevo verificado por DNI
+        y condición de pago elegida con botón (NUNCA se asume)."""
         self.mock_llm('preparar_venta', ARGS_VENTA_BRUNO)
         self.post_update(self.update_texto(self.CHAT_A, MENSAJE_BRUNO))
         borrador = BorradorAgente.objects.get(estado='pendiente')
@@ -58,6 +59,15 @@ class PrepararVentaTests(BaseVentas):
         with mock.patch('apps.core.services.documento_service.DocumentoService.consultar_documento',
                         return_value=APIS_OK):
             self.post_update(self.update_texto(self.CHAT_A, '70771234'))
+        # sin condición dicha: el borrador la pregunta con botones
+        chat, texto, botones = self.ultima_respuesta()
+        self.assertIn('condición de pago por definir', texto)
+        self.assertIn('¿Condición de pago?', texto)
+        self.assertIn(f'r:{borrador.id}:cond:c30', botones)
+        self.assertIn(f'r:{borrador.id}:cond:c15', botones)
+        self.assertIn(f'r:{borrador.id}:cond:cont', botones)
+        self.assertNotIn(f'b:{borrador.id}:ok', botones)     # sin Confirmar todavía
+        self.post_update(self.update_callback(self.CHAT_A, f'r:{borrador.id}:cond:{condicion}'))
         borrador.refresh_from_db()
         return borrador
 
@@ -69,7 +79,7 @@ class PrepararVentaTests(BaseVentas):
         self.assertEqual(payload['detalles'][0]['estado'], 'libre')
         chat, texto, botones = self.ultima_respuesta()
         self.assertIn('<b>Venta</b>', texto)                       # dice VENTA, no cotización
-        self.assertIn('contado · efectivo', texto)
+        self.assertIn('contado · efectivo', texto)                 # condición SIEMPRE visible
         self.assertIn('Total: $ 460.20', texto)                    # 10×39 ×1.18
 
         self.post_update(self.update_callback(self.CHAT_A, f'b:{borrador.id}:ok'))
@@ -91,7 +101,7 @@ class PrepararVentaTests(BaseVentas):
         """crédito_30 → pendiente + vencimiento + PagoVenta placeholder (el
         MISMO post-proceso que la web: completar_creacion_venta)."""
         self.mock_llm('preparar_venta', {
-            'cliente': 'Transportes Lima', 'tipo_venta': 'credito_30',
+            'cliente': 'Transportes Lima', 'condicion_pago': 'credito', 'plazo_dias': 30,
             'items': [{'producto_id': self.producto.id, 'cantidad': 2, 'precio_unitario': '100'}],
         })
         self.post_update(self.update_texto(self.CHAT_A, 'venta al crédito 30 para transportes'))
@@ -106,7 +116,8 @@ class PrepararVentaTests(BaseVentas):
     def test_linea_libre_de_venta_no_mueve_stock_ni_kardex_al_entregar(self):
         """Extiende el test de cotizaciones a VENTAS (punto 2)."""
         self.mock_llm('preparar_venta', {
-            'cliente': 'Transportes Lima', 'tipo_venta': 'credito_30', 'moneda': 'PEN',
+            'cliente': 'Transportes Lima', 'condicion_pago': 'credito', 'plazo_dias': 30,
+            'moneda': 'PEN',
             'items': [{'descripcion': 'pedestal especial fuera de catalogo', 'cantidad': 4,
                        'precio_unitario': '441', 'precio_incluye_igv': True}],
         })
@@ -131,7 +142,7 @@ class PrepararVentaTests(BaseVentas):
             id_externo=str(self.CHAT_LECTOR),
             payload={'cliente': self.cliente.id, 'cliente_nombre': self.cliente.nombre,
                      'cliente_estado': 'ok', 'cliente_nuevo': None, 'moneda': 'PEN',
-                     'tipo_venta': 'contado', 'metodo_pago': 'efectivo',
+                     'condicion': 'contado', 'plazo_dias': None, 'metodo_pago': 'efectivo',
                      'precios_incluyen_igv': False,
                      'detalles': [{'estado': 'ok', 'producto': self.producto.id,
                                    'descripcion': self.producto.nombre, 'texto': 'jabra',
@@ -159,7 +170,13 @@ class ConversionTests(BaseVentas):
         self.post_update(self.update_texto(self.CHAT_A, f'convierte la {cot.numero} en venta'))
         borrador = BorradorAgente.objects.get(estado='pendiente')
         self.assertEqual(borrador.tipo, 'conversion_venta')
-        self.assertIn('Convertir', self.ultima_respuesta()[1])
+        chat, texto, botones = self.ultima_respuesta()
+        self.assertIn('Convertir', texto)
+        # la forma_pago «Contado» es el default del modelo, no una elección:
+        # la conversión TAMBIÉN pregunta la condición (misma regla que la venta)
+        self.assertIn('condición de pago por definir', texto)
+        self.assertIn(f'r:{borrador.id}:cond:cont', botones)
+        self.post_update(self.update_callback(self.CHAT_A, f'r:{borrador.id}:cond:cont'))
 
         self.post_update(self.update_callback(self.CHAT_A, f'b:{borrador.id}:ok'))
         cot.refresh_from_db()
@@ -280,3 +297,91 @@ class PDFFirmadoTests(BaseVentas):
         firma = self._firma(str(self.cot.id))                      # formato pre-tanda
         r = self.client.get(f'/api/canales/pdf-cotizacion/?t={firma}')
         self.assertEqual(r.status_code, 403)
+
+
+class CondicionDePagoTests(BaseVentas):
+    """Ajuste pre-deploy: PROHIBIDO asumir contado."""
+
+    def test_sin_condicion_no_se_puede_confirmar(self):
+        """Ni siquiera forjando el callback de Confirmar."""
+        self.mock_llm('preparar_venta', {
+            'cliente': 'Transportes Lima',
+            'items': [{'producto_id': self.producto.id, 'cantidad': 1, 'precio_unitario': '100'}],
+        })
+        self.post_update(self.update_texto(self.CHAT_A, 'crea venta 1 jabra a transportes'))
+        borrador = BorradorAgente.objects.get(estado='pendiente')
+        self.assertIsNone(borrador.payload['condicion'])
+        # el botón Confirmar no se ofrece; forjarlo tampoco crea nada
+        self.post_update(self.update_callback(self.CHAT_A, f'b:{borrador.id}:ok'))
+        self.assertIn('condición de pago', self.ultima_respuesta()[1])
+        self.assertEqual(Venta.objects.exclude(pk=self.venta.pk).count(), 0)
+        borrador.refresh_from_db()
+        self.assertEqual(borrador.estado, 'pendiente')
+
+    def test_credito_15_aparece_en_cxc_con_vencimiento_correcto(self):
+        self.mock_llm('preparar_venta', {
+            'cliente': 'Transportes Lima',
+            'items': [{'producto_id': self.producto.id, 'cantidad': 1, 'precio_unitario': '200'}],
+        })
+        self.post_update(self.update_texto(self.CHAT_A, 'crea venta 1 jabra a transportes'))
+        borrador = BorradorAgente.objects.get(estado='pendiente')
+        self.post_update(self.update_callback(self.CHAT_A, f'r:{borrador.id}:cond:c15'))
+        chat, texto, _ = self.ultima_respuesta()
+        vence = timezone.localdate() + timezone.timedelta(days=15)
+        self.assertIn(f'crédito 15 días · vence {vence.strftime("%d/%m/%Y")}', texto)
+
+        self.post_update(self.update_callback(self.CHAT_A, f'b:{borrador.id}:ok'))
+        venta = Venta.objects.exclude(pk=self.venta.pk).get()
+        self.assertEqual(venta.estado, 'pendiente')               # CxC
+        self.assertEqual(venta.tipo_venta, 'credito_30')          # el tipo web más cercano
+        self.assertEqual(venta.fecha_vencimiento, venta.fecha_emision + timezone.timedelta(days=15))
+        placeholder = PagoVenta.objects.get(venta=venta)          # aparece en por-cobrar
+        self.assertEqual((placeholder.metodo_pago, placeholder.monto), ('pendiente', venta.total))
+        self.assertIn('15 días', placeholder.notas)
+
+    def test_contado_explicito_no_pregunta_y_nace_pagada(self):
+        self.mock_llm('preparar_venta', {
+            'cliente': 'Transportes Lima', 'condicion_pago': 'contado', 'metodo_pago': 'transferencia',
+            'items': [{'producto_id': self.producto.id, 'cantidad': 1, 'precio_unitario': '100'}],
+        })
+        self.post_update(self.update_texto(self.CHAT_A, 'venta al contado por transferencia, 1 jabra a transportes'))
+        borrador = BorradorAgente.objects.get(estado='pendiente')
+        chat, texto, botones = self.ultima_respuesta()
+        self.assertIn('contado · transferencia', texto)
+        self.assertIn(f'b:{borrador.id}:ok', botones)             # directo a confirmar
+        self.post_update(self.update_callback(self.CHAT_A, f'b:{borrador.id}:ok'))
+        venta = Venta.objects.exclude(pk=self.venta.pk).get()
+        self.assertEqual((venta.estado, venta.tipo_venta, venta.metodo_pago),
+                         ('pagado', 'contado', 'transferencia'))
+        self.assertEqual(PagoVenta.objects.filter(venta=venta).count(), 0)  # sin cobro inventado
+
+    def test_conversion_credito_15_respeta_el_plazo(self):
+        cot = Cotizacion.objects.create(
+            empresa=self.empresa_a, cliente=self.cliente, usuario_creador=self.vendedor,
+            asunto='x', fecha_vencimiento=timezone.localdate())
+        cot.detalles.create(producto=self.producto, descripcion='x',
+                            cantidad=Decimal('1'), precio_unitario=Decimal('100'))
+        Cotizacion.objects.filter(pk=cot.pk).update(estado='enviada')
+        self.mock_llm('convertir_cotizacion_en_venta', {'cotizacion_numero': cot.numero})
+        self.post_update(self.update_texto(self.CHAT_A, f'convierte la {cot.numero}'))
+        borrador = BorradorAgente.objects.get(estado='pendiente')
+        self.post_update(self.update_callback(self.CHAT_A, f'r:{borrador.id}:cond:c15'))
+        self.post_update(self.update_callback(self.CHAT_A, f'b:{borrador.id}:ok'))
+        cot.refresh_from_db()
+        venta = cot.venta
+        self.assertEqual(venta.tipo_venta, 'credito_30')
+        self.assertEqual(venta.fecha_vencimiento, venta.fecha_emision + timezone.timedelta(days=15))
+
+    def test_conversion_con_credito_explicito_en_la_cotizacion_no_pregunta(self):
+        cot = Cotizacion.objects.create(
+            empresa=self.empresa_a, cliente=self.cliente, usuario_creador=self.vendedor,
+            asunto='x', fecha_vencimiento=timezone.localdate(), forma_pago='CREDITO 30 DIAS')
+        cot.detalles.create(producto=self.producto, descripcion='x',
+                            cantidad=Decimal('1'), precio_unitario=Decimal('100'))
+        Cotizacion.objects.filter(pk=cot.pk).update(estado='enviada')
+        self.mock_llm('convertir_cotizacion_en_venta', {'cotizacion_numero': cot.numero})
+        self.post_update(self.update_texto(self.CHAT_A, f'convierte la {cot.numero}'))
+        borrador = BorradorAgente.objects.get(estado='pendiente')
+        chat, texto, botones = self.ultima_respuesta()
+        self.assertIn('crédito 30 días', texto)                   # prellenada de la ficha
+        self.assertIn(f'b:{borrador.id}:ok', botones)             # sin pregunta

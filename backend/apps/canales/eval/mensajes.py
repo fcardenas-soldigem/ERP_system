@@ -172,6 +172,12 @@ CASOS += [
      'final': 'preparar_venta',
      'checks': {'cliente_pendiente': True,
                 'items': [{'producto': 'Teclado', 'cantidad': 1, 'estado': 'ok'}]}},
+    # condición de pago NUNCA asumida: sin decirla, el borrador queda incompleto
+    # y el bot pregunta con botones [Crédito 30] [Crédito 15] [Contado]
+    {'id': 32, 'critico': True, 'texto': 'crea venta para Interbank 2 jabra a 500 soles',
+     'final': 'preparar_venta',
+     'checks': {'condicion_pendiente': True,
+                'items': [{'producto': 'jabra', 'cantidad': 2, 'precio': 500}]}},
 ]
 
 

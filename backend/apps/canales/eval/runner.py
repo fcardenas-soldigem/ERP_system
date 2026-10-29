@@ -141,6 +141,9 @@ def _chequear_cotizacion(payload, checks, fallos):
         fallos.append(f'cliente: esperaba PENDIENTE, se resolvió a «{payload.get("cliente_nombre")}»')
     if 'cliente_texto' in checks and not _contiene(payload.get('cliente_texto') or '', checks['cliente_texto']):
         fallos.append(f'cliente_texto: esperaba «{checks["cliente_texto"]}», quedó «{payload.get("cliente_texto")}»')
+    if checks.get('condicion_pendiente') and payload.get('condicion') is not None:
+        fallos.append(f'condición: esperaba PENDIENTE (preguntar), quedó «{payload.get("condicion")}» '
+                      '— PROHIBIDO asumirla')
     if 'precios_incluyen_igv' in checks and bool(payload.get('precios_incluyen_igv')) != checks['precios_incluyen_igv']:
         fallos.append(f'precios_incluyen_igv: esperaba {checks["precios_incluyen_igv"]}, '
                       f'quedó {payload.get("precios_incluyen_igv")}')
