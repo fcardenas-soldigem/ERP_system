@@ -184,9 +184,9 @@ def _guardar_mensaje_bot_id(borrador, mensaje_id):
 
 
 def _resumen_payload(borrador):
-    """Resumen para REENVIAR un borrador vigente (el de cotización se recalcula
-    en _responder_borrador; cobro y estado se arman desde su payload)."""
-    if borrador.tipo == 'cotizacion':
+    """Resumen para REENVIAR un borrador vigente (cotización/venta/conversión
+    se recalculan en _responder_borrador; cobro y estado, desde su payload)."""
+    if borrador.tipo in ('cotizacion', 'venta', 'conversion_venta'):
         return None
     p = borrador.payload or {}
     if borrador.tipo == 'cobro':
@@ -199,9 +199,10 @@ def _responder_borrador(canal, id_externo, borrador, resumen=None, prefijo=''):
     """B7 — SIEMPRE un solo mensaje. Cotización con pendientes: resumen +
     la primera pregunta con sus opciones (máx. 3) + Cancelar. Sin pendientes:
     resumen + Confirmar/Editar/Cancelar."""
-    if borrador.tipo in ('cotizacion', 'venta'):
-        resumen = (servicios.resumen_cotizacion(borrador.payload) if borrador.tipo == 'cotizacion'
-                   else servicios.resumen_venta(borrador.payload))
+    if borrador.tipo in ('cotizacion', 'venta', 'conversion_venta'):
+        resumen = {'cotizacion': servicios.resumen_cotizacion,
+                   'venta': servicios.resumen_venta,
+                   'conversion_venta': servicios.resumen_conversion}[borrador.tipo](borrador.payload)
         pregunta = servicios.pregunta_pendiente(borrador.payload, borrador.id)
         if pregunta:
             texto, opciones = pregunta
@@ -708,7 +709,7 @@ def _manejar_resolucion(canal, mensaje, usuario, partes):
     with transaction.atomic():
         borrador = BorradorAgente.objects.select_for_update().filter(
             pk=partes[1], usuario=usuario, empresa=usuario.empresa,
-            tipo__in=('cotizacion', 'venta')).first()
+            tipo__in=('cotizacion', 'venta', 'conversion_venta')).first()
         if not borrador:
             canal.responder(mensaje.id_externo, 'Ese borrador ya no existe.')
             return

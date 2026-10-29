@@ -179,7 +179,8 @@ def _reservar_con_degradacion(empresa, producto, cantidad):
 
 
 @transaction.atomic
-def convertir_cotizacion_a_venta(cotizacion, *, marcar_convertida=True):
+def convertir_cotizacion_a_venta(cotizacion, *, marcar_convertida=True,
+                                 tipo_venta=None, metodo_pago=None, plazo_dias=None):
     """
     Convierte una cotización a una venta y genera OC(s) por proveedor.
     Atómica e idempotente. NUNCA llama actualizar_stock().
@@ -220,7 +221,13 @@ def convertir_cotizacion_a_venta(cotizacion, *, marcar_convertida=True):
     # Validar solo cuando vamos a crear (rechazada / vencida / sin detalles).
     validar_conversion(cotizacion)
 
+    # feat/bot-ventas: el bot pasa la condición elegida en el chat; la web no
+    # pasa nada y conserva su comportamiento (forma_pago de la cotización).
+    tipo_override, metodo_override = tipo_venta, metodo_pago
     tipo_venta, metodo_pago = _normalizar_forma_pago(cotizacion.forma_pago)
+    if tipo_override:
+        tipo_venta = tipo_override
+        metodo_pago = (metodo_override or 'efectivo') if tipo_venta == 'contado' else None
     detalles = list(cotizacion.detalles.all().select_related('producto', 'proveedor'))
 
     if cotizacion.precios_incluyen_igv:
@@ -246,6 +253,11 @@ def convertir_cotizacion_a_venta(cotizacion, *, marcar_convertida=True):
         notas='\n'.join(notas_parts),
         referencia=cotizacion.numero,
     )
+    # feat/bot-ventas: vencimiento exacto cuando el bot eligió crédito a N días
+    # (la web no pasa plazo_dias y queda igual que siempre)
+    if plazo_dias and tipo_venta.startswith('credito'):
+        venta.fecha_vencimiento = venta.fecha_emision + timedelta(days=plazo_dias)
+        venta.save(update_fields=['fecha_vencimiento'])
 
     subtotal_lineas = sum(
         (d.cantidad * d.precio_unitario - (d.descuento_item or 0)) for d in detalles

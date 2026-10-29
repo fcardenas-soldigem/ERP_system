@@ -72,10 +72,17 @@ class PrepararVenta(BaseModel):
     items: list[ItemCotizacion] = Field(min_length=1, max_length=50)
     moneda: Literal['PEN', 'USD'] = Field(
         default='PEN', description='"soles"/"lucas" → PEN; "dólares"/"$" → USD')
-    tipo_venta: Literal['contado', 'credito_30', 'credito_60'] = Field(
-        default='contado', description='"al crédito (30/60)" → credito_30/credito_60')
-    metodo_pago: Literal['efectivo', 'transferencia', 'tarjeta', 'cheque'] = Field(
-        default='efectivo', description='yape/plin = transferencia')
+    # PROHIBIDO asumir contado: solo si el usuario lo dijo. Sin condición, el
+    # borrador queda incompleto y el bot la pregunta con botones.
+    condicion_pago: Optional[Literal['contado', 'credito']] = Field(
+        default=None,
+        description='SOLO si el usuario lo dijo: «al contado»/«ya pagó/pagaron» → contado; '
+                    '«al crédito»/«a N días» → credito. Si NO lo dijo, OMÍTELO (el bot pregunta).')
+    plazo_dias: Optional[int] = Field(
+        default=None, ge=1, le=180,
+        description='solo crédito: «a 15 días» = 15, «crédito 30» = 30. Sin plazo, omite.')
+    metodo_pago: Optional[Literal['efectivo', 'transferencia', 'tarjeta', 'cheque']] = Field(
+        default=None, description='SOLO si el usuario lo dijo; yape/plin = transferencia')
 
 
 class ConvertirCotizacionEnVenta(BaseModel):

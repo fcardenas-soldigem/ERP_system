@@ -352,9 +352,17 @@ def preparar_cotizacion(usuario, entrada: E.PrepararCotizacion):
 
 def preparar_venta(usuario, entrada: E.PrepararVenta):
     """Borrador de VENTA (feat/bot-ventas): mismo patrón que la cotización.
-    Al confirmar se crea con el MISMO servicio de la web (crear_venta)."""
+    La condición de pago NUNCA se asume: sin ella el borrador queda incompleto
+    y se pregunta con botones (la ficha del Cliente no guarda condición/plazo,
+    así que no hay valor previo que ofrecer). Al confirmar se crea con el
+    MISMO servicio de la web (crear_venta)."""
+    condicion = entrada.condicion_pago
+    plazo = entrada.plazo_dias if condicion == 'credito' else None
+    if condicion == 'credito' and not plazo:
+        plazo = 30
     payload, error = _payload_documento(usuario, entrada, extra={
-        'tipo_venta': entrada.tipo_venta,
+        'condicion': condicion,
+        'plazo_dias': plazo,
         'metodo_pago': entrada.metodo_pago,
     })
     if error:
@@ -399,29 +407,49 @@ def convertir_cotizacion_en_venta(usuario, entrada: E.ConvertirCotizacionEnVenta
     if not cot.detalles.exists():
         return {'error': f'La {cot.numero} no tiene líneas.'}
 
-    s = _simbolo(cot.moneda)
+    # misma regla que preparar_venta: la condición NUNCA se asume. Solo se
+    # prellena si la cotización dice crédito EXPLÍCITO en forma_pago (el
+    # default del modelo es «Contado», que no distingue elegido de omitido).
+    fp = (cot.forma_pago or '').lower()
+    if 'credito' in fp or 'crédito' in fp:
+        condicion, plazo = 'credito', (60 if '60' in fp else 30)
+    else:
+        condicion, plazo = None, None
+
+    payload = {'cotizacion': cot.id, 'numero': cot.numero,
+               'cliente_nombre': cot.cliente.nombre,
+               'total': str(cot.total), 'moneda': cot.moneda,
+               'condicion': condicion, 'plazo_dias': plazo, 'metodo_pago': None}
     return {'borrador': {
         'tipo': 'conversion_venta',
-        'payload': {'cotizacion': cot.id, 'numero': cot.numero,
-                    'cliente_nombre': cot.cliente.nombre,
-                    'total': str(cot.total), 'moneda': cot.moneda},
-        'resumen': (f'🔁 Convertir <b>{escape(cot.numero)}</b> en VENTA\n'
-                    f'Cliente {escape(cot.cliente.nombre)} · total {s} {_num(cot.total)}'),
+        'payload': payload,
+        'resumen': resumen_conversion(payload),
     }}
+
+
+def resumen_conversion(payload):
+    s = _simbolo(payload.get('moneda'))
+    return (f'🔁 Convertir <b>{escape(payload.get("numero", ""))}</b> en VENTA\n'
+            f'Cliente {escape(payload.get("cliente_nombre", ""))} · total {s} {_num(payload.get("total", 0))}'
+            + _linea_condicion(payload))
 
 
 # ── pendientes de una cotización (resolución por botones) ────────────────────
 
 def pendientes_cotizacion(payload):
-    """[('cliente', None) | ('item', idx)] en el orden en que se preguntan."""
+    """[('cliente', None) | ('item', idx) | ('condicion', None)] en el orden en
+    que se preguntan. 'condicion' solo aplica a payloads de venta/conversión
+    (los que traen la clave): PROHIBIDO asumir contado."""
     out = []
-    if not payload.get('cliente'):
+    if 'detalles' in payload and not payload.get('cliente'):
         nuevo = payload.get('cliente_nuevo') or {}
         if not nuevo.get('documento'):
             out.append(('cliente', None))
     for idx, d in enumerate(payload.get('detalles', [])):
         if d.get('estado') in ('ambiguo', 'no_encontrado'):
             out.append(('item', idx))
+    if 'condicion' in payload and payload.get('condicion') is None:
+        out.append(('condicion', None))
     return out
 
 
@@ -439,9 +467,20 @@ def totales_cotizacion(payload):
     return suma, igv, suma + igv
 
 
+def _linea_condicion(payload):
+    """La condición SIEMPRE se muestra; crédito incluye el vencimiento."""
+    cond = payload.get('condicion')
+    if cond == 'contado':
+        return f'\ncontado · {payload.get("metodo_pago") or "efectivo"}'
+    if cond == 'credito':
+        plazo = int(payload.get('plazo_dias') or 30)
+        vence = timezone.localdate() + _dt.timedelta(days=plazo)
+        return f'\ncrédito {plazo} días · vence {vence.strftime("%d/%m/%Y")}'
+    return '\n❓ condición de pago por definir'
+
+
 def resumen_venta(payload):
-    extra = f'\n{payload.get("tipo_venta", "contado")} · {payload.get("metodo_pago", "efectivo")}'
-    return _resumen_documento(payload, '🧾 <b>Venta</b>', extra)
+    return _resumen_documento(payload, '🧾 <b>Venta</b>', _linea_condicion(payload))
 
 
 def resumen_cotizacion(payload):
@@ -485,6 +524,14 @@ def pregunta_pendiente(payload, borrador_id):
     if not pend:
         return None
     tipo, idx = pend[0]
+    if tipo == 'condicion':
+        # la ficha del Cliente no guarda condición/plazo: no hay valor previo
+        # que ofrecer, se pregunta siempre con las tres opciones
+        return '¿Condición de pago?', [
+            ('📅 Crédito 30 días', f'r:{borrador_id}:cond:c30'),
+            ('📅 Crédito 15 días', f'r:{borrador_id}:cond:c15'),
+            ('💵 Contado', f'r:{borrador_id}:cond:cont'),
+        ]
     if tipo == 'cliente':
         if payload.get('cliente_nuevo'):
             return (f'Envíame el RUC (11 dígitos) o DNI (8) de «{escape(payload["cliente_nuevo"]["nombre"])}».', [])
@@ -523,6 +570,13 @@ def aplicar_resolucion(usuario, payload, objetivo, valor):
         nombre = ' '.join(w.capitalize() for w in payload.get('cliente_texto', '').split()) or 'Cliente nuevo'
         payload['cliente_nuevo'] = {'nombre': nombre[:200], 'documento': None, 'tipo_documento': None}
         payload['cliente_estado'] = 'nuevo'
+        return payload, None
+    if objetivo == 'cond':
+        opciones = {'c30': ('credito', 30), 'c15': ('credito', 15), 'cont': ('contado', None)}
+        if valor not in opciones or 'condicion' not in payload:
+            return payload, 'Esa opción no es válida.'
+        condicion, plazo = opciones[valor]
+        payload.update(condicion=condicion, plazo_dias=plazo)
         return payload, None
     if objetivo.startswith('i') and objetivo[1:].isdigit():
         idx = int(objetivo[1:])
@@ -691,12 +745,17 @@ def confirmar_borrador(borrador):
         from apps.ventas.services.creacion_venta import crear_venta
         payload = borrador.payload
         if pendientes_cotizacion(payload):
-            raise ValueError('Faltan datos por resolver (cliente o productos).')
+            raise ValueError('Faltan datos por resolver (cliente, productos o condición de pago).')
         detalles = payload.get('detalles', [])
         if any(d.get('precio_unitario') in (None, '', '0') for d in detalles):
             raise ValueError('Toda línea de una VENTA necesita precio. Dímelo y la rehago.')
         cliente = _resolver_cliente_confirmacion(usuario, payload)
-        tipo_venta = payload.get('tipo_venta', 'contado')
+        condicion = payload.get('condicion')
+        plazo = int(payload.get('plazo_dias') or 30)
+        # tipo_venta de la web más cercano al plazo pedido; el vencimiento
+        # exacto (p. ej. 15 días) lo fija el servicio con plazo_dias
+        tipo_venta = ('contado' if condicion == 'contado'
+                      else ('credito_30' if plazo <= 30 else 'credito_60'))
         venta = crear_venta(usuario, {
             'cliente_id': cliente.id,
             'fecha_emision': timezone.localdate().isoformat(),
@@ -704,7 +763,9 @@ def confirmar_borrador(borrador):
             # 'pendiente' el propio servicio (con placeholder de pago)
             'estado': 'pagado' if tipo_venta == 'contado' else 'pendiente',
             'tipo_venta': tipo_venta,
-            'metodo_pago': payload.get('metodo_pago', 'efectivo'),
+            # sin medio dicho → el default de la web (efectivo); en contado la
+            # venta nace pagada, igual que en el formulario web
+            'metodo_pago': payload.get('metodo_pago') or 'efectivo',
             'moneda': payload.get('moneda', 'PEN'),
             'igv_incluido': bool(payload.get('precios_incluyen_igv')),
             'detalles': [
@@ -712,7 +773,7 @@ def confirmar_borrador(borrador):
                  'cantidad': d['cantidad'], 'precio_unitario': d['precio_unitario']}
                 for d in detalles
             ],
-        })
+        }, plazo_dias=plazo if condicion == 'credito' else None)
         return {'documento_id': venta.id, 'numero': venta.numero, 'tipo': 'venta',
                 'total': f'{_simbolo(venta.moneda)} {_num(venta.total)}'}
 
@@ -720,8 +781,20 @@ def confirmar_borrador(borrador):
         from apps.cotizaciones.models import Cotizacion
         from apps.cotizaciones.services.conversion_service import convertir_cotizacion_a_venta
         from apps.ventas.services.creacion_venta import invalidar_caches_venta
-        cot = Cotizacion.objects.get(pk=borrador.payload['cotizacion'], empresa=usuario.empresa)
-        venta = convertir_cotizacion_a_venta(cot)   # el MISMO servicio de la web
+        payload = borrador.payload
+        if pendientes_cotizacion(payload):
+            raise ValueError('Falta la condición de pago.')
+        cot = Cotizacion.objects.get(pk=payload['cotizacion'], empresa=usuario.empresa)
+        condicion = payload.get('condicion')
+        plazo = int(payload.get('plazo_dias') or 30)
+        # el MISMO servicio de la web, con la condición elegida en el chat
+        venta = convertir_cotizacion_a_venta(
+            cot,
+            tipo_venta=('contado' if condicion == 'contado'
+                        else ('credito_30' if plazo <= 30 else 'credito_60')),
+            metodo_pago=payload.get('metodo_pago'),
+            plazo_dias=plazo if condicion == 'credito' else None,
+        )
         invalidar_caches_venta(usuario.empresa_id)
         return {'documento_id': venta.id, 'numero': venta.numero, 'tipo': 'conversion_venta',
                 'cotizacion': cot.numero,

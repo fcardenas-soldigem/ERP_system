@@ -23,11 +23,15 @@ from django.utils import timezone
 from apps.ventas.models import PagoVenta
 
 
-def completar_creacion_venta(usuario, venta, *, entrega_inmediata=False):
-    """Pasos post-serializer, idénticos para la web y el bot."""
+def completar_creacion_venta(usuario, venta, *, entrega_inmediata=False, plazo_dias=None):
+    """Pasos post-serializer, idénticos para la web y el bot.
+
+    plazo_dias (solo lo pasa el bot): vencimiento a N días exactos («a 15
+    días» → 15) manteniendo el tipo_venta de la web más cercano. La web no lo
+    pasa y conserva su comportamiento de siempre (30/60 según el tipo)."""
     if venta.tipo_venta in ('credito_30', 'credito_60'):
         venta.estado = 'pendiente'
-        dias_credito = 30 if venta.tipo_venta == 'credito_30' else 60
+        dias_credito = plazo_dias or (30 if venta.tipo_venta == 'credito_30' else 60)
         venta.fecha_vencimiento = venta.fecha_emision + timezone.timedelta(days=dias_credito)
         venta.save()
         PagoVenta.objects.create(
@@ -55,7 +59,7 @@ def invalidar_caches_venta(empresa_id):
     cache.delete(f'dashboard_simple_stats_{empresa_id}')
 
 
-def crear_venta(usuario, data, *, entrega_inmediata=False):
+def crear_venta(usuario, data, *, entrega_inmediata=False, plazo_dias=None):
     """Crea una venta COMPLETA con el mismo serializer y post-pasos de la web.
     Lo usa el bot al confirmar un borrador de venta. Lanza ValidationError de
     DRF si los datos no pasan (el caller la traduce a mensaje)."""
@@ -64,4 +68,5 @@ def crear_venta(usuario, data, *, entrega_inmediata=False):
     ser = VentaSerializer(data=data, context={'request': SimpleNamespace(user=usuario)})
     ser.is_valid(raise_exception=True)
     venta = ser.save()
-    return completar_creacion_venta(usuario, venta, entrega_inmediata=entrega_inmediata)
+    return completar_creacion_venta(usuario, venta, entrega_inmediata=entrega_inmediata,
+                                    plazo_dias=plazo_dias)
