@@ -97,7 +97,23 @@ cliente después, «convierte la COT-107 en venta» (fixture `COT-00000107`),
 «anula la factura 5» (honesto, sin tool) y venta con cliente nuevo por DNI.
 Críticos: 27–30. Umbral: ≥ 90 % (28/31) + críticos. Oráculo sin red: **31/31**.
 
-**Eval real con gemini-3.1-flash-lite: 31/31 correctos.**
+**Ajuste pre-deploy (condición de pago)**: `preparar_venta` ya NO asume
+contado. Solo si el usuario la dijo («al contado»/«ya pagó» → contado con su
+medio, o el default web `efectivo`; «a N días» → crédito con vencimiento a N
+días exactos); sin condición, el borrador queda incompleto y pregunta con
+botones **[Crédito 30 días] [Crédito 15 días] [Contado]** (la ficha del
+Cliente no guarda condición/plazo: no hay valor previo que ofrecer —
+verificado). El borrador siempre muestra la condición y, en crédito, la fecha
+de vencimiento. La conversión aplica la misma regla (solo se prellena si la
+cotización dice crédito explícito en forma_pago; el default «Contado» no
+cuenta). Regresión web: `tests/test_ventas_creacion_web.py` prueba que POST
+/api/ventas/ contado/crédito_30/crédito_60 produce EXACTAMENTE lo de antes del
+refactor (estado, placeholder, vencimiento, numeración V-xxxxxx).
+
+**Eval real con gemini-3.1-flash-lite (tras el ajuste): 32/32 correctos en una
+sola corrida** (83,011 tokens, media 1.6 s; umbral 29/32 superado, todos los
+críticos ✓), incluido el #32: «crea venta para Interbank 2 jabra a 500 soles»
+→ condición PENDIENTE (asumirla cuenta como fallo). Corrida previa (31 casos):
 - Corrida principal: 24/24 hasta el caso 24; en el 25 Vertex dio un timeout
   transitorio (30 s) y justo ahí venció el token de la sesión → 25–31 cayeron
   con error de credencial (no del modelo).
@@ -116,7 +132,7 @@ Críticos: 27–30. Umbral: ≥ 90 % (28/31) + críticos. Oráculo sin red: **31
   APIS ok/caído, y los 4 casos del PDF firmado.
 - Ajustados: texto del fallback honesto (2 asserts) y el confirm de cotización
   ahora mockea APIS (muestra «RUC … →»).
-- Suite `canales+ventas+cotizaciones`: **163/163 OK**. Suite completa del backend en Postgres: **397 tests OK (3 skipped), 0 fallos**; `makemigrations --check`: sin cambios.
+- Suite `canales+ventas+cotizaciones`: **163/163 OK**. Suite completa del backend en Postgres: **405 tests OK (3 skipped), 0 fallos** (tras el ajuste de condición); `makemigrations --check`: sin cambios.
 
 ## 6. Archivos
 
