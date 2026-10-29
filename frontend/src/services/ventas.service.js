@@ -6,6 +6,7 @@ export const ventasService = {
     try {
       const params = new URLSearchParams({ page, page_size: pageSize });
       if (filtros.estado_operativo) params.set('estado_operativo', filtros.estado_operativo);
+      if (filtros.estado) params.set('estado', filtros.estado);
       const response = await api.get(`/api/ventas/?${params.toString()}`);
       return response.data;
     } catch (error) {
@@ -180,14 +181,11 @@ export const ventasService = {
     }
   },
 
-  async eliminarVenta(id) {
-    try {
-      const response = await api.delete(`/api/ventas/${id}/`);
-      return response.data;
-    } catch (error) {
-      console.error('Error al eliminar venta:', error);
-      throw error;
-    }
+  // ANULAR ≠ ELIMINAR: la venta conserva su número y queda trazada (motivo,
+  // quién, cuándo). El backend ya no permite borrar ventas (405).
+  async anularVenta(id, motivo) {
+    const response = await api.post(`/api/ventas/${id}/anular/`, { motivo });
+    return response.data;
   },
 
   async cambiarEstado(id, estado) {

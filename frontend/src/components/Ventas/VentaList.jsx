@@ -41,6 +41,8 @@ import {
   SLA_COLOR_SCHEME, SLA_LABEL,
 } from './estadoOperativo';
 import { usePuedeEscribir } from '../../hooks/usePuedeEscribir';
+import { useEsAdmin } from '../../hooks/useEsAdmin';
+import AnularVentaModal from './AnularVentaModal';
 
 // Estados de venta → StatusBadge (mapa central). El badge de TIPO de venta
 // (contado/crédito) es otra dimensión y conserva su propio mapa.
@@ -59,6 +61,9 @@ const METODOS_PAGO_BADGE_COLORS = {
 
 const VentaList = () => {
   const puedeEscribir = usePuedeEscribir();
+  const esAdmin = useEsAdmin();
+  const [ventaAAnular, setVentaAAnular] = useState(null);
+  const [filtroEstado, setFiltroEstado] = useState('');
   const toast = useToast();
   const queryClient = useQueryClient();
   const { isOpen, onOpen, onClose } = useDisclosure();
@@ -71,8 +76,10 @@ const VentaList = () => {
 
   // Consulta para obtener las ventas
   const { data: ventas, isLoading, error } = useQuery({
-    queryKey: ['ventas', page, pageSize, filtroOperativo],
-    queryFn: () => ventasService.getVentas(page, pageSize, { estado_operativo: filtroOperativo }),
+    queryKey: ['ventas', page, pageSize, filtroOperativo, filtroEstado],
+    queryFn: () => ventasService.getVentas(page, pageSize, {
+      estado_operativo: filtroOperativo, estado: filtroEstado,
+    }),
   });
 
   // F3 — avanzar/cambiar estado operativo (1 clic) con toast "Deshacer" (5 s).
@@ -158,25 +165,27 @@ const VentaList = () => {
     },
   });
 
-  // Mutación para eliminar una venta
-  const eliminarVentaMutation = useMutation({
-    mutationFn: (id) => ventasService.deleteVenta(id),
-    onSuccess: () => {
+  // Anular (≠ eliminar): POST /api/ventas/{id}/anular/ con motivo
+  const anularVentaMutation = useMutation({
+    mutationFn: ({ id, motivo }) => ventasService.anularVenta(id, motivo),
+    onSuccess: (data) => {
       queryClient.invalidateQueries(['ventas']);
+      queryClient.invalidateQueries(['dashboard']);
+      setVentaAAnular(null);
       toast({
-        title: 'Venta eliminada',
-        description: 'La venta se ha eliminado correctamente',
+        title: `Venta ${data.numero} anulada`,
+        description: (data.avisos || []).join(' ') || undefined,
         status: 'success',
-        duration: 3000,
+        duration: 6000,
+        isClosable: true,
       });
     },
     onError: (error) => {
-      console.error('Error al eliminar venta:', error);
       toast({
-        title: 'Error al eliminar',
-        description: error.message || 'No se pudo eliminar la venta',
+        title: 'No se pudo anular',
+        description: error.response?.data?.detail || error.message,
         status: 'error',
-        duration: 5000,
+        duration: 7000,
         isClosable: true,
       });
     },
@@ -245,26 +254,7 @@ const VentaList = () => {
     }
   };
 
-  // Manejador para eliminar venta
-  const handleEliminarVenta = async (id) => {
-    if (!id) {
-      toast({
-        title: 'Error',
-        description: 'No se pudo identificar la venta a eliminar',
-        status: 'error',
-        duration: 3000,
-      });
-      return;
-    }
-    
-    if (window.confirm('¿Está seguro de que desea eliminar esta venta?')) {
-      try {
-        await eliminarVentaMutation.mutateAsync(id);
-      } catch (error) {
-        console.error('Error en handleEliminarVenta:', error);
-      }
-    }
-  };
+
 
   const formatCurrency = (amount, moneda = 'PEN') => {
     return new Intl.NumberFormat('es-PE', {
@@ -277,8 +267,9 @@ const VentaList = () => {
   const formatDate = (dateString) => formatFecha(dateString);
 
   // Mapa único estado→color del sistema (components/ui/StatusBadge)
-  const getEstadoBadge = (estado) => (
-    <StatusBadge estado={estado}>{ESTADOS_DISPLAY[estado]}</StatusBadge>
+  const getEstadoBadge = (estado) => (estado === 'anulado'
+    ? <Badge colorScheme="gray" variant="subtle">Anulada</Badge>
+    : <StatusBadge estado={estado}>{ESTADOS_DISPLAY[estado]}</StatusBadge>
   );
 
   const getTipoVentaBadge = (tipoVenta) => {
@@ -359,6 +350,16 @@ const VentaList = () => {
             <option key={e} value={e}>{ESTADO_OPERATIVO_LABEL[e]}</option>
           ))}
         </Select>
+        <Select
+          maxW="200px"
+          placeholder="Todos los estados"
+          value={filtroEstado}
+          onChange={(e) => { setPage(1); setFiltroEstado(e.target.value); }}
+        >
+          <option value="pendiente">Pendiente</option>
+          <option value="pagado">Pagado</option>
+          <option value="anulado">Anulada</option>
+        </Select>
         <HStack spacing={4}>
         {puedeEscribir && (
         <Button
@@ -409,6 +410,7 @@ const VentaList = () => {
               key={venta.id}
               cursor="pointer"
               _hover={{ bg: 'gray.50' }}
+              opacity={venta.estado === 'anulado' ? 0.6 : 1}
               onClick={() => navigate(`/app/ventas/${venta.id}`)}
             >
               <Td>{venta.numero}</Td>
@@ -423,7 +425,7 @@ const VentaList = () => {
               <Td onClick={(e) => e.stopPropagation()} cursor="default">
                 <HStack spacing={1}>
                   {/* F3 — Acción rápida: siguiente paso del timeline (1 clic). */}
-                  {puedeEscribir && SIGUIENTE_ESTADO[venta.estado_operativo] && (
+                  {puedeEscribir && venta.estado !== 'anulado' && SIGUIENTE_ESTADO[venta.estado_operativo] && (
                     <Button
                       size="xs"
                       colorScheme="blue"
@@ -457,12 +459,12 @@ const VentaList = () => {
                       <MenuItem icon={<ViewIcon />} onClick={() => navigate(`/app/ventas/${venta.id}`)}>
                         Ver detalles
                       </MenuItem>
-                      {puedeEscribir && (
+                      {puedeEscribir && venta.estado !== 'anulado' && (
                       <MenuItem icon={<EditIcon />} onClick={() => navigate(`/app/ventas/${venta.id}/editar`)}>
                         Editar estado
                       </MenuItem>
                       )}
-                      {puedeEscribir && (
+                      {puedeEscribir && venta.estado !== 'anulado' && (
                       <MenuItem
                         icon={<FaTruck />}
                         onClick={() => generarGuiaMutation.mutate(venta.id)}
@@ -471,8 +473,8 @@ const VentaList = () => {
                         Generar Guía de Remisión
                       </MenuItem>
                       )}
-                      {puedeEscribir && venta.estado !== 'anulado' && venta.estado !== 'pagado' && (
-                        <MenuItem icon={<DeleteIcon />} color="red.500" onClick={() => handleEliminarVenta(venta.id)}>
+                      {esAdmin && venta.estado !== 'anulado' && (
+                        <MenuItem icon={<DeleteIcon />} color="red.500" onClick={() => setVentaAAnular(venta)}>
                           Anular
                         </MenuItem>
                       )}
@@ -506,6 +508,15 @@ const VentaList = () => {
           </Button>
         </HStack>
       </Flex>
+
+      <AnularVentaModal
+        venta={ventaAAnular}
+        isOpen={Boolean(ventaAAnular)}
+        onClose={() => setVentaAAnular(null)}
+        isLoading={anularVentaMutation.isLoading}
+        formatCurrency={formatCurrency}
+        onConfirm={(motivo) => anularVentaMutation.mutate({ id: ventaAAnular.id, motivo })}
+      />
 
       <ImportExcelModal
         isOpen={isOpen}

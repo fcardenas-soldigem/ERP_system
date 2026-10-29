@@ -4,7 +4,7 @@ import {
   Box, Card, CardBody, Heading, VStack, HStack, Text, Table, Thead, Tbody, Tr, Th, Td,
   Spinner, Button, Flex, Badge, Divider, Tooltip, useToast, Textarea,
   Modal, ModalOverlay, ModalContent, ModalHeader, ModalBody, ModalFooter, ModalCloseButton,
-  useDisclosure, Link, Circle,
+  useDisclosure, Link, Circle, Alert, AlertIcon, AlertTitle, AlertDescription,
 } from '@chakra-ui/react';
 import { ventasService } from '../../services/ventas.service';
 import { getSimboloMoneda } from '../../utils/currency';
@@ -92,6 +92,19 @@ const VentaDetalle = () => {
   return (
     <Box maxW="container.lg" mx="auto" py={8}>
       <VStack spacing={6} align="stretch">
+        {venta.estado === 'anulado' && (
+          <Alert status="warning" variant="left-accent" borderRadius="md">
+            <AlertIcon />
+            <Box>
+              <AlertTitle>Venta anulada</AlertTitle>
+              <AlertDescription fontSize="sm">
+                {venta.motivo_anulacion}
+                {venta.anulado_por_email ? ` · por ${venta.anulado_por_email}` : ''}
+                {venta.anulado_en ? ` · ${new Date(venta.anulado_en).toLocaleString('es-PE')}` : ''}
+              </AlertDescription>
+            </Box>
+          </Alert>
+        )}
         {/* ── Timeline operativo ── */}
         <Card>
           <CardBody>
@@ -103,12 +116,12 @@ const VentaDetalle = () => {
                     {SLA_LABEL[venta.estado_sla_operativo || 'sin_sla']}
                   </Badge>
                 </Tooltip>
-                {prev && actual !== 'cobrado' && (
+                {prev && actual !== 'cobrado' && venta.estado !== 'anulado' && (
                   <Button size="sm" variant="outline" onClick={onOpen} isDisabled={saving}>
                     Retroceder
                   </Button>
                 )}
-                {siguiente && (
+                {siguiente && venta.estado !== 'anulado' && (
                   <Button size="sm" colorScheme="blue" onClick={() => cambiar(siguiente)} isLoading={saving}>
                     {VERBO_SIGUIENTE[actual]}
                   </Button>
