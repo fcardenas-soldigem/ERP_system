@@ -84,3 +84,28 @@ class CreacionVentaWebRegresionTests(APITestCase):
         self.assertEqual(venta.fecha_vencimiento,
                          venta.fecha_emision + timezone.timedelta(days=60))
         self.assertIn('60 días', PagoVenta.objects.get(venta=venta).notas)
+
+    def test_linea_libre_web_no_mueve_stock_ni_kardex(self):
+        """Punto 4: Nueva Venta acepta líneas libres (producto null +
+        descripción) y JAMÁS mueven stock, ni al entregar."""
+        from apps.inventario.models.movimiento_inventario import MovimientoInventario
+        r = self._post(estado='pendiente', tipo_venta='credito_30', detalles=[
+            {'producto': None, 'descripcion': 'Servicio de instalación en obra',
+             'cantidad': 1, 'precio_unitario': 350},
+        ])
+        self.assertEqual(r.status_code, 201, r.content[:300])
+        venta = Venta.objects.get()
+        det = venta.detalles.get()
+        self.assertIsNone(det.producto)
+        self.assertEqual(det.descripcion, 'Servicio de instalación en obra')
+        stock_antes = self.producto.stock_total
+        venta.cambiar_estado_operativo('entregado', usuario=self.usuario)
+        det.refresh_from_db()
+        self.assertFalse(det.stock_descontado)
+        self.producto.refresh_from_db()
+        self.assertEqual(self.producto.stock_total, stock_antes)
+        self.assertEqual(MovimientoInventario.objects.count(), 0)
+
+    def test_linea_libre_sin_descripcion_se_rechaza(self):
+        r = self._post(detalles=[{'producto': None, 'cantidad': 1, 'precio_unitario': 10}])
+        self.assertEqual(r.status_code, 400)

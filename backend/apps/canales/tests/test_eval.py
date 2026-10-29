@@ -83,6 +83,9 @@ ORACULO.update({
     # 32: sin condición dicha → el modelo NO manda condicion_pago
     32: ('preparar_venta', {'cliente': 'Interbank', 'items': [
         {'descripcion': 'jabra', 'cantidad': 2, 'precio_unitario': 500}]}),
+    # 33: sin precio ni moneda del usuario → el servidor decide por el catálogo
+    33: ('preparar_venta', {'cliente': 'Bruno tudela ferrando', 'items': [
+        {'descripcion': 'headsets jabra evolve 20', 'cantidad': 2}]}),
 })
 
 # casos multi-turno: el guion se indexa por el TEXTO de cada turno
@@ -127,14 +130,14 @@ class DatasetTests(SimpleTestCase):
 
     def test_umbral_90_por_ciento(self):
         self.assertEqual(umbral(20), 18)
-        self.assertEqual(umbral(32), 29)   # con fix V2 + bot-ventas + condición
+        self.assertEqual(umbral(33), 30)   # fix V2 + bot-ventas + condición + moneda
 
-    def test_son_32_casos_con_ventas(self):
-        self.assertEqual(len(CASOS), 32)
+    def test_son_33_casos_con_ventas(self):
+        self.assertEqual(len(CASOS), 33)
         self.assertIsNone(next(c for c in CASOS if c['id'] == 20)['final'])
         # los casos que crearían datos incorrectos están marcados como críticos
         criticos = {c['id'] for c in CASOS if c.get('critico')}
-        self.assertEqual(criticos, {21, 22, 23, 25, 26, 27, 28, 29, 30, 32})
+        self.assertEqual(criticos, {21, 22, 23, 25, 26, 27, 28, 29, 30, 32, 33})
 
 
 class EvalPuntaAPuntaTests(TestCase):

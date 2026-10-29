@@ -178,6 +178,14 @@ CASOS += [
      'final': 'preparar_venta',
      'checks': {'condicion_pendiente': True,
                 'items': [{'producto': 'jabra', 'cantidad': 2, 'precio': 500}]}},
+    # caso real 29/10: catálogo en USD + materia prima → el borrador adopta USD
+    # y el insumo entra como línea libre con aviso (nunca S/ 39 ni bloqueo)
+    {'id': 33, 'critico': True,
+     'texto': 'Crea venta para Bruno tudela ferrando 2 headsets jabra evolve 20',
+     'final': 'preparar_venta',
+     'checks': {'cliente_texto': 'bruno', 'moneda': 'USD', 'condicion_pendiente': True,
+                'items': [{'producto': 'Jabra Evolve 20', 'cantidad': 2,
+                           'precio': 39, 'estado': 'libre'}]}},
 ]
 
 

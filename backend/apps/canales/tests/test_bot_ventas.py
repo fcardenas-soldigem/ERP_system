@@ -385,3 +385,135 @@ class CondicionDePagoTests(BaseVentas):
         chat, texto, botones = self.ultima_respuesta()
         self.assertIn('crédito 30 días', texto)                   # prellenada de la ficha
         self.assertIn(f'b:{borrador.id}:ok', botones)             # sin pregunta
+
+
+class MonedaEInsumoTests(BaseVentas):
+    """fix/bot-ventas-errores — caso real 29/10: catálogo en USD 39 como
+    materia prima → venta en S/ 39 + error crudo del serializer."""
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        from apps.inventario.models.producto import Producto
+        cls.insumo_usd = Producto.objects.create(
+            empresa=cls.empresa_a, sku='JB-E20', nombre='Headset Jabra Evolve 20',
+            precio_compra=Decimal('25'), precio_venta=Decimal('39'),
+            moneda='USD', tipo_producto='RAW')
+
+    def _preparar_bruno(self):
+        """El mensaje real: producto de catálogo USD + materia prima, sin precio
+        ni moneda del usuario."""
+        self.mock_llm('preparar_venta', {
+            'cliente': 'Transportes Lima',
+            'items': [{'descripcion': 'headsets jabra evolve 20', 'cantidad': 2}],
+        })
+        self.post_update(self.update_texto(
+            self.CHAT_A, 'Crea venta para Bruno tudela ferrando 2 headsets jabra evolve 20'))
+        return BorradorAgente.objects.get(estado='pendiente')
+
+    def test_caso_bruno_borrador_en_usd_con_linea_libre_y_aviso(self):
+        borrador = self._preparar_bruno()
+        payload = borrador.payload
+        self.assertEqual(payload['moneda'], 'USD')             # adopta la del catálogo
+        d = payload['detalles'][0]
+        self.assertEqual(d['estado'], 'libre')                 # insumo → línea libre
+        self.assertIsNone(d['producto'])
+        self.assertEqual(d['precio_unitario'], '39.00')        # USD 39, nunca S/ 39
+        self.assertIn('insumo', d['aviso'])
+        chat, texto, _ = self.ultima_respuesta()
+        self.assertIn('registrado como insumo', texto)
+        self.assertIn('$ 39.00', texto)
+        self.assertNotIn('S/ 39', texto)
+
+    def test_caso_bruno_confirma_y_crea_la_venta(self):
+        borrador = self._preparar_bruno()
+        self.post_update(self.update_callback(self.CHAT_A, f'r:{borrador.id}:cond:cont'))
+        self.post_update(self.update_callback(self.CHAT_A, f'b:{borrador.id}:ok'))
+        venta = Venta.objects.exclude(pk=self.venta.pk).get()
+        self.assertEqual(venta.moneda, 'USD')
+        self.assertEqual(venta.total, Decimal('92.04'))        # 2×39 ×1.18
+        det = venta.detalles.get()
+        self.assertIsNone(det.producto)                        # línea libre: sin stock
+        self.assertIn('Jabra Evolve 20', det.descripcion)
+
+    def test_conflicto_usuario_soles_catalogo_usd_pregunta_moneda(self):
+        self.mock_llm('preparar_venta', {
+            'cliente': 'Transportes Lima', 'moneda': 'PEN',
+            'items': [{'descripcion': 'headsets jabra evolve 20', 'cantidad': 2}],
+        })
+        self.post_update(self.update_texto(self.CHAT_A, 'venta en soles de 2 headsets jabra evolve 20'))
+        borrador = BorradorAgente.objects.get(estado='pendiente')
+        self.assertIsNone(borrador.payload['moneda'])          # conflicto → se pregunta
+        chat, texto, botones = self.ultima_respuesta()
+        self.assertIn('¿En qué moneda va', texto)
+        self.assertIn(f'r:{borrador.id}:mon:PEN', botones)
+        self.assertIn(f'r:{borrador.id}:mon:USD', botones)
+        self.assertNotIn(f'b:{borrador.id}:ok', botones)       # sin Confirmar aún
+
+        # elige SOLES: el número de catálogo (USD 39) NO se copia → pide precio
+        self.post_update(self.update_callback(self.CHAT_A, f'r:{borrador.id}:mon:PEN'))
+        borrador.refresh_from_db()
+        self.assertEqual(borrador.payload['moneda'], 'PEN')
+        d = borrador.payload['detalles'][0]
+        self.assertIsNone(d['precio_unitario'])
+        self.assertIn('dime el precio en PEN', d['aviso'])
+
+    def test_precio_explicito_del_usuario_manda(self):
+        """«$39» → USD del usuario; el catálogo no interviene."""
+        self.mock_llm('preparar_venta', {
+            'cliente': 'Transportes Lima', 'moneda': 'USD',
+            'items': [{'descripcion': 'headsets jabra evolve 20', 'cantidad': 2,
+                       'precio_unitario': '39'}],
+        })
+        self.post_update(self.update_texto(self.CHAT_A, 'venta 2 headsets jabra evolve 20 $39'))
+        payload = BorradorAgente.objects.get(estado='pendiente').payload
+        self.assertEqual(payload['moneda'], 'USD')
+        self.assertEqual(payload['detalles'][0]['precio_unitario'], '39')
+
+    def test_cotizacion_tambien_adopta_la_moneda_del_catalogo(self):
+        res = servicios.preparar_cotizacion(self.vendedor, servicios.E.PrepararCotizacion(
+            cliente='Transportes Lima',
+            items=[{'descripcion': 'headsets jabra evolve 20', 'cantidad': 1}]))
+        self.assertEqual(res['borrador']['payload']['moneda'], 'USD')
+
+
+class ErroresAlConfirmarTests(BaseVentas):
+    def _borrador_confirmable(self):
+        self.mock_llm('preparar_venta', {
+            'cliente': 'Transportes Lima', 'condicion_pago': 'contado',
+            'items': [{'producto_id': self.producto.id, 'cantidad': 1, 'precio_unitario': '100'}],
+        })
+        self.post_update(self.update_texto(self.CHAT_A, 'venta al contado 1 jabra a transportes'))
+        return BorradorAgente.objects.get(estado='pendiente')
+
+    def test_error_desconocido_mensaje_interno_log_y_borrador_pendiente(self):
+        borrador = self._borrador_confirmable()
+        from rest_framework.exceptions import ValidationError as DRFValidationError
+        with mock.patch('apps.ventas.services.creacion_venta.crear_venta',
+                        side_effect=DRFValidationError({'detalles': ['algo rarísimo del serializer']})):
+            with self.assertLogs('apps.canales.nucleo.orquestador', level='ERROR'):
+                self.post_update(self.update_callback(self.CHAT_A, f'b:{borrador.id}:ok'))
+        chat, texto, _ = self.ultima_respuesta()
+        self.assertIn('error interno', texto)
+        self.assertNotIn('ErrorDetail', texto)                 # nada crudo al usuario
+        borrador.refresh_from_db()
+        self.assertEqual(borrador.estado, 'pendiente')         # queda para reintentar
+
+        # reintento sin el error: la venta sale (el borrador no se perdió)
+        self.post_update(self.update_callback(self.CHAT_A, f'b:{borrador.id}:ok'))
+        borrador.refresh_from_db()
+        self.assertEqual(borrador.estado, 'confirmado')
+        self.assertEqual(Venta.objects.exclude(pk=self.venta.pk).count(), 1)
+
+    def test_error_conocido_se_traduce(self):
+        borrador = self._borrador_confirmable()
+        from rest_framework.exceptions import ValidationError as DRFValidationError
+        detalle_crudo = {'detalles': [{'producto': [
+            "ERROR: 'X' es una materia prima/insumo y no puede venderse directamente."]}]}
+        with mock.patch('apps.ventas.services.creacion_venta.crear_venta',
+                        side_effect=DRFValidationError(detalle_crudo)):
+            self.post_update(self.update_callback(self.CHAT_A, f'b:{borrador.id}:ok'))
+        chat, texto, _ = self.ultima_respuesta()
+        self.assertIn('insumo', texto)
+        self.assertIn('línea libre', texto)
+        self.assertNotIn('ErrorDetail', texto)

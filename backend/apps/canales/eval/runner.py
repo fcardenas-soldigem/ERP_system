@@ -84,9 +84,18 @@ def preparar_datos(empresa):
         p, _ = Producto.objects.update_or_create(
             empresa=empresa, sku=sku,
             defaults={'nombre': nombre, 'precio_venta': Decimal(pv), 'precio_compra': Decimal(pc),
-                      'moneda': 'PEN', 'is_active': True})
+                      'moneda': 'PEN', 'is_active': True,
+                      # vendibles (el default RAW los volvería líneas libres en ventas)
+                      'tipo_producto': 'FINISHED'})
         # stock_total lo recalcula save(); se fija directo para el eval
         Producto.objects.filter(pk=p.pk).update(stock_total=Decimal(stock))
+    # caso 33 (fix/bot-ventas-errores): producto de catálogo en USD y materia
+    # prima — el bot debe adoptar USD y ofrecerlo como línea libre
+    Producto.objects.update_or_create(
+        empresa=empresa, sku='JB-E20',
+        defaults={'nombre': 'Headset Jabra Evolve 20', 'precio_venta': Decimal('39'),
+                  'precio_compra': Decimal('25'), 'moneda': 'USD',
+                  'tipo_producto': 'RAW', 'is_active': True})
     hoy = timezone.localdate()
     # cotización abierta para el caso de conversión («convierte la COT-107»)
     from django.contrib.auth import get_user_model
